@@ -4,3 +4,5 @@ export { getApiKey, saveApiKey, deleteApiKey } from "./credential.js";
 export type { AgentConfig, AgentTool, AgentEvent, ToolResult, Message } from "./types.js";
 export { CommandRegistry } from "./commands/index.js";
 export type { Command, CommandContext, CommandTui } from "./commands/index.js";
+export { buildSystemPrompt, composeSystemPrompt, BASE_SYSTEM_PROMPT } from "./system-prompt/index.js";
+export type { SystemPromptContributor } from "./system-prompt/index.js";

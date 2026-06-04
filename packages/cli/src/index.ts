@@ -1,9 +1,8 @@
 import chalk from "chalk";
 
-import { runAgentLoop, loadConfig, getApiKey, type AgentConfig } from "@omni-agent/core";
+import { runAgentLoop, loadConfig, getApiKey, buildSystemPrompt, type AgentConfig } from "@omni-agent/core";
 import { createOmniTui } from "./tui.js";
 import { bashTool } from "./tools/bash.js";
-import { SYSTEM_PROMPT } from "./system-prompt.js";
 import { runOnboarding } from "./onboarding.js";
 import { createCommandRegistry } from "./commands/index.js";
 
@@ -24,12 +23,13 @@ async function main() {
   }
 
   // 3. Build agent config
+  const systemPrompt = await buildSystemPrompt(process.cwd());
   const agentConfig: AgentConfig = {
     model: config.model,
     apiKey,
     endpoint: config.endpoint,
     provider: config.provider,
-    systemPrompt: SYSTEM_PROMPT,
+    systemPrompt,
     tools: [bashTool],
     maxTurns: 10,
   };
