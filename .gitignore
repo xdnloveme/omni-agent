@@ -12,6 +12,8 @@ lerna-debug.log*
 # package-json
 package-json.lock
 
+.pnpm-approve-builds.json
+
 # bun deploy file
 node_modules.bun
 
