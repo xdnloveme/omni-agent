@@ -6,6 +6,7 @@ export interface OmniConfig {
   provider: "anthropic" | "kimi" | "custom";
   endpoint: string;
   model: string;
+  maxTokens?: number;
 }
 
 const CONFIG_DIR_NAME = ".omni-agent";
@@ -29,6 +30,7 @@ function isConfigValid(value: unknown): value is OmniConfig {
   if (!["anthropic", "kimi", "custom"].includes(obj.provider as string)) return false;
   if (typeof obj.endpoint !== "string" || obj.endpoint.length === 0) return false;
   if (typeof obj.model !== "string" || obj.model.length === 0) return false;
+  if (obj.maxTokens !== undefined && (typeof obj.maxTokens !== "number" || obj.maxTokens <= 0)) return false;
   return true;
 }
 

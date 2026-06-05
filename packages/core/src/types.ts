@@ -23,6 +23,7 @@ export interface AgentConfig {
   systemPrompt: string;
   tools: AgentTool[];
   maxTurns?: number;
+  maxTokens?: number;
 }
 
 // Events emitted by the agent loop
@@ -31,6 +32,6 @@ export type AgentEvent =
   | { type: "tool_start"; toolName: string; toolCallId: string; input: Record<string, unknown> }
   | { type: "tool_end"; toolName: string; toolCallId: string; result: ToolResult; durationMs: number }
   | { type: "error"; error: string }
-  | { type: "done" };
+  | { type: "done"; produced?: Message[] };
 
 export type { Message, AssistantMessageEvent };

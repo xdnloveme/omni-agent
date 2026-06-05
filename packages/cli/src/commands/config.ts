@@ -14,6 +14,7 @@ export const configCommand: Command = {
       ctx.agentConfig.endpoint = result.config.endpoint;
       ctx.agentConfig.model = result.config.model;
       ctx.agentConfig.apiKey = result.apiKey;
+      ctx.agentConfig.maxTokens = result.config.maxTokens;
     } catch (err) {
       console.error(
         chalk.red(`Configuration failed: ${err instanceof Error ? err.message : String(err)}`),

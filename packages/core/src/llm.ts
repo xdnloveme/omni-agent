@@ -9,6 +9,7 @@ import {
 } from "@mariozechner/pi-ai";
 
 import type { AgentConfig, AgentTool } from "./types.js";
+import { toContextMessages } from "./llm-context.js";
 
 /**
  * Resolve the pi-ai Api protocol based on the configured provider.
@@ -26,6 +27,22 @@ function resolveApi(provider: AgentConfig["provider"]): Api {
 }
 
 /**
+ * Default maxTokens per provider when not explicitly configured.
+ */
+function getDefaultMaxTokens(provider: AgentConfig["provider"]): number {
+  switch (provider) {
+    case "anthropic":
+      return 16384;
+    case "kimi":
+      return 8192;
+    case "custom":
+      return 4096;
+    default:
+      return 16384;
+  }
+}
+
+/**
  * Build a pi-ai Model object from config, selecting the correct API protocol.
  */
 export function buildModel(config: AgentConfig): Model<Api> {
@@ -34,6 +51,8 @@ export function buildModel(config: AgentConfig): Model<Api> {
     config.provider === "anthropic" || !config.provider
       ? "https://api.anthropic.com"
       : undefined;
+
+  const maxTokens = config.maxTokens ?? getDefaultMaxTokens(config.provider);
 
   return {
     id: config.model,
@@ -45,7 +64,7 @@ export function buildModel(config: AgentConfig): Model<Api> {
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow: 200000,
-    maxTokens: 16384,
+    maxTokens,
   };
 }
 
@@ -71,17 +90,21 @@ export function streamLLM(
   const model = buildModel(config);
   const tools = toolsToLlmTools(config.tools);
 
+  const maxTokens = config.maxTokens ?? getDefaultMaxTokens(config.provider);
+
+  const contextMessages = toContextMessages(messages);
+
   return streamSimple(
     model,
     {
       systemPrompt: config.systemPrompt,
-      messages,
+      messages: contextMessages,
       tools: tools.length > 0 ? tools : undefined,
     },
     {
       signal,
       apiKey: config.apiKey,
-      maxTokens: 16384,
+      maxTokens,
     },
   );
 }

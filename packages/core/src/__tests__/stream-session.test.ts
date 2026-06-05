@@ -1,0 +1,235 @@
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { StreamSession } from "../stream/stream-session.js";
+import { createStreamSession } from "../stream/factory.js";
+import type { StreamCallbacks, StreamEvent } from "../stream/types.js";
+
+describe("StreamSession", () => {
+  let callbacks: Required<StreamCallbacks>;
+  let session: StreamSession;
+
+  beforeEach(() => {
+    callbacks = {
+      onTextChunk: vi.fn(),
+      onToolStart: vi.fn(),
+      onToolEnd: vi.fn(),
+      onDone: vi.fn(),
+      onError: vi.fn(),
+    };
+    session = new StreamSession(callbacks);
+  });
+
+  describe("initial state", () => {
+    it("starts in idle state", () => {
+      expect(session.state).toBe("idle");
+    });
+
+    it("has no accumulated messages", () => {
+      expect(session.getAccumulatedMessages()).toEqual([]);
+    });
+
+    it("has empty accumulated text", () => {
+      expect(session.getAccumulatedText()).toBe("");
+    });
+  });
+
+  describe("text_delta events", () => {
+    it("transitions to streaming on first text_delta", () => {
+      session.handle({ type: "text_delta", delta: "Hello" });
+      expect(session.state).toBe("streaming");
+    });
+
+    it("calls onTextChunk callback", () => {
+      session.handle({ type: "text_delta", delta: "Hello" });
+      expect(callbacks.onTextChunk).toHaveBeenCalledWith("Hello");
+    });
+
+    it("accumulates text across multiple deltas", () => {
+      session.handle({ type: "text_delta", delta: "Hello " });
+      session.handle({ type: "text_delta", delta: "world" });
+      expect(session.getAccumulatedText()).toBe("Hello world");
+    });
+
+    it("records each delta as an accumulated message", () => {
+      session.handle({ type: "text_delta", delta: "Hi" });
+      const msgs = session.getAccumulatedMessages();
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].type).toBe("text");
+      expect(msgs[0].content).toBe("Hi");
+    });
+  });
+
+  describe("tool_use_start events", () => {
+    it("transitions to streaming", () => {
+      session.handle({
+        type: "tool_use_start",
+        toolName: "bash",
+        toolCallId: "call_1",
+        input: { command: "ls" },
+      });
+      expect(session.state).toBe("streaming");
+    });
+
+    it("calls onToolStart callback with correct args", () => {
+      session.handle({
+        type: "tool_use_start",
+        toolName: "bash",
+        toolCallId: "call_1",
+        input: { command: "ls" },
+      });
+      expect(callbacks.onToolStart).toHaveBeenCalledWith("bash", "call_1", { command: "ls" });
+    });
+
+    it("records tool_call in accumulated messages", () => {
+      session.handle({
+        type: "tool_use_start",
+        toolName: "bash",
+        toolCallId: "call_1",
+        input: { command: "ls" },
+      });
+      const msgs = session.getAccumulatedMessages();
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].type).toBe("tool_call");
+      expect(msgs[0].content).toBe("bash");
+      expect(msgs[0].meta).toEqual({ toolCallId: "call_1", input: { command: "ls" } });
+    });
+  });
+
+  describe("tool_use_end events", () => {
+    it("calls onToolEnd callback with correct args", () => {
+      const result = { content: [{ type: "text" as const, text: "output" }], isError: false };
+      session.handle({
+        type: "tool_use_end",
+        toolName: "bash",
+        toolCallId: "call_1",
+        result,
+        durationMs: 150,
+      });
+      expect(callbacks.onToolEnd).toHaveBeenCalledWith("bash", "call_1", result, 150);
+    });
+
+    it("records tool_result in accumulated messages", () => {
+      session.handle({
+        type: "tool_use_end",
+        toolName: "bash",
+        toolCallId: "call_1",
+        result: { content: [{ type: "text", text: "output" }], isError: false },
+        durationMs: 100,
+      });
+      const msgs = session.getAccumulatedMessages();
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].type).toBe("tool_result");
+      expect(msgs[0].content).toBe("output");
+    });
+  });
+
+  describe("done event", () => {
+    it("transitions to done state", () => {
+      session.handle({ type: "text_delta", delta: "Hi" });
+      session.handle({ type: "done" });
+      expect(session.state).toBe("done");
+    });
+
+    it("calls onDone callback", () => {
+      session.handle({ type: "done" });
+      expect(callbacks.onDone).toHaveBeenCalled();
+    });
+  });
+
+  describe("error event", () => {
+    it("transitions to error state", () => {
+      session.handle({ type: "error", error: "something broke" });
+      expect(session.state).toBe("error");
+    });
+
+    it("calls onError callback", () => {
+      session.handle({ type: "error", error: "something broke" });
+      expect(callbacks.onError).toHaveBeenCalledWith("something broke");
+    });
+
+    it("records error in accumulated messages", () => {
+      session.handle({ type: "error", error: "fail" });
+      const msgs = session.getAccumulatedMessages();
+      expect(msgs).toHaveLength(1);
+      expect(msgs[0].content).toBe("[error] fail");
+    });
+  });
+
+  describe("reset", () => {
+    it("resets state to idle", () => {
+      session.handle({ type: "text_delta", delta: "Hi" });
+      session.handle({ type: "done" });
+      session.reset();
+      expect(session.state).toBe("idle");
+    });
+
+    it("clears accumulated messages", () => {
+      session.handle({ type: "text_delta", delta: "Hi" });
+      session.reset();
+      expect(session.getAccumulatedMessages()).toEqual([]);
+    });
+
+    it("clears accumulated text", () => {
+      session.handle({ type: "text_delta", delta: "Hi" });
+      session.reset();
+      expect(session.getAccumulatedText()).toBe("");
+    });
+  });
+
+  describe("full lifecycle", () => {
+    it("handles a complete text-only session", () => {
+      session.handle({ type: "text_delta", delta: "Hello " });
+      session.handle({ type: "text_delta", delta: "world!" });
+      session.handle({ type: "done" });
+
+      expect(session.state).toBe("done");
+      expect(session.getAccumulatedText()).toBe("Hello world!");
+      expect(callbacks.onTextChunk).toHaveBeenCalledTimes(2);
+      expect(callbacks.onDone).toHaveBeenCalledTimes(1);
+    });
+
+    it("handles a session with tool calls", () => {
+      session.handle({ type: "tool_use_start", toolName: "bash", toolCallId: "c1", input: { cmd: "ls" } });
+      session.handle({
+        type: "tool_use_end",
+        toolName: "bash",
+        toolCallId: "c1",
+        result: { content: [{ type: "text", text: "file.txt" }], isError: false },
+        durationMs: 50,
+      });
+      session.handle({ type: "text_delta", delta: "Found file.txt" });
+      session.handle({ type: "done" });
+
+      expect(session.state).toBe("done");
+      // tool_call + tool_result + text_delta = 3 messages (done doesn't accumulate)
+      expect(session.getAccumulatedMessages()).toHaveLength(3);
+      expect(callbacks.onToolStart).toHaveBeenCalledTimes(1);
+      expect(callbacks.onToolEnd).toHaveBeenCalledTimes(1);
+      expect(callbacks.onTextChunk).toHaveBeenCalledTimes(1);
+      expect(callbacks.onDone).toHaveBeenCalledTimes(1);
+    });
+  });
+});
+
+describe("createStreamSession", () => {
+  it("creates a StreamSession instance", () => {
+    const session = createStreamSession();
+    expect(session).toBeInstanceOf(StreamSession);
+    expect(session.state).toBe("idle");
+  });
+
+  it("creates a session with callbacks", () => {
+    const onTextChunk = vi.fn();
+    const session = createStreamSession({ onTextChunk });
+    session.handle({ type: "text_delta", delta: "test" });
+    expect(onTextChunk).toHaveBeenCalledWith("test");
+  });
+
+  it("works with partial callbacks (only some provided)", () => {
+    const onDone = vi.fn();
+    const session = createStreamSession({ onDone });
+    // Should not throw when other events fire without callbacks
+    session.handle({ type: "text_delta", delta: "test" });
+    session.handle({ type: "done" });
+    expect(onDone).toHaveBeenCalled();
+  });
+});

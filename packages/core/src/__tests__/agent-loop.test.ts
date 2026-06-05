@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { AgentConfig, AgentEvent, AgentTool } from "../types.js";
+import type { AgentConfig, AgentEvent, AgentTool, Message } from "../types.js";
 
 // Mock the llm module
 vi.mock("../llm.js", () => ({
@@ -31,6 +31,10 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
     tools: [makeTool()],
     ...overrides,
   };
+}
+
+function makeMessages(userContent: string): Message[] {
+  return [{ role: "user", content: userContent, timestamp: Date.now() }];
 }
 
 /**
@@ -76,13 +80,40 @@ describe("runAgentLoop", () => {
     );
 
     const config = makeConfig({ tools: [] });
-    const events = await collectEvents(runAgentLoop(config, "Hi"));
+    const events = await collectEvents(runAgentLoop(config, makeMessages("Hi")));
 
     expect(events).toEqual([
       { type: "text_delta", delta: "Hello " },
       { type: "text_delta", delta: "world" },
-      { type: "done" },
+      expect.objectContaining({ type: "done" }),
     ]);
+  });
+
+  it("should return produced messages on done event", async () => {
+    const assistantMsg = {
+      role: "assistant",
+      content: [{ type: "text", text: "Hello world" }],
+      stopReason: "endTurn",
+      timestamp: Date.now(),
+    };
+
+    mockedStreamLLM.mockReturnValue(
+      fakeStream([
+        { type: "text_delta", delta: "Hello world" },
+        { type: "done", message: assistantMsg },
+      ]) as any,
+    );
+
+    const config = makeConfig({ tools: [] });
+    const events = await collectEvents(runAgentLoop(config, makeMessages("Hi")));
+
+    const doneEvent = events.find((e) => e.type === "done");
+    expect(doneEvent).toBeDefined();
+    expect(doneEvent!.type).toBe("done");
+    if (doneEvent!.type === "done") {
+      expect(doneEvent!.produced).toHaveLength(1);
+      expect(doneEvent!.produced![0]).toEqual(assistantMsg);
+    }
   });
 
   it("should handle tool call flow: tool_start → tool_end → continue → done", async () => {
@@ -127,7 +158,7 @@ describe("runAgentLoop", () => {
       ]) as any,
     );
 
-    const events = await collectEvents(runAgentLoop(config, "Run a command"));
+    const events = await collectEvents(runAgentLoop(config, makeMessages("Run a command")));
 
     // Verify tool_start and tool_end events
     const toolStart = events.find((e) => e.type === "tool_start");
@@ -148,8 +179,17 @@ describe("runAgentLoop", () => {
     });
 
     // Verify the loop continued and yielded text + done
-    expect(events[events.length - 1]).toEqual({ type: "done" });
+    const doneEvent = events[events.length - 1];
+    expect(doneEvent.type).toBe("done");
     expect(tool.execute).toHaveBeenCalledWith({ input: "test" }, undefined);
+
+    // Verify produced messages include assistant + tool_result + assistant
+    if (doneEvent.type === "done") {
+      expect(doneEvent.produced).toHaveLength(3); // assistant(toolUse) + toolResult + assistant(text)
+      expect(doneEvent.produced![0].role).toBe("assistant");
+      expect(doneEvent.produced![1].role).toBe("toolResult");
+      expect(doneEvent.produced![2].role).toBe("assistant");
+    }
   });
 
   it("should stop with error when maxTurns is reached", async () => {
@@ -178,7 +218,7 @@ describe("runAgentLoop", () => {
       ]) as any,
     );
 
-    const events = await collectEvents(runAgentLoop(config, "Loop forever"));
+    const events = await collectEvents(runAgentLoop(config, makeMessages("Loop forever")));
 
     const lastEvent = events[events.length - 1];
     expect(lastEvent).toEqual({ type: "error", error: "Max turns reached" });
@@ -189,7 +229,7 @@ describe("runAgentLoop", () => {
     const controller = new AbortController();
     controller.abort();
 
-    const events = await collectEvents(runAgentLoop(config, "Hi", controller.signal));
+    const events = await collectEvents(runAgentLoop(config, makeMessages("Hi"), controller.signal));
 
     expect(events).toEqual([{ type: "error", error: "Aborted" }]);
     expect(mockedStreamLLM).not.toHaveBeenCalled();
@@ -203,7 +243,7 @@ describe("runAgentLoop", () => {
     );
 
     const config = makeConfig();
-    const events = await collectEvents(runAgentLoop(config, "Hi"));
+    const events = await collectEvents(runAgentLoop(config, makeMessages("Hi")));
 
     expect(events).toEqual([{ type: "error", error: "Rate limit exceeded" }]);
   });
@@ -247,11 +287,36 @@ describe("runAgentLoop", () => {
       ]) as any,
     );
 
-    const events = await collectEvents(runAgentLoop(config, "Use a tool"));
+    const events = await collectEvents(runAgentLoop(config, makeMessages("Use a tool")));
 
     const toolEnd = events.find((e) => e.type === "tool_end") as Extract<AgentEvent, { type: "tool_end" }>;
     expect(toolEnd).toBeDefined();
     expect(toolEnd.result.isError).toBe(true);
     expect(toolEnd.result.content[0].text).toContain("Tool not found");
+  });
+
+  it("should not mutate the input messages array", async () => {
+    mockedStreamLLM.mockReturnValue(
+      fakeStream([
+        { type: "text_delta", delta: "Hi" },
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "Hi" }],
+            stopReason: "endTurn",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as any,
+    );
+
+    const config = makeConfig({ tools: [] });
+    const messages = makeMessages("Hello");
+    const originalLength = messages.length;
+
+    await collectEvents(runAgentLoop(config, messages));
+
+    expect(messages).toHaveLength(originalLength);
   });
 });

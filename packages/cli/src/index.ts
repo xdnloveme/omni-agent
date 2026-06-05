@@ -1,8 +1,19 @@
 import chalk from "chalk";
 
-import { runAgentLoop, loadConfig, getApiKey, buildSystemPrompt, type AgentConfig } from "@omni-agent/core";
+import {
+  runAgentLoop,
+  loadConfig,
+  getApiKey,
+  buildSystemPrompt,
+  createStreamSession,
+  SessionManager,
+  createUserMessage,
+  type AgentConfig,
+  type StreamCallbacks,
+  type Message,
+} from "@omni-agent/core";
 import { createOmniTui } from "./tui.js";
-import { bashTool } from "./tools/bash.js";
+import { bashTool, fileReadTool, fileEditTool, fileWriteTool } from "./tools/index.js";
 import { runOnboarding } from "./onboarding.js";
 import { createCommandRegistry } from "./commands/index.js";
 
@@ -30,14 +41,41 @@ async function main() {
     endpoint: config.endpoint,
     provider: config.provider,
     systemPrompt,
-    tools: [bashTool],
+    tools: [bashTool, fileReadTool, fileEditTool, fileWriteTool],
     maxTurns: 10,
+    maxTokens: config.maxTokens,
   };
+
+  // 4. Initialize session manager — restore latest session
+  const sessionManager = new SessionManager();
+  sessionManager.restoreLatest();
 
   const tui = createOmniTui();
   const registry = createCommandRegistry();
   let activeAbort: AbortController | null = null;
   let running = false;
+
+  // Register /new command
+  registry.register({
+    name: "new",
+    description: "Start a new conversation session",
+    async execute(ctx) {
+      sessionManager.create();
+      ctx.tui.sink.line(chalk.green("New session started."));
+      ctx.tui.sink.spacer();
+    },
+  });
+
+  // Register /clear command
+  registry.register({
+    name: "clear",
+    description: "Clear current session history",
+    async execute(ctx) {
+      sessionManager.clear();
+      ctx.tui.sink.line(chalk.green("Session history cleared."));
+      ctx.tui.sink.spacer();
+    },
+  });
 
   tui.onInterrupt = () => {
     if (!running || !activeAbort) return false;
@@ -75,53 +113,68 @@ async function main() {
     tui.appendUserMessage(input);
     tui.setStatus(chalk.cyan("thinking..."));
 
+    // Create user message via factory and append to session
+    const userMsg = createUserMessage(input);
+    sessionManager.append(userMsg);
+
+    // Build TUI callbacks for the stream session
+    const tuiCallbacks: StreamCallbacks = {
+      onTextChunk(delta) {
+        tui.sink.writeMarkdown(delta);
+      },
+      onToolStart(toolName, _toolCallId, toolInput) {
+        tui.sink.line();
+        tui.sink.line(`${chalk.cyan("▶")} ${chalk.bold(toolName)} ${chalk.dim(JSON.stringify(toolInput))}`);
+        tui.setStatus(chalk.cyan(`running: ${toolName}...`));
+      },
+      onToolEnd(_toolName, _toolCallId, result, durationMs) {
+        if (result.isError) {
+          tui.sink.line(`  ${chalk.red("✗ error")} ${chalk.dim(`(${durationMs}ms)`)}`);
+        } else {
+          tui.sink.line(`  ${chalk.green("✓ done")} ${chalk.dim(`(${durationMs}ms)`)}`);
+        }
+        for (const block of result.content) {
+          if (block.type === "text" && block.text) {
+            const lines = block.text.split("\n").slice(0, 5);
+            for (const line of lines) {
+              tui.sink.line(`  ${chalk.dim(line)}`);
+            }
+            const total = block.text.split("\n").length;
+            if (total > 5) {
+              tui.sink.line(`  ${chalk.dim(`... ${total - 5} more lines`)}`);
+            }
+          }
+        }
+        tui.sink.spacer();
+        tui.setStatus(chalk.cyan("thinking..."));
+      },
+      onDone() {
+        tui.sink.line();
+        tui.sink.spacer();
+      },
+      onError(error) {
+        tui.sink.line();
+        tui.sink.line(chalk.red(`Error: ${error}`));
+        tui.sink.spacer();
+      },
+    };
+
+    const streamSession = createStreamSession(tuiCallbacks);
+
     try {
-      const events = runAgentLoop(agentConfig, input, activeAbort.signal);
+      // Pass full conversation history to the agent loop
+      const events = runAgentLoop(
+        agentConfig,
+        [...sessionManager.messages] as Message[],
+        activeAbort.signal,
+        { session: streamSession },
+      );
 
+      // Consume the generator to drive the loop
       for await (const event of events) {
-        switch (event.type) {
-          case "text_delta":
-            tui.sink.writeMarkdown(event.delta);
-            break;
-
-          case "tool_start":
-            tui.sink.line();
-            tui.sink.line(`${chalk.cyan("▶")} ${chalk.bold(event.toolName)} ${chalk.dim(JSON.stringify(event.input))}`);
-            tui.setStatus(chalk.cyan(`running: ${event.toolName}...`));
-            break;
-
-          case "tool_end":
-            if (event.result.isError) {
-              tui.sink.line(`  ${chalk.red("✗ error")} ${chalk.dim(`(${event.durationMs}ms)`)}`);
-            } else {
-              tui.sink.line(`  ${chalk.green("✓ done")} ${chalk.dim(`(${event.durationMs}ms)`)}`);
-            }
-            for (const block of event.result.content) {
-              if (block.type === "text" && block.text) {
-                const lines = block.text.split("\n").slice(0, 5);
-                for (const line of lines) {
-                  tui.sink.line(`  ${chalk.dim(line)}`);
-                }
-                const total = block.text.split("\n").length;
-                if (total > 5) {
-                  tui.sink.line(`  ${chalk.dim(`... ${total - 5} more lines`)}`);
-                }
-              }
-            }
-            tui.sink.spacer();
-            tui.setStatus(chalk.cyan("thinking..."));
-            break;
-
-          case "error":
-            tui.sink.line();
-            tui.sink.line(chalk.red(`Error: ${event.error}`));
-            tui.sink.spacer();
-            break;
-
-          case "done":
-            tui.sink.line();
-            tui.sink.spacer();
-            break;
+        // On done, persist produced messages to session
+        if (event.type === "done" && event.produced) {
+          sessionManager.appendBatch(event.produced);
         }
       }
     } catch (err) {
@@ -139,7 +192,7 @@ async function main() {
   // Welcome message
   tui.sink.line(chalk.bold("omni-agent"));
   tui.sink.line(chalk.dim(`Provider: ${config.provider} | Model: ${config.model}`));
-  tui.sink.line(chalk.dim("Type your request below."));
+  tui.sink.line(chalk.dim("Type your request below. Session history is preserved across restarts."));
   tui.sink.spacer();
 
   await tui.start();
