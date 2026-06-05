@@ -1,9 +1,9 @@
 import type { AssistantMessage, Message } from "@mariozechner/pi-ai";
 
-import { streamLLM } from "./llm.js";
-import { getDefaultContextWindow } from "./llm.js";
-import type { AgentConfig, AgentEvent, AgentTool, TokenUsage } from "./types.js";
-import type { StreamSession } from "./stream/index.js";
+import { streamLLM } from "./llm";
+import { getDefaultContextWindow } from "./llm";
+import type { AgentConfig, AgentEvent, AgentTool, TokenUsage } from "./types";
+import type { StreamSession } from "./stream/index";
 
 const DEFAULT_MAX_TURNS = 10;
 

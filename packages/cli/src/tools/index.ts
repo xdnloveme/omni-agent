@@ -1,5 +1,5 @@
-export { bashTool } from "./bash.js";
-export { fileReadTool } from "./file-read.js";
-export { fileEditTool } from "./file-edit.js";
-export { fileWriteTool } from "./file-write.js";
-export { fileMutex } from "./file-mutex.js";
+export { bashTool } from "./bash";
+export { fileReadTool } from "./file-read";
+export { fileEditTool } from "./file-edit";
+export { fileWriteTool } from "./file-write";
+export { fileMutex } from "./file-mutex";

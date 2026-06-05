@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { StreamSession } from "../stream/stream-session.js";
-import { createStreamSession } from "../stream/factory.js";
-import type { StreamCallbacks, StreamEvent } from "../stream/types.js";
+import { StreamSession } from "../stream/stream-session";
+import { createStreamSession } from "../stream/factory";
+import type { StreamCallbacks, StreamEvent } from "../stream/types";
 
 describe("StreamSession", () => {
   let callbacks: Required<StreamCallbacks>;

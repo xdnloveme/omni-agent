@@ -1,6 +1,6 @@
 import { CommandRegistry } from "@omni-agent/core";
-import { configCommand } from "./config.js";
-import { createHelpCommand } from "./help.js";
+import { configCommand } from "./config";
+import { createHelpCommand } from "./help";
 
 export function createCommandRegistry(): CommandRegistry {
   const registry = new CommandRegistry();

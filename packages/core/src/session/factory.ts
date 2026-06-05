@@ -3,7 +3,7 @@ import type {
   AssistantMessage,
 } from "@mariozechner/pi-ai";
 
-import type { SessionMessage } from "./types.js";
+import type { SessionMessage } from "./types";
 
 /**
  * Create a user message in the LLM-compatible format.

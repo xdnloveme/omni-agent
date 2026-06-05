@@ -1,5 +1,5 @@
-import { StreamSession } from "./stream-session.js";
-import type { StreamCallbacks } from "./types.js";
+import { StreamSession } from "./stream-session";
+import type { StreamCallbacks } from "./types";
 
 /**
  * Factory function to create a StreamSession with the given callbacks.

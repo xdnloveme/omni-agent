@@ -14,7 +14,7 @@ vi.mock("node:os", async (importOriginal) => {
 });
 
 import { homedir } from "node:os";
-import { loadConfig, saveConfig, getConfigDir, type OmniConfig } from "../config.js";
+import { loadConfig, saveConfig, getConfigDir, type OmniConfig } from "../config";
 
 const mockedHomedir = vi.mocked(homedir);
 

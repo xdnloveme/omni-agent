@@ -27,7 +27,7 @@ import {
   createUserMessage,
   createAssistantMessage,
   createToolResultMessage,
-} from "../session/factory.js";
+} from "../session/factory";
 import {
   readIndex,
   writeIndex,
@@ -37,9 +37,9 @@ import {
   replayMessages,
   clearSession,
   removeSession,
-} from "../session/session-store.js";
-import { SessionManager } from "../session/session-manager.js";
-import type { SessionIndex, SessionEntry } from "../session/types.js";
+} from "../session/session-store";
+import { SessionManager } from "../session/session-manager";
+import type { SessionIndex, SessionEntry } from "../session/types";
 
 describe("session/factory", () => {
   it("createUserMessage produces a valid user message", () => {

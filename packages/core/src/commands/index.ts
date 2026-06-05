@@ -1,2 +1,2 @@
-export type { Command, CommandContext, CommandTui } from "./types.js";
-export { CommandRegistry } from "./registry.js";
+export type { Command, CommandContext, CommandTui } from "./types";
+export { CommandRegistry } from "./registry";

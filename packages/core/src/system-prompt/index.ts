@@ -1,13 +1,13 @@
-import { composeSystemPrompt } from "./compose.js";
+import { composeSystemPrompt } from "./compose";
 
-export { BASE_SYSTEM_PROMPT } from "./base.js";
-export { composeSystemPrompt } from "./compose.js";
+export { BASE_SYSTEM_PROMPT } from "./base";
+export { composeSystemPrompt } from "./compose";
 export {
   cwdContributor,
   agentsMdContributor,
   defaultContributors,
   type SystemPromptContributor,
-} from "./contributors.js";
+} from "./contributors";
 
 /**
  * Build the full system prompt for the given working directory.

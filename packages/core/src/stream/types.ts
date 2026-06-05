@@ -5,7 +5,7 @@
  * enabling harness replay/record, TUI rendering, JSON-line output, or test mocks.
  */
 
-import type { TokenUsage } from "../types.js";
+import type { TokenUsage } from "../types";
 
 /** Text chunk streamed from the LLM */
 export interface TextDeltaEvent {

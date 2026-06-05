@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import type { AgentTool, ToolResult } from "@omni-agent/core";
-import { fileMutex } from "./file-mutex.js";
+import { fileMutex } from "./file-mutex";
 
 export const fileEditTool: AgentTool = {
   name: "file_edit",

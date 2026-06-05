@@ -3,8 +3,8 @@ import type {
   StreamCallbacks,
   StreamState,
   AccumulatedMessage,
-} from "./types.js";
-import type { TokenUsage } from "../types.js";
+} from "./types";
+import type { TokenUsage } from "../types";
 
 /**
  * StreamSession — a lightweight state machine for managing streaming output.

@@ -8,8 +8,8 @@ import {
   type TSchema,
 } from "@mariozechner/pi-ai";
 
-import type { AgentConfig, AgentTool } from "./types.js";
-import { toContextMessages } from "./llm-context.js";
+import type { AgentConfig, AgentTool } from "./types";
+import { toContextMessages } from "./llm-context";
 
 /**
  * Resolve the pi-ai Api protocol based on the configured provider.

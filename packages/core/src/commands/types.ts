@@ -1,4 +1,4 @@
-import type { AgentConfig } from "../types.js";
+import type { AgentConfig } from "../types";
 
 /**
  * Minimal TUI interface that commands can use.

@@ -1,5 +1,5 @@
-import { BASE_SYSTEM_PROMPT } from "./base.js";
-import { defaultContributors, type SystemPromptContributor } from "./contributors.js";
+import { BASE_SYSTEM_PROMPT } from "./base";
+import { defaultContributors, type SystemPromptContributor } from "./contributors";
 
 /**
  * Compose the final system prompt from the base template and dynamic contributors.

@@ -13,10 +13,10 @@ import {
   type Message,
   type TokenUsage,
 } from "@omni-agent/core";
-import { createOmniTui } from "./tui.js";
-import { bashTool, fileReadTool, fileEditTool, fileWriteTool } from "./tools/index.js";
-import { runOnboarding } from "./onboarding.js";
-import { createCommandRegistry } from "./commands/index.js";
+import { createOmniTui } from "./tui";
+import { bashTool, fileReadTool, fileEditTool, fileWriteTool } from "./tools/index";
+import { runOnboarding } from "./onboarding";
+import { createCommandRegistry } from "./commands/index";
 
 async function main() {
   // 1. Try to load existing config

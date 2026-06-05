@@ -1,4 +1,4 @@
-import type { Command } from "./types.js";
+import type { Command } from "./types";
 
 export class CommandRegistry {
   private commands = new Map<string, Command>();

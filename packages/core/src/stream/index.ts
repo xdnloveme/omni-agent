@@ -1,5 +1,5 @@
-export { StreamSession } from "./stream-session.js";
-export { createStreamSession } from "./factory.js";
+export { StreamSession } from "./stream-session";
+export { createStreamSession } from "./factory";
 export type {
   StreamEvent,
   TextDeltaEvent,
@@ -11,4 +11,4 @@ export type {
   StreamState,
   AccumulatedMessage,
   ToolResultPayload,
-} from "./types.js";
+} from "./types";

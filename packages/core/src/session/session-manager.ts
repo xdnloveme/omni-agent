@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 
-import type { SessionMessage, SessionEntry } from "./types.js";
+import type { SessionMessage, SessionEntry } from "./types";
 import {
   readIndex,
   upsertIndexEntry,
@@ -8,7 +8,7 @@ import {
   appendMessages,
   replayMessages,
   clearSession as clearSessionFile,
-} from "./session-store.js";
+} from "./session-store";
 
 /**
  * SessionManager — manages the lifecycle of conversation sessions.

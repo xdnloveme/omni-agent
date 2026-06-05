@@ -1,5 +1,5 @@
-export type { SessionMessage, SessionEntry, SessionIndex } from "./types.js";
-export { createUserMessage, createAssistantMessage, createToolResultMessage } from "./factory.js";
+export type { SessionMessage, SessionEntry, SessionIndex } from "./types";
+export { createUserMessage, createAssistantMessage, createToolResultMessage } from "./factory";
 export {
   readIndex,
   writeIndex,
@@ -9,5 +9,5 @@ export {
   replayMessages,
   clearSession,
   removeSession,
-} from "./session-store.js";
-export { SessionManager } from "./session-manager.js";
+} from "./session-store";
+export { SessionManager } from "./session-manager";

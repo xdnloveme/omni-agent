@@ -9,7 +9,7 @@ import {
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { SessionMessage, SessionEntry, SessionIndex } from "./types.js";
+import type { SessionMessage, SessionEntry, SessionIndex } from "./types";
 
 const SESSIONS_DIR = join(homedir(), ".omni-agent", "sessions");
 const INDEX_FILE = join(SESSIONS_DIR, "index.json");

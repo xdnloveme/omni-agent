@@ -1,7 +1,7 @@
 import chalk from "chalk";
 
 import type { Command } from "@omni-agent/core";
-import { runOnboarding } from "../onboarding.js";
+import { runOnboarding } from "../onboarding";
 
 export const configCommand: Command = {
   name: "config",

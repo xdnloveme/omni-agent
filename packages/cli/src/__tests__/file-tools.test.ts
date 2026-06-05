@@ -2,10 +2,10 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { fileReadTool } from "../tools/file-read.js";
-import { fileEditTool } from "../tools/file-edit.js";
-import { fileWriteTool } from "../tools/file-write.js";
-import { fileMutex } from "../tools/file-mutex.js";
+import { fileReadTool } from "../tools/file-read";
+import { fileEditTool } from "../tools/file-edit";
+import { fileWriteTool } from "../tools/file-write";
+import { fileMutex } from "../tools/file-mutex";
 
 let tmpDir: string;
 
