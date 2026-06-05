@@ -15,6 +15,14 @@ export interface ToolResult {
   isError: boolean;
 }
 
+/** Token usage information from the LLM response */
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  contextWindow: number;
+}
+
 export interface AgentConfig {
   model: string;
   apiKey: string;
@@ -24,6 +32,7 @@ export interface AgentConfig {
   tools: AgentTool[];
   maxTurns?: number;
   maxTokens?: number;
+  contextWindow?: number;
 }
 
 // Events emitted by the agent loop
@@ -32,6 +41,6 @@ export type AgentEvent =
   | { type: "tool_start"; toolName: string; toolCallId: string; input: Record<string, unknown> }
   | { type: "tool_end"; toolName: string; toolCallId: string; result: ToolResult; durationMs: number }
   | { type: "error"; error: string }
-  | { type: "done"; produced?: Message[] };
+  | { type: "done"; produced?: Message[]; usage?: TokenUsage };
 
 export type { Message, AssistantMessageEvent };

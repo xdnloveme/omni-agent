@@ -43,6 +43,22 @@ function getDefaultMaxTokens(provider: AgentConfig["provider"]): number {
 }
 
 /**
+ * Default contextWindow per provider when not explicitly configured.
+ */
+export function getDefaultContextWindow(provider: AgentConfig["provider"]): number {
+  switch (provider) {
+    case "anthropic":
+      return 200000;
+    case "kimi":
+      return 128000;
+    case "custom":
+      return 128000;
+    default:
+      return 200000;
+  }
+}
+
+/**
  * Build a pi-ai Model object from config, selecting the correct API protocol.
  */
 export function buildModel(config: AgentConfig): Model<Api> {
@@ -53,6 +69,7 @@ export function buildModel(config: AgentConfig): Model<Api> {
       : undefined;
 
   const maxTokens = config.maxTokens ?? getDefaultMaxTokens(config.provider);
+  const contextWindow = config.contextWindow ?? getDefaultContextWindow(config.provider);
 
   return {
     id: config.model,
@@ -63,7 +80,7 @@ export function buildModel(config: AgentConfig): Model<Api> {
     reasoning: false,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: 200000,
+    contextWindow,
     maxTokens,
   };
 }

@@ -2,9 +2,13 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { AgentConfig, AgentEvent, AgentTool, Message } from "../types.js";
 
 // Mock the llm module
-vi.mock("../llm.js", () => ({
-  streamLLM: vi.fn(),
-}));
+vi.mock("../llm.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../llm.js")>();
+  return {
+    ...actual,
+    streamLLM: vi.fn(),
+  };
+});
 
 import { streamLLM } from "../llm.js";
 import { runAgentLoop } from "../agent-loop.js";

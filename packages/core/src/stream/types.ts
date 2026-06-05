@@ -5,6 +5,8 @@
  * enabling harness replay/record, TUI rendering, JSON-line output, or test mocks.
  */
 
+import type { TokenUsage } from "../types.js";
+
 /** Text chunk streamed from the LLM */
 export interface TextDeltaEvent {
   type: "text_delta";
@@ -31,6 +33,7 @@ export interface ToolUseEndEvent {
 /** Stream completed successfully */
 export interface DoneEvent {
   type: "done";
+  usage?: TokenUsage;
 }
 
 /** Stream encountered an error */
@@ -63,7 +66,7 @@ export interface StreamCallbacks {
   onTextChunk?: (delta: string) => void;
   onToolStart?: (toolName: string, toolCallId: string, input: Record<string, unknown>) => void;
   onToolEnd?: (toolName: string, toolCallId: string, result: ToolResultPayload, durationMs: number) => void;
-  onDone?: () => void;
+  onDone?: (usage?: TokenUsage) => void;
   onError?: (error: string) => void;
 }
 

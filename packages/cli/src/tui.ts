@@ -1,5 +1,6 @@
 import {
   Box,
+  CombinedAutocompleteProvider,
   Container,
   Editor,
   Markdown,
@@ -59,11 +60,17 @@ export interface TuiSink {
   flush(): void;
 }
 
+export interface SlashCommand {
+  name: string;
+  description: string;
+}
+
 export interface OmniTui {
   start(): Promise<void>;
   sink: TuiSink;
   appendUserMessage(text: string): void;
   setStatus(text: string): void;
+  setCommands(commands: SlashCommand[]): void;
   onSubmit: (input: string) => void | Promise<void>;
   onInterrupt: (() => boolean) | null;
   pause(): void;
@@ -97,6 +104,17 @@ export function createOmniTui(): OmniTui {
   // Exit confirmation
   let exitPending = false;
   let exitTimer: NodeJS.Timeout | null = null;
+
+  // Slash command completion
+  function setCommands(commands: SlashCommand[]): void {
+    const providerCommands = commands.map((cmd) => ({
+      name: cmd.name,
+      description: cmd.description,
+    }));
+    editor.setAutocompleteProvider(new CombinedAutocompleteProvider(providerCommands));
+  }
+
+  editor.setAutocompleteMaxVisible(10);
 
   function hardWrap(text: string): string {
     const terminalWidth = Math.max(20, ui.terminal.columns || 80);
@@ -284,6 +302,7 @@ export function createOmniTui(): OmniTui {
     sink,
     appendUserMessage,
     setStatus,
+    setCommands,
     set onSubmit(handler: (input: string) => void | Promise<void>) {
       onSubmitCallback = handler;
     },

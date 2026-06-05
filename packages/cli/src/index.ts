@@ -11,6 +11,7 @@ import {
   type AgentConfig,
   type StreamCallbacks,
   type Message,
+  type TokenUsage,
 } from "@omni-agent/core";
 import { createOmniTui } from "./tui.js";
 import { bashTool, fileReadTool, fileEditTool, fileWriteTool } from "./tools/index.js";
@@ -44,6 +45,7 @@ async function main() {
     tools: [bashTool, fileReadTool, fileEditTool, fileWriteTool],
     maxTurns: 10,
     maxTokens: config.maxTokens,
+    contextWindow: config.contextWindow,
   };
 
   // 4. Initialize session manager — restore latest session
@@ -54,6 +56,22 @@ async function main() {
   const registry = createCommandRegistry();
   let activeAbort: AbortController | null = null;
   let running = false;
+
+  /** Format context usage line with color */
+  function formatContextLine(usage: TokenUsage): string {
+    const pct = Math.round((usage.inputTokens / usage.contextWindow) * 100);
+    const inputStr = usage.inputTokens.toLocaleString();
+    const windowStr = usage.contextWindow.toLocaleString();
+    const text = `Context: ${inputStr} / ${windowStr} tokens (${pct}%)`;
+
+    if (pct > 80) {
+      return chalk.red(text);
+    } else if (pct >= 50) {
+      return chalk.yellow(text);
+    } else {
+      return chalk.dim(text);
+    }
+  }
 
   // Register /new command
   registry.register({
@@ -77,6 +95,9 @@ async function main() {
     },
   });
 
+  // Provide command list to TUI for Tab completion
+  tui.setCommands(registry.list().map((c) => ({ name: c.name, description: c.description })));
+
   tui.onInterrupt = () => {
     if (!running || !activeAbort) return false;
     activeAbort.abort();
@@ -96,7 +117,8 @@ async function main() {
       const parts = input.slice(1).split(/\s+/);
       const cmdName = parts[0].toLowerCase();
       const args = input.slice(1 + cmdName.length).trim();
-      const command = registry.get(cmdName);
+      // Bare "/" with no command name → show help
+      const command = registry.get(cmdName || "help");
       if (command) {
         tui.appendUserMessage(input);
         await command.execute({ args, agentConfig, tui });
@@ -148,8 +170,11 @@ async function main() {
         tui.sink.spacer();
         tui.setStatus(chalk.cyan("thinking..."));
       },
-      onDone() {
+      onDone(usage) {
         tui.sink.line();
+        if (usage) {
+          tui.sink.line(formatContextLine(usage));
+        }
         tui.sink.spacer();
       },
       onError(error) {
@@ -191,7 +216,6 @@ async function main() {
 
   // Welcome message
   tui.sink.line(chalk.bold("omni-agent"));
-  tui.sink.line(chalk.dim(`Provider: ${config.provider} | Model: ${config.model}`));
   tui.sink.line(chalk.dim("Type your request below. Session history is preserved across restarts."));
   tui.sink.spacer();
 

@@ -1,7 +1,8 @@
 import type { AssistantMessage, Message } from "@mariozechner/pi-ai";
 
 import { streamLLM } from "./llm.js";
-import type { AgentConfig, AgentEvent, AgentTool } from "./types.js";
+import { getDefaultContextWindow } from "./llm.js";
+import type { AgentConfig, AgentEvent, AgentTool, TokenUsage } from "./types.js";
 import type { StreamSession } from "./stream/index.js";
 
 const DEFAULT_MAX_TURNS = 10;
@@ -44,6 +45,9 @@ export async function* runAgentLoop(
   const conversation: Message[] = [...messages];
   // Track messages produced during this run
   const produced: Message[] = [];
+  // Track the latest usage from the last LLM response
+  let lastUsage: TokenUsage | undefined;
+  const contextWindow = config.contextWindow ?? getDefaultContextWindow(config.provider);
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal?.aborted) {
@@ -85,10 +89,20 @@ export async function* runAgentLoop(
     conversation.push(assistantMessage);
     produced.push(assistantMessage);
 
+    // Extract usage from the assistant message
+    if (assistantMessage.usage) {
+      lastUsage = {
+        inputTokens: assistantMessage.usage.input,
+        outputTokens: assistantMessage.usage.output,
+        totalTokens: assistantMessage.usage.totalTokens,
+        contextWindow,
+      };
+    }
+
     // Check stop reason
     if (assistantMessage.stopReason !== "toolUse") {
-      session?.handle({ type: "done" });
-      yield { type: "done", produced };
+      session?.handle({ type: "done", usage: lastUsage });
+      yield { type: "done", produced, usage: lastUsage };
       return;
     }
 

@@ -7,6 +7,7 @@ export interface OmniConfig {
   endpoint: string;
   model: string;
   maxTokens?: number;
+  contextWindow?: number;
 }
 
 const CONFIG_DIR_NAME = ".omni-agent";
@@ -31,6 +32,7 @@ function isConfigValid(value: unknown): value is OmniConfig {
   if (typeof obj.endpoint !== "string" || obj.endpoint.length === 0) return false;
   if (typeof obj.model !== "string" || obj.model.length === 0) return false;
   if (obj.maxTokens !== undefined && (typeof obj.maxTokens !== "number" || obj.maxTokens <= 0)) return false;
+  if (obj.contextWindow !== undefined && (typeof obj.contextWindow !== "number" || obj.contextWindow <= 0)) return false;
   return true;
 }
 

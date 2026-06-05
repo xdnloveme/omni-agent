@@ -4,6 +4,7 @@ import type {
   StreamState,
   AccumulatedMessage,
 } from "./types.js";
+import type { TokenUsage } from "../types.js";
 
 /**
  * StreamSession — a lightweight state machine for managing streaming output.
@@ -45,7 +46,7 @@ export class StreamSession {
         this.handleToolEnd(event.toolName, event.toolCallId, event.result, event.durationMs);
         break;
       case "done":
-        this.handleDone();
+        this.handleDone(event.usage);
         break;
       case "error":
         this.handleError(event.error);
@@ -121,9 +122,9 @@ export class StreamSession {
     this._callbacks.onToolEnd?.(toolName, toolCallId, result, durationMs);
   }
 
-  private handleDone(): void {
+  private handleDone(usage?: TokenUsage): void {
     this.transitionTo("done");
-    this._callbacks.onDone?.();
+    this._callbacks.onDone?.(usage);
   }
 
   private handleError(error: string): void {
