@@ -6,8 +6,19 @@ import { fileMutex } from "./file-mutex";
 export const fileReadTool: AgentTool = {
   name: "file_read",
   description:
-    "Read a file and return its content with line numbers. " +
-    "Supports optional offset (1-based line number) and limit (max lines to return).",
+    "Read a file and return its content with line numbers.\n\n" +
+    "Usage:\n" +
+    "- ALWAYS read a file before editing it to understand its current content.\n" +
+    "- Returns content prefixed with line numbers in the format `line_number|content`.\n" +
+    "- Use `offset` (1-based) and `limit` to read specific sections of large files.\n" +
+    "- For files under ~500 lines, prefer reading the whole file in one call.\n\n" +
+    "When to use:\n" +
+    "- Understanding file content before making edits.\n" +
+    "- Reviewing code structure, imports, or specific functions.\n" +
+    "- Checking configuration files or documentation.\n\n" +
+    "When NOT to use:\n" +
+    "- Searching for patterns across many files (use grep instead).\n" +
+    "- Finding files by name (use glob instead).",
   schema: {
     type: "object",
     properties: {

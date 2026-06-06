@@ -6,9 +6,20 @@ import { fileMutex } from "./file-mutex";
 export const fileEditTool: AgentTool = {
   name: "file_edit",
   description:
-    "Perform an exact string replacement in a file. " +
-    "old_string must appear exactly once in the file. " +
-    "Returns error if old_string is not found or appears multiple times.",
+    "Perform an exact, whitespace-sensitive string replacement in a file.\n\n" +
+    "Usage:\n" +
+    "- Prefer file_edit over bash sed/awk for all file modifications — it's safer and more precise.\n" +
+    "- `old_string` is matched literally (not regex) and must appear exactly once in the file.\n" +
+    "- `new_string` replaces the matched text. Can be empty string to delete content.\n" +
+    "- Always read the file first to get the exact text for `old_string`.\n" +
+    "- Include enough surrounding context in `old_string` to ensure uniqueness.\n\n" +
+    "When to use:\n" +
+    "- Making targeted changes to existing files (fix bugs, update values, add code).\n" +
+    "- Replacing specific code blocks, function bodies, or configuration values.\n\n" +
+    "When NOT to use:\n" +
+    "- Creating new files (use file_write instead).\n" +
+    "- Rewriting an entire file (use file_write instead).\n" +
+    "- When old_string appears multiple times — include more context to make it unique.",
   schema: {
     type: "object",
     properties: {

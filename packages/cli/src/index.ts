@@ -14,7 +14,7 @@ import {
   type TokenUsage,
 } from "@omni-agent/core";
 import { createOmniTui } from "./tui";
-import { bashTool, fileReadTool, fileEditTool, fileWriteTool } from "./tools/index";
+import { bashTool, fileReadTool, fileEditTool, fileWriteTool, globTool, grepTool, webFetchTool, webSearchTool } from "./tools/index";
 import { runOnboarding } from "./onboarding";
 import { createCommandRegistry } from "./commands/index";
 
@@ -42,7 +42,7 @@ async function main() {
     endpoint: config.endpoint,
     provider: config.provider,
     systemPrompt,
-    tools: [bashTool, fileReadTool, fileEditTool, fileWriteTool],
+    tools: [bashTool, fileReadTool, fileEditTool, fileWriteTool, globTool, grepTool, webFetchTool, webSearchTool],
     maxTurns: 10,
     maxTokens: config.maxTokens,
     contextWindow: config.contextWindow,

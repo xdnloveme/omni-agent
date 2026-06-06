@@ -6,8 +6,17 @@ import { fileMutex } from "./file-mutex";
 export const fileWriteTool: AgentTool = {
   name: "file_write",
   description:
-    "Write content to a file, creating parent directories if needed. " +
-    "Overwrites the file if it already exists.",
+    "Create or overwrite a file with the given content.\n\n" +
+    "Usage:\n" +
+    "- Creates parent directories automatically if they don't exist.\n" +
+    "- Overwrites the file entirely if it already exists — use file_edit for partial changes.\n" +
+    "- Use absolute paths for reliability.\n\n" +
+    "When to use:\n" +
+    "- Creating new files (source code, configs, scripts).\n" +
+    "- Completely rewriting a file when most content changes.\n\n" +
+    "When NOT to use:\n" +
+    "- Making small, targeted edits to existing files (use file_edit instead — it's safer).\n" +
+    "- Appending to a file (read first with file_read, then write the combined content).",
   schema: {
     type: "object",
     properties: {

@@ -63,7 +63,24 @@ async function executeBash(
 
 export const bashTool: AgentTool = {
   name: "bash",
-  description: "Execute a shell command and return the output. Use this to run any shell command.",
+  description:
+    "Execute a shell command and return its output (stdout/stderr).\n\n" +
+    "Usage:\n" +
+    "- Use for running shell commands: git operations, package management (npm/pnpm), " +
+    "running tests, building projects, installing dependencies, and other CLI tasks.\n" +
+    "- Commands run in bash with a 30-second timeout.\n" +
+    "- Output is truncated to 10KB — for verbose commands, pipe through `tail` or redirect to a file.\n\n" +
+    "When to use:\n" +
+    "- Running tests (`pnpm test`, `pytest`, etc.).\n" +
+    "- Git operations (`git status`, `git diff`, `git commit`).\n" +
+    "- Installing packages (`pnpm add`, `npm install`).\n" +
+    "- Building or compiling projects.\n" +
+    "- Any CLI tool not covered by other specialized tools.\n\n" +
+    "When NOT to use:\n" +
+    "- File search/discovery (use glob instead of `find` or `ls`).\n" +
+    "- Content search (use grep instead of `grep`, `rg`, or `awk`).\n" +
+    "- Reading files (use file_read instead of `cat`, `head`, or `tail`).\n" +
+    "- Editing files (use file_edit instead of `sed` or `awk`).",
   schema: {
     type: "object",
     properties: {
