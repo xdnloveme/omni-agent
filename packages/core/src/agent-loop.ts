@@ -4,6 +4,7 @@ import { streamLLM } from "./llm";
 import { getDefaultContextWindow } from "./llm";
 import type { AgentConfig, AgentEvent, AgentTool, TokenUsage } from "./types";
 import type { StreamSession } from "./stream/index";
+import { collectLifecycleEndEvents, collectLifecycleStartEvents } from "./tool-lifecycle";
 
 const DEFAULT_MAX_TURNS = 10;
 
@@ -135,7 +136,17 @@ export async function* runAgentLoop(
       const startTime = Date.now();
       const tool = config.tools.find((t) => t.name === call.name);
 
-      let result: { content: Array<{ type: "text"; text: string }>; isError: boolean };
+      const lifecycleStartEvents = collectLifecycleStartEvents(config.toolLifecycleAdapters, {
+        toolName: call.name,
+        toolCallId: call.id,
+        input: call.arguments,
+      });
+      for (const event of lifecycleStartEvents) {
+        session?.handle(event);
+        yield event;
+      }
+
+      let result: { content: Array<{ type: "text"; text: string }>; isError: boolean; meta?: Record<string, unknown> };
 
       if (!tool) {
         result = {
@@ -168,6 +179,18 @@ export async function* runAgentLoop(
         result,
         durationMs,
       };
+
+      const lifecycleEndEvents = collectLifecycleEndEvents(config.toolLifecycleAdapters, {
+        toolName: call.name,
+        toolCallId: call.id,
+        input: call.arguments,
+        result,
+        durationMs,
+      });
+      for (const event of lifecycleEndEvents) {
+        session?.handle(event);
+        yield event;
+      }
 
       // Push tool result message
       const toolResultMsg: Message = {

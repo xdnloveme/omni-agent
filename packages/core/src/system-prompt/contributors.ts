@@ -1,5 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import type { SkillRegistry } from "../skills";
 
 /**
  * A SystemPromptContributor returns a section string (or null to skip).
@@ -31,3 +32,10 @@ export const defaultContributors: SystemPromptContributor[] = [
   cwdContributor,
   agentsMdContributor,
 ];
+
+export function createSkillsContributor(registry: SkillRegistry): SystemPromptContributor {
+  return async () => {
+    const prompt = registry.renderPromptIndex();
+    return prompt.trim() ? prompt : null;
+  };
+}

@@ -1,4 +1,6 @@
 import type { AssistantMessageEvent, Message } from "@mariozechner/pi-ai";
+import type { ToolLifecycleAdapter } from "./tool-lifecycle";
+import type { ExtensionEvent } from "./extension-events";
 
 export interface AgentTool {
   name: string;
@@ -13,6 +15,7 @@ export interface AgentTool {
 export interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
   isError: boolean;
+  meta?: Record<string, unknown>;
 }
 
 /** Token usage information from the LLM response */
@@ -30,6 +33,7 @@ export interface AgentConfig {
   provider?: "anthropic" | "kimi" | "custom";
   systemPrompt: string;
   tools: AgentTool[];
+  toolLifecycleAdapters?: ToolLifecycleAdapter[];
   maxTurns?: number;
   maxTokens?: number;
   contextWindow?: number;
@@ -40,6 +44,7 @@ export type AgentEvent =
   | { type: "text_delta"; delta: string }
   | { type: "tool_start"; toolName: string; toolCallId: string; input: Record<string, unknown> }
   | { type: "tool_end"; toolName: string; toolCallId: string; result: ToolResult; durationMs: number }
+  | ExtensionEvent
   | { type: "error"; error: string }
   | { type: "done"; produced?: Message[]; usage?: TokenUsage };
 

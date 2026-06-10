@@ -4,6 +4,7 @@ import type {
   StreamState,
   AccumulatedMessage,
 } from "./types";
+import type { ExtensionEvent } from "../extension-events";
 import type { TokenUsage } from "../types";
 
 /**
@@ -44,6 +45,9 @@ export class StreamSession {
         break;
       case "tool_use_end":
         this.handleToolEnd(event.toolName, event.toolCallId, event.result, event.durationMs);
+        break;
+      case "extension_event":
+        this.handleExtensionEvent(event);
         break;
       case "done":
         this.handleDone(event.usage);
@@ -109,7 +113,7 @@ export class StreamSession {
   private handleToolEnd(
     toolName: string,
     toolCallId: string,
-    result: { content: Array<{ type: "text"; text: string }>; isError: boolean },
+    result: { content: Array<{ type: "text"; text: string }>; isError: boolean; meta?: Record<string, unknown> },
     durationMs: number,
   ): void {
     // Stay in streaming — more events may follow
@@ -117,9 +121,20 @@ export class StreamSession {
       type: "tool_result",
       content: result.content.map((c) => c.text).join("\n"),
       timestamp: Date.now(),
-      meta: { toolCallId, toolName, isError: result.isError, durationMs },
+      meta: { toolCallId, toolName, isError: result.isError, durationMs, resultMeta: result.meta },
     });
     this._callbacks.onToolEnd?.(toolName, toolCallId, result, durationMs);
+  }
+
+  private handleExtensionEvent(event: ExtensionEvent): void {
+    this.transitionTo("streaming");
+    this._messages.push({
+      type: "tool_call",
+      content: `${event.namespace}:${event.event}`,
+      timestamp: Date.now(),
+      meta: { ...event },
+    });
+    this._callbacks.onExtensionEvent?.(event);
   }
 
   private handleDone(usage?: TokenUsage): void {

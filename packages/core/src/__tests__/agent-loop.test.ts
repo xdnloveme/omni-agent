@@ -12,6 +12,8 @@ vi.mock("../llm", async (importOriginal) => {
 
 import { streamLLM } from "../llm";
 import { runAgentLoop } from "../agent-loop";
+import { SkillEventName, SkillEventNamespace, SkillReadLifecycleAdapter, SkillReadStatus } from "../skills";
+import type { ToolLifecycleAdapter } from "../tool-lifecycle";
 
 const mockedStreamLLM = vi.mocked(streamLLM);
 
@@ -193,6 +195,158 @@ describe("runAgentLoop", () => {
       expect(doneEvent.produced![0].role).toBe("assistant");
       expect(doneEvent.produced![1].role).toBe("toolResult");
       expect(doneEvent.produced![2].role).toBe("assistant");
+    }
+  });
+
+  it("should emit extension events around skill_read tool calls", async () => {
+    const skillTool = makeTool("skill_read");
+    vi.mocked(skillTool.execute).mockResolvedValue({
+      content: [{ type: "text", text: "<skill>body</skill>" }],
+      isError: false,
+      meta: {
+        kind: "skill_read",
+        skillName: "frontend-design",
+        status: "loaded",
+        tokenEstimate: 42,
+      },
+    });
+    const config = makeConfig({
+      tools: [skillTool],
+      toolLifecycleAdapters: [new SkillReadLifecycleAdapter()],
+    });
+
+    mockedStreamLLM.mockReturnValueOnce(
+      fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: "call_skill",
+                name: "skill_read",
+                arguments: { name: "frontend-design" },
+              },
+            ],
+            stopReason: "toolUse",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as any,
+    );
+
+    mockedStreamLLM.mockReturnValueOnce(
+      fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "ok" }],
+            stopReason: "endTurn",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as any,
+    );
+
+    const events = await collectEvents(runAgentLoop(config, makeMessages("Use a skill")));
+
+    expect(events).toContainEqual({
+      type: "extension_event",
+      namespace: SkillEventNamespace.Skill,
+      event: SkillEventName.ReadStart,
+      toolCallId: "call_skill",
+      payload: { skillName: "frontend-design" },
+    });
+    expect(events).toContainEqual({
+      type: "extension_event",
+      namespace: SkillEventNamespace.Skill,
+      event: SkillEventName.ReadEnd,
+      toolCallId: "call_skill",
+      payload: expect.objectContaining({
+        skillName: "frontend-design",
+        status: SkillReadStatus.Loaded,
+        tokenEstimate: 42,
+      }),
+    });
+  });
+
+  it("should continue tool-result pairing when a lifecycle adapter throws", async () => {
+    const tool = makeTool("bash");
+    const failingAdapter: ToolLifecycleAdapter = {
+      supports: () => true,
+      onStart: () => [],
+      onEnd: () => {
+        throw new Error("adapter failed");
+      },
+    };
+    const config = makeConfig({
+      tools: [tool],
+      toolLifecycleAdapters: [failingAdapter],
+    });
+
+    mockedStreamLLM.mockReturnValueOnce(
+      fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: "call_1",
+                name: "bash",
+                arguments: { input: "test" },
+              },
+            ],
+            stopReason: "toolUse",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as any,
+    );
+    mockedStreamLLM.mockReturnValueOnce(
+      fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+            stopReason: "endTurn",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as any,
+    );
+
+    const events = await collectEvents(runAgentLoop(config, makeMessages("Run a command")));
+
+    expect(events).toContainEqual(expect.objectContaining({
+      type: "tool_end",
+      toolCallId: "call_1",
+    }));
+    expect(events).toContainEqual({
+      type: "extension_event",
+      namespace: "tool_lifecycle",
+      event: "adapter_error",
+      toolCallId: "call_1",
+      payload: {
+        toolName: "bash",
+        phase: "end",
+        error: "adapter failed",
+      },
+    });
+
+    const doneEvent = events[events.length - 1];
+    expect(doneEvent.type).toBe("done");
+    if (doneEvent.type === "done") {
+      expect(doneEvent.produced).toHaveLength(3);
+      expect(doneEvent.produced![1]).toMatchObject({
+        role: "toolResult",
+        toolCallId: "call_1",
+        toolName: "bash",
+      });
     }
   });
 

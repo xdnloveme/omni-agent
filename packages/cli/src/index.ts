@@ -4,10 +4,10 @@ import {
   runAgentLoop,
   loadConfig,
   getApiKey,
-  buildSystemPrompt,
   createStreamSession,
   SessionManager,
   createUserMessage,
+  SkillRuntime,
   type AgentConfig,
   type StreamCallbacks,
   type Message,
@@ -17,6 +17,7 @@ import { createOmniTui } from "./tui";
 import { bashTool, fileReadTool, fileEditTool, fileWriteTool, globTool, grepTool, webFetchTool, webSearchTool } from "./tools/index";
 import { runOnboarding } from "./onboarding";
 import { createCommandRegistry } from "./commands/index";
+import { SkillCliController } from "./skills";
 
 async function main() {
   // 1. Try to load existing config
@@ -34,15 +35,29 @@ async function main() {
     apiKey = result.apiKey;
   }
 
-  // 3. Build agent config
-  const systemPrompt = await buildSystemPrompt(process.cwd());
+  // 3. Initialize skills and build agent config
+  const skillRuntime = new SkillRuntime({ cwd: process.cwd() });
+  await skillRuntime.initialize();
+  const buildPrompt = () => skillRuntime.buildSystemPrompt();
+  const systemPrompt = await buildPrompt();
   const agentConfig: AgentConfig = {
     model: config.model,
     apiKey,
     endpoint: config.endpoint,
     provider: config.provider,
     systemPrompt,
-    tools: [bashTool, fileReadTool, fileEditTool, fileWriteTool, globTool, grepTool, webFetchTool, webSearchTool],
+    tools: [
+      bashTool,
+      fileReadTool,
+      fileEditTool,
+      fileWriteTool,
+      globTool,
+      grepTool,
+      webFetchTool,
+      webSearchTool,
+      skillRuntime.tool(),
+    ],
+    toolLifecycleAdapters: skillRuntime.lifecycleAdapters(),
     maxTurns: 10,
     maxTokens: config.maxTokens,
     contextWindow: config.contextWindow,
@@ -95,8 +110,17 @@ async function main() {
     },
   });
 
+  const skillController = new SkillCliController({
+    skillRuntime,
+    commandRegistry: registry,
+    tui,
+    agentConfig,
+    buildSystemPrompt: buildPrompt,
+  });
+  skillController.registerCommands();
+
   // Provide command list to TUI for Tab completion
-  tui.setCommands(registry.list().map((c) => ({ name: c.name, description: c.description })));
+  skillController.refreshAutocomplete();
 
   tui.onInterrupt = () => {
     if (!running || !activeAbort) return false;
@@ -124,19 +148,39 @@ async function main() {
         await command.execute({ args, agentConfig, tui });
         return;
       }
-      tui.appendUserMessage(input);
-      tui.sink.line(chalk.yellow("Unknown command. Type /help for available commands."));
-      tui.sink.spacer();
+
+      let explicitSkillPreload: Awaited<ReturnType<typeof skillController.resolveSlashPreload>> = null;
+      try {
+        explicitSkillPreload = await skillController.resolveSlashPreload(input);
+      } catch (err) {
+        tui.appendUserMessage(input);
+        tui.sink.line(chalk.red(`Error reading skill: ${err instanceof Error ? err.message : String(err)}`));
+        tui.sink.spacer();
+        return;
+      }
+
+      if (!explicitSkillPreload) {
+        tui.appendUserMessage(input);
+        tui.sink.line(chalk.yellow("Unknown command. Type /help for available commands."));
+        tui.sink.spacer();
+        return;
+      }
+
+      await runUserInput(input, explicitSkillPreload.modelInput);
       return;
     }
 
+    await runUserInput(input, input);
+  };
+
+  async function runUserInput(displayInput: string, modelInput: string) {
     running = true;
     activeAbort = new AbortController();
-    tui.appendUserMessage(input);
+    tui.appendUserMessage(displayInput);
     tui.setStatus(chalk.cyan("thinking..."));
 
     // Create user message via factory and append to session
-    const userMsg = createUserMessage(input);
+    const userMsg = createUserMessage(modelInput);
     sessionManager.append(userMsg);
 
     // Build TUI callbacks for the stream session
@@ -145,11 +189,13 @@ async function main() {
         tui.sink.writeMarkdown(delta);
       },
       onToolStart(toolName, _toolCallId, toolInput) {
+        if (skillController.shouldSuppressToolPreview(toolName)) return;
         tui.sink.line();
         tui.sink.line(`${chalk.cyan("▶")} ${chalk.bold(toolName)} ${chalk.dim(JSON.stringify(toolInput))}`);
         tui.setStatus(chalk.cyan(`running: ${toolName}...`));
       },
       onToolEnd(_toolName, _toolCallId, result, durationMs) {
+        if (skillController.shouldSuppressToolPreview(_toolName)) return;
         if (result.isError) {
           tui.sink.line(`  ${chalk.red("✗ error")} ${chalk.dim(`(${durationMs}ms)`)}`);
         } else {
@@ -182,6 +228,7 @@ async function main() {
         tui.sink.line(chalk.red(`Error: ${error}`));
         tui.sink.spacer();
       },
+      ...skillController.streamCallbacks(),
     };
 
     const streamSession = createStreamSession(tuiCallbacks);
@@ -212,7 +259,7 @@ async function main() {
       activeAbort = null;
       tui.setStatus(chalk.dim("omni-agent | Ctrl+C to exit"));
     }
-  };
+  }
 
   // Welcome message
   tui.sink.line(chalk.bold("omni-agent"));

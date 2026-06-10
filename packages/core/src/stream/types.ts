@@ -5,6 +5,7 @@
  * enabling harness replay/record, TUI rendering, JSON-line output, or test mocks.
  */
 
+import type { ExtensionEvent } from "../extension-events";
 import type { TokenUsage } from "../types";
 
 /** Text chunk streamed from the LLM */
@@ -47,6 +48,7 @@ export type StreamEvent =
   | TextDeltaEvent
   | ToolUseStartEvent
   | ToolUseEndEvent
+  | ExtensionEvent
   | DoneEvent
   | ErrorEvent;
 
@@ -54,6 +56,7 @@ export type StreamEvent =
 export interface ToolResultPayload {
   content: Array<{ type: "text"; text: string }>;
   isError: boolean;
+  meta?: Record<string, unknown>;
 }
 
 /**
@@ -66,6 +69,7 @@ export interface StreamCallbacks {
   onTextChunk?: (delta: string) => void;
   onToolStart?: (toolName: string, toolCallId: string, input: Record<string, unknown>) => void;
   onToolEnd?: (toolName: string, toolCallId: string, result: ToolResultPayload, durationMs: number) => void;
+  onExtensionEvent?: (event: ExtensionEvent) => void;
   onDone?: (usage?: TokenUsage) => void;
   onError?: (error: string) => void;
 }

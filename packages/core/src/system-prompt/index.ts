@@ -5,6 +5,7 @@ export { composeSystemPrompt } from "./compose";
 export {
   cwdContributor,
   agentsMdContributor,
+  createSkillsContributor,
   defaultContributors,
   type SystemPromptContributor,
 } from "./contributors";

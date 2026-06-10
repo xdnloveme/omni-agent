@@ -12,6 +12,7 @@ describe("StreamSession", () => {
       onTextChunk: vi.fn(),
       onToolStart: vi.fn(),
       onToolEnd: vi.fn(),
+      onExtensionEvent: vi.fn(),
       onDone: vi.fn(),
       onError: vi.fn(),
     };
