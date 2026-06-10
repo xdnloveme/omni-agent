@@ -15,6 +15,8 @@ export { getApiKey, saveApiKey, deleteApiKey } from "./credential";
 export type { AgentConfig, AgentTool, AgentEvent, ToolResult, Message, TokenUsage } from "./types";
 export type { ExtensionEvent } from "./extension-events";
 export { buildModel, getDefaultContextWindow } from "./llm";
+export { MODEL_PRESETS, getDefaultPresetForProvider, getModelPresetById, isProviderId } from "./models";
+export type { ModelPreset, ProviderId } from "./models";
 export { CommandRegistry } from "./commands/index";
 export type { Command, CommandContext, CommandTui } from "./commands/index";
 export { buildSystemPrompt, composeSystemPrompt, BASE_SYSTEM_PROMPT } from "./system-prompt/index";

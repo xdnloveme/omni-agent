@@ -1,37 +1,13 @@
 import { select, input, password } from "@inquirer/prompts";
 import chalk from "chalk";
 
-import { saveConfig, type OmniConfig } from "@omni-agent/core";
+import { MODEL_PRESETS, getModelPresetById, saveConfig, type ModelPreset, type OmniConfig } from "@omni-agent/core";
 import { saveApiKey } from "@omni-agent/core";
 
 interface OnboardingResult {
   config: OmniConfig;
   apiKey: string;
 }
-
-const PROVIDERS = [
-  {
-    name: "Anthropic",
-    value: "anthropic" as const,
-    description: "Claude models (claude-sonnet-4-20250514)",
-    endpoint: "https://api.anthropic.com",
-    model: "claude-sonnet-4-20250514",
-  },
-  {
-    name: "Kimi",
-    value: "kimi" as const,
-    description: "Moonshot AI (moonshot-v1-auto)",
-    endpoint: "https://api.moonshot.cn/v1",
-    model: "moonshot-v1-auto",
-  },
-  {
-    name: "Custom (OpenAI-compatible)",
-    value: "custom" as const,
-    description: "Any OpenAI-compatible API endpoint",
-    endpoint: "",
-    model: "",
-  },
-];
 
 export async function runOnboarding(): Promise<OnboardingResult> {
   console.log();
@@ -41,19 +17,19 @@ export async function runOnboarding(): Promise<OnboardingResult> {
   // Step 1: Select provider
   const providerChoice = await select({
     message: "Select your LLM provider",
-    choices: PROVIDERS.map((p) => ({
+    choices: MODEL_PRESETS.map((p) => ({
       name: p.name,
-      value: p.value,
+      value: p.id,
       description: p.description,
     })),
   });
 
-  const provider = PROVIDERS.find((p) => p.value === providerChoice)!;
+  const provider = getModelPresetById(providerChoice) as ModelPreset;
   let endpoint = provider.endpoint;
   let model = provider.model;
 
   // Step 2: If custom, ask for endpoint and model
-  if (providerChoice === "custom") {
+  if (provider.provider === "custom") {
     endpoint = await input({
       message: "Enter the API base URL",
       validate: (val) => {
@@ -84,13 +60,15 @@ export async function runOnboarding(): Promise<OnboardingResult> {
 
   // Persist
   const config: OmniConfig = {
-    provider: providerChoice,
+    provider: provider.provider,
     endpoint,
     model: model.trim(),
+    maxTokens: provider.maxTokens,
+    contextWindow: provider.contextWindow,
   };
 
   saveConfig(config);
-  await saveApiKey(providerChoice, apiKey);
+  await saveApiKey(provider.keychainAccount ?? provider.provider, apiKey);
 
   console.log();
   console.log(chalk.green("  ✓ Configuration saved."));

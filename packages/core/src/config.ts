@@ -2,8 +2,10 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
+import { isProviderId, type ProviderId } from "./models";
+
 export interface OmniConfig {
-  provider: "anthropic" | "kimi" | "custom";
+  provider: ProviderId;
   endpoint: string;
   model: string;
   maxTokens?: number;
@@ -28,7 +30,7 @@ export function getConfigPath(): string {
 function isConfigValid(value: unknown): value is OmniConfig {
   if (typeof value !== "object" || value === null) return false;
   const obj = value as Record<string, unknown>;
-  if (!["anthropic", "kimi", "custom"].includes(obj.provider as string)) return false;
+  if (!isProviderId(obj.provider)) return false;
   if (typeof obj.endpoint !== "string" || obj.endpoint.length === 0) return false;
   if (typeof obj.model !== "string" || obj.model.length === 0) return false;
   if (obj.maxTokens !== undefined && (typeof obj.maxTokens !== "number" || obj.maxTokens <= 0)) return false;

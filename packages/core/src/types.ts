@@ -1,6 +1,7 @@
 import type { AssistantMessageEvent, Message } from "@mariozechner/pi-ai";
 import type { ToolLifecycleAdapter } from "./tool-lifecycle";
 import type { ExtensionEvent } from "./extension-events";
+import type { ProviderId } from "./models";
 
 export interface AgentTool {
   name: string;
@@ -24,13 +25,14 @@ export interface TokenUsage {
   outputTokens: number;
   totalTokens: number;
   contextWindow: number;
+  estimated?: boolean;
 }
 
 export interface AgentConfig {
   model: string;
   apiKey: string;
   endpoint?: string;
-  provider?: "anthropic" | "kimi" | "custom";
+  provider?: ProviderId;
   systemPrompt: string;
   tools: AgentTool[];
   toolLifecycleAdapters?: ToolLifecycleAdapter[];

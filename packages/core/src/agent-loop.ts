@@ -7,6 +7,7 @@ import type { StreamSession } from "./stream/index";
 import { collectLifecycleEndEvents, collectLifecycleStartEvents } from "./tool-lifecycle";
 
 const DEFAULT_MAX_TURNS = 10;
+const APPROX_CHARS_PER_TOKEN = 4;
 
 export interface AgentLoopOptions {
   /** Optional StreamSession for state-machine-driven event dispatch */
@@ -19,6 +20,31 @@ export interface AgentLoopOptions {
  */
 export interface AgentLoopResult {
   messages: Message[];
+}
+
+function textContentLength(content: Message["content"]): number {
+  if (typeof content === "string") return content.length;
+  return content.reduce((total, block) => {
+    if (block.type === "text") return total + block.text.length;
+    if (block.type === "thinking") return total + block.thinking.length;
+    if (block.type === "toolCall") return total + block.name.length + JSON.stringify(block.arguments).length;
+    if (block.type === "image") return total + 256;
+    return total;
+  }, 0);
+}
+
+function estimateRequestInputTokens(config: AgentConfig, messages: Message[]): number {
+  const systemChars = config.systemPrompt.length;
+  const messageChars = messages.reduce((total, message) => total + textContentLength(message.content), 0);
+  const toolChars = JSON.stringify(
+    config.tools.map((tool) => ({
+      name: tool.name,
+      description: tool.description,
+      parameters: tool.schema,
+    })),
+  ).length;
+
+  return Math.ceil((systemChars + messageChars + toolChars) / APPROX_CHARS_PER_TOKEN);
 }
 
 /**
@@ -61,6 +87,7 @@ export async function* runAgentLoop(
     // Call LLM
     let assistantMessage: AssistantMessage | null = null;
 
+    const estimatedInputTokens = estimateRequestInputTokens(config, conversation);
     const eventStream = streamLLM(config, conversation, signal);
 
     for await (const event of eventStream) {
@@ -90,13 +117,26 @@ export async function* runAgentLoop(
     conversation.push(assistantMessage);
     produced.push(assistantMessage);
 
-    // Extract usage from the assistant message
+    // Extract usage from the assistant message. Context occupancy includes cached prompt
+    // tokens; provider usage may report those separately from fresh input tokens.
     if (assistantMessage.usage) {
+      const reportedInputTokens =
+        assistantMessage.usage.input + assistantMessage.usage.cacheRead + assistantMessage.usage.cacheWrite;
+      const inputTokens = Math.max(reportedInputTokens, estimatedInputTokens);
       lastUsage = {
-        inputTokens: assistantMessage.usage.input,
+        inputTokens,
         outputTokens: assistantMessage.usage.output,
-        totalTokens: assistantMessage.usage.totalTokens,
+        totalTokens: inputTokens + assistantMessage.usage.output,
         contextWindow,
+        estimated: inputTokens !== reportedInputTokens,
+      };
+    } else {
+      lastUsage = {
+        inputTokens: estimatedInputTokens,
+        outputTokens: 0,
+        totalTokens: estimatedInputTokens,
+        contextWindow,
+        estimated: true,
       };
     }
 

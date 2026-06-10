@@ -75,7 +75,7 @@ async function main() {
   /** Format context usage line with color */
   function formatContextLine(usage: TokenUsage): string {
     const pct = Math.round((usage.inputTokens / usage.contextWindow) * 100);
-    const inputStr = usage.inputTokens.toLocaleString();
+    const inputStr = `${usage.estimated ? "~" : ""}${usage.inputTokens.toLocaleString()}`;
     const windowStr = usage.contextWindow.toLocaleString();
     const text = `Context: ${inputStr} / ${windowStr} tokens (${pct}%)`;
 

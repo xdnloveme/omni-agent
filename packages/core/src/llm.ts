@@ -10,78 +10,43 @@ import {
 
 import type { AgentConfig, AgentTool } from "./types";
 import { toContextMessages } from "./llm-context";
-
-/**
- * Resolve the pi-ai Api protocol based on the configured provider.
- */
-function resolveApi(provider: AgentConfig["provider"]): Api {
-  switch (provider) {
-    case "anthropic":
-      return "anthropic-messages" as Api;
-    case "kimi":
-    case "custom":
-      return "openai-completions" as Api;
-    default:
-      return "anthropic-messages" as Api;
-  }
-}
+import { getDefaultPresetForProvider } from "./models";
 
 /**
  * Default maxTokens per provider when not explicitly configured.
  */
 function getDefaultMaxTokens(provider: AgentConfig["provider"]): number {
-  switch (provider) {
-    case "anthropic":
-      return 16384;
-    case "kimi":
-      return 8192;
-    case "custom":
-      return 4096;
-    default:
-      return 16384;
-  }
+  return getDefaultPresetForProvider(provider).maxTokens;
 }
 
 /**
  * Default contextWindow per provider when not explicitly configured.
  */
 export function getDefaultContextWindow(provider: AgentConfig["provider"]): number {
-  switch (provider) {
-    case "anthropic":
-      return 200000;
-    case "kimi":
-      return 128000;
-    case "custom":
-      return 128000;
-    default:
-      return 200000;
-  }
+  return getDefaultPresetForProvider(provider).contextWindow;
 }
 
 /**
  * Build a pi-ai Model object from config, selecting the correct API protocol.
  */
 export function buildModel(config: AgentConfig): Model<Api> {
-  const api = resolveApi(config.provider);
-  const defaultBaseUrl =
-    config.provider === "anthropic" || !config.provider
-      ? "https://api.anthropic.com"
-      : undefined;
+  const preset = getDefaultPresetForProvider(config.provider);
 
-  const maxTokens = config.maxTokens ?? getDefaultMaxTokens(config.provider);
-  const contextWindow = config.contextWindow ?? getDefaultContextWindow(config.provider);
+  const maxTokens = config.maxTokens ?? preset.maxTokens;
+  const contextWindow = config.contextWindow ?? preset.contextWindow;
 
   return {
     id: config.model,
     name: config.model,
-    api,
-    provider: config.provider ?? "anthropic",
-    baseUrl: config.endpoint ?? defaultBaseUrl ?? "",
+    api: preset.api,
+    provider: config.provider ?? preset.provider,
+    baseUrl: config.endpoint ?? preset.endpoint,
     reasoning: false,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
     contextWindow,
     maxTokens,
+    headers: preset.headers?.(),
   };
 }
 
