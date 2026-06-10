@@ -1,6 +1,8 @@
-# omni-agent
+# xdnloveme
 
-A personal assistant agent — TUI-based interaction with multi LLM provider support (OpenAI, Anthropic, etc.).
+A personal coding agent — TUI-based interaction with multi-provider LLM support, local tools, skills, and session history.
+
+Repository: [github.com/xdnloveme/omni-agent](https://github.com/xdnloveme/omni-agent)
 
 ## Quick Start
 
