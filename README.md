@@ -1,6 +1,6 @@
 # xdnloveme
 
-A personal coding agent — TUI-based interaction with multi-provider LLM support, local tools, skills, and session history.
+A modular agent runtime with a default coding agent, TUI interaction, multi-provider LLM support, local tools, skills, and session history.
 
 Repository: [github.com/xdnloveme/omni-agent](https://github.com/xdnloveme/omni-agent)
 
@@ -19,9 +19,18 @@ Monorepo managed by pnpm workspace:
 
 ```
 packages/
-  core/   # Core logic: agent loop, LLM calls, config, command system
-  cli/    # TUI interface, onboarding, tool implementations
+  core/   # Agent runtime, model/tool execution, events, compatibility APIs
+  app/    # Application facade, registries, extensions, sessions, config
+  tools/  # Domain-neutral filesystem, shell, search, and web tools
+  cli/    # Process entry, TUI, chat mode, and onboarding
+
+agents/
+  coding/              # Default coding agent extension
+  financial-analysis/ # Optional read-only financial analysis extension
 ```
+
+Dependency direction is `core <- app <- agents/* <- cli`, with `tools -> core` and
+`agents/* -> tools`. Concrete agents are never registered implicitly by core or app.
 
 ## Development
 

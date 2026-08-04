@@ -43,8 +43,9 @@ describe("skills", () => {
     });
     const result = await loader.loadAll();
 
-    expect(result.skills).toHaveLength(1);
-    expect(result.skills[0].filePath).toBe(projectPath);
+    const matchingSkills = result.skills.filter((skill) => skill.name === "frontend-design");
+    expect(matchingSkills).toHaveLength(1);
+    expect(matchingSkills[0].filePath).toBe(projectPath);
     expect(result.diagnostics.some((d) => d.code === "collision")).toBe(true);
   });
 

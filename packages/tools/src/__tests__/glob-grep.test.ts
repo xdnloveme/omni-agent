@@ -2,8 +2,8 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { globTool } from "../tools/glob";
-import { grepTool } from "../tools/grep";
+import { globTool } from "../search/glob";
+import { grepTool } from "../search/grep";
 
 let tmpDir: string;
 

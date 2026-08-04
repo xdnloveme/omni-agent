@@ -1,0 +1,25 @@
+{
+  "name": "@omni-agent/tools",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./filesystem": "./src/filesystem/index.ts",
+    "./shell": "./src/shell/index.ts",
+    "./search": "./src/search/index.ts",
+    "./web": "./src/web/index.ts",
+    "./toolsets": "./src/toolsets/index.ts"
+  },
+  "scripts": { "build": "tsc -p tsconfig.json" },
+  "dependencies": {
+    "@omni-agent/core": "workspace:*",
+    "cheerio": "^1.2.0",
+    "fast-glob": "^3.3.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.9.2"
+  }
+}

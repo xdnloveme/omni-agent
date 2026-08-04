@@ -10,6 +10,7 @@ export interface OmniConfig {
   model: string;
   maxTokens?: number;
   contextWindow?: number;
+  apiKeyEnvVar?: string;
 }
 
 const CONFIG_DIR_NAME = ".omni-agent";
@@ -35,6 +36,7 @@ function isConfigValid(value: unknown): value is OmniConfig {
   if (typeof obj.model !== "string" || obj.model.length === 0) return false;
   if (obj.maxTokens !== undefined && (typeof obj.maxTokens !== "number" || obj.maxTokens <= 0)) return false;
   if (obj.contextWindow !== undefined && (typeof obj.contextWindow !== "number" || obj.contextWindow <= 0)) return false;
+  if (obj.apiKeyEnvVar !== undefined && (typeof obj.apiKeyEnvVar !== "string" || obj.apiKeyEnvVar.length === 0)) return false;
   return true;
 }
 

@@ -6,7 +6,10 @@
     "composite": true
   },
   "references": [
-    { "path": "../core" }
+    { "path": "../core" },
+    { "path": "../app" },
+    { "path": "../tools" },
+    { "path": "../../agents/coding" }
   ],
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]

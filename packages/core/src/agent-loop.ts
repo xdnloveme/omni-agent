@@ -2,9 +2,10 @@ import type { AssistantMessage, Message } from "@mariozechner/pi-ai";
 
 import { streamLLM } from "./llm";
 import { getDefaultContextWindow } from "./llm";
-import type { AgentConfig, AgentEvent, AgentTool, TokenUsage } from "./types";
+import type { AgentConfig, AgentEvent, TokenUsage } from "./types";
 import type { StreamSession } from "./stream/index";
 import { collectLifecycleEndEvents, collectLifecycleStartEvents } from "./tool-lifecycle";
+import { ToolExecutor } from "./tools/executor";
 
 const DEFAULT_MAX_TURNS = 10;
 const APPROX_CHARS_PER_TOKEN = 4;
@@ -75,6 +76,7 @@ export async function* runAgentLoop(
   // Track the latest usage from the last LLM response
   let lastUsage: TokenUsage | undefined;
   const contextWindow = config.contextWindow ?? getDefaultContextWindow(config.provider);
+  const toolExecutor = new ToolExecutor();
 
   for (let turn = 0; turn < maxTurns; turn++) {
     if (signal?.aborted) {
@@ -173,9 +175,6 @@ export async function* runAgentLoop(
         input: call.arguments,
       };
 
-      const startTime = Date.now();
-      const tool = config.tools.find((t) => t.name === call.name);
-
       const lifecycleStartEvents = collectLifecycleStartEvents(config.toolLifecycleAdapters, {
         toolName: call.name,
         toolCallId: call.id,
@@ -186,25 +185,8 @@ export async function* runAgentLoop(
         yield event;
       }
 
-      let result: { content: Array<{ type: "text"; text: string }>; isError: boolean; meta?: Record<string, unknown> };
-
-      if (!tool) {
-        result = {
-          content: [{ type: "text", text: `Tool not found: ${call.name}` }],
-          isError: true,
-        };
-      } else {
-        try {
-          result = await tool.execute(call.arguments, signal);
-        } catch (err) {
-          result = {
-            content: [{ type: "text", text: err instanceof Error ? err.message : String(err) }],
-            isError: true,
-          };
-        }
-      }
-
-      const durationMs = Date.now() - startTime;
+      const execution = await toolExecutor.execute(config.tools, call.name, call.arguments, signal);
+      const { result, durationMs } = execution;
       session?.handle({
         type: "tool_use_end",
         toolName: call.name,

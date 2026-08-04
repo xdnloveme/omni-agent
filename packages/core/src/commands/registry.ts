@@ -15,6 +15,10 @@ export class CommandRegistry {
     return this.commands.has(name);
   }
 
+  unregister(name: string): void {
+    this.commands.delete(name);
+  }
+
   list(): Command[] {
     return [...this.commands.values()];
   }

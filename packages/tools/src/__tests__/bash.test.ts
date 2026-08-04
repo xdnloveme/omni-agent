@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { bashTool } from "../tools/bash";
+import { bashTool } from "../shell/bash";
 
 describe("bashTool", () => {
   it("should execute a simple echo command", async () => {

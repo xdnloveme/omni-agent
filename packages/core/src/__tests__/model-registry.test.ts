@@ -25,17 +25,41 @@ describe("model registry", () => {
   });
 
   it("contains the built-in provider presets", () => {
-    expect(MODEL_PRESETS.map((preset) => preset.id)).toEqual([
-      "anthropic-claude-sonnet-4",
-      "kimi-k2.6-global",
-      "kimi-k2.6-cn",
-      "kimi-code-for-coding",
-      "custom-openai-compatible",
-    ]);
+    const presetIds = MODEL_PRESETS.map((preset) => preset.id);
+
+    expect(presetIds).toEqual(
+      expect.arrayContaining([
+        "openai-gpt-5.5",
+        "openai-gpt-5.4-mini",
+        "anthropic-claude-fable-5",
+        "anthropic-claude-opus-4.8",
+        "anthropic-claude-opus-4.7",
+        "anthropic-claude-opus-4.6",
+        "anthropic-claude-sonnet-4",
+        "google-gemini-3.1-pro-preview",
+        "google-gemini-3.5-flash",
+        "mistral-large-latest",
+        "deepseek-chat",
+        "qwen3.6-plus",
+        "kimi-k2.6-global",
+        "kimi-k2.6-cn",
+        "kimi-code-for-coding",
+        "openrouter-claude-opus-4.7",
+        "custom-openai-compatible",
+      ]),
+    );
+    expect(presetIds.some((id) => id.includes("grok"))).toBe(false);
   });
 
   it("validates configured provider ids", () => {
+    expect(isProviderId("openai")).toBe(true);
+    expect(isProviderId("google")).toBe(true);
+    expect(isProviderId("mistral")).toBe(true);
+    expect(isProviderId("deepseek")).toBe(true);
+    expect(isProviderId("qwen")).toBe(true);
+    expect(isProviderId("openrouter")).toBe(true);
     expect(isProviderId("kimi-code")).toBe(true);
+    expect(isProviderId("xai")).toBe(false);
     expect(isProviderId("invalid-provider")).toBe(false);
   });
 
@@ -45,6 +69,45 @@ describe("model registry", () => {
     expect(preset.endpoint).toBe("https://api.moonshot.cn/v1");
     expect(preset.model).toBe("kimi-k2.6");
     expect(preset.contextWindow).toBe(256000);
+  });
+
+  it("returns defaults for newly added providers", () => {
+    expect(getDefaultPresetForProvider("openai")).toMatchObject({
+      api: "openai-responses",
+      endpoint: "https://api.openai.com/v1",
+      model: "gpt-5.5",
+      contextWindow: 1000000,
+    });
+    expect(getDefaultPresetForProvider("anthropic")).toMatchObject({
+      api: "anthropic-messages",
+      model: "claude-fable-5",
+      contextWindow: 1000000,
+    });
+    expect(getDefaultPresetForProvider("google")).toMatchObject({
+      api: "google-generative-ai",
+      endpoint: "https://generativelanguage.googleapis.com/v1beta",
+      model: "gemini-3.1-pro-preview",
+    });
+    expect(getDefaultPresetForProvider("mistral")).toMatchObject({
+      api: "mistral-conversations",
+      endpoint: "https://api.mistral.ai",
+      model: "mistral-large-latest",
+    });
+    expect(getDefaultPresetForProvider("deepseek")).toMatchObject({
+      api: "openai-completions",
+      endpoint: "https://api.deepseek.com",
+      model: "deepseek-chat",
+    });
+    expect(getDefaultPresetForProvider("qwen")).toMatchObject({
+      api: "openai-completions",
+      endpoint: "https://dashscope.aliyuncs.com/compatible-mode/v1",
+      model: "qwen3.6-plus",
+    });
+    expect(getDefaultPresetForProvider("openrouter")).toMatchObject({
+      api: "openai-completions",
+      endpoint: "https://openrouter.ai/api/v1",
+      model: "anthropic/claude-opus-4.7",
+    });
   });
 
   it("builds Kimi Code with coding endpoint and required headers", () => {

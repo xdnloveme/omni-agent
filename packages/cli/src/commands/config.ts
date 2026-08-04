@@ -8,6 +8,7 @@ export const configCommand: Command = {
   description: "Reconfigure LLM provider and API key",
   async execute(ctx) {
     ctx.tui.pause();
+    let updated = false;
     try {
       const result = await runOnboarding();
       ctx.agentConfig.provider = result.config.provider;
@@ -16,13 +17,16 @@ export const configCommand: Command = {
       ctx.agentConfig.apiKey = result.apiKey;
       ctx.agentConfig.maxTokens = result.config.maxTokens;
       ctx.agentConfig.contextWindow = result.config.contextWindow;
+      updated = true;
     } catch (err) {
       console.error(
         chalk.red(`Configuration failed: ${err instanceof Error ? err.message : String(err)}`),
       );
     }
     ctx.tui.resume();
-    ctx.tui.sink.line(chalk.green(`Configuration updated. Using ${ctx.agentConfig.provider} now.`));
+    if (updated) {
+      ctx.tui.sink.line(chalk.green(`Configuration updated. Using ${ctx.agentConfig.provider} now.`));
+    }
     ctx.tui.sink.spacer();
   },
 };

@@ -1,5 +1,27 @@
 export { runAgentLoop } from "./agent-loop";
 export type { AgentLoopOptions } from "./agent-loop";
+export { AgentRunner, defineAgent } from "./agent/index";
+export type {
+  AgentDefinition,
+  AgentModelSettings,
+  AgentRunContext,
+  AgentRunResult,
+} from "./agent/index";
+export {
+  ToolExecutor,
+  toLegacyAgentTool,
+} from "./tools/index";
+export type {
+  ToolApproval,
+  ToolContext,
+  ToolDefinition,
+  ToolExecutionResult,
+  ToolExecutorOptions,
+  ToolGuardrail,
+  ToolPolicy,
+  ToolRisk,
+} from "./tools/index";
+export type { RunMiddleware, RuntimeMiddleware, ToolMiddleware } from "./middleware/index";
 export {
   collectLifecycleEndEvents,
   collectLifecycleStartEvents,
@@ -15,7 +37,13 @@ export { getApiKey, saveApiKey, deleteApiKey } from "./credential";
 export type { AgentConfig, AgentTool, AgentEvent, ToolResult, Message, TokenUsage } from "./types";
 export type { ExtensionEvent } from "./extension-events";
 export { buildModel, getDefaultContextWindow } from "./llm";
-export { MODEL_PRESETS, getDefaultPresetForProvider, getModelPresetById, isProviderId } from "./models";
+export {
+  MODEL_PRESETS,
+  getDefaultPresetForProvider,
+  getModelPresetById,
+  isProviderId,
+  loadLocalModelExtensions,
+} from "./models";
 export type { ModelPreset, ProviderId } from "./models";
 export { CommandRegistry } from "./commands/index";
 export type { Command, CommandContext, CommandTui } from "./commands/index";

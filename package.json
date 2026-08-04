@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "tsx packages/cli/src/index.ts",
     "build": "pnpm -r run build",
-    "typecheck": "tsc -b packages/core packages/cli",
+    "typecheck": "tsc -b packages/core packages/tools packages/app agents/coding agents/financial-analysis packages/cli",
     "test": "vitest run",
     "test:watch": "vitest",
     "prepare": "husky"
@@ -19,12 +19,5 @@
   },
   "engines": {
     "node": ">=20.0.0"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "keytar",
-      "esbuild",
-      "koffi"
-    ]
   }
 }

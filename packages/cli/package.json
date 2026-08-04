@@ -10,10 +10,11 @@
   "dependencies": {
     "@inquirer/prompts": "^8.0.0",
     "@mariozechner/pi-tui": "^0.55.1",
+    "@omni-agent/agent-coding": "workspace:*",
+    "@omni-agent/app": "workspace:*",
     "@omni-agent/core": "workspace:*",
-    "chalk": "^5.6.2",
-    "cheerio": "^1.2.0",
-    "fast-glob": "^3.3.3"
+    "@omni-agent/tools": "workspace:*",
+    "chalk": "^5.6.2"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

@@ -7,6 +7,10 @@ export interface AgentTool {
   name: string;
   description: string;
   schema: Record<string, unknown>;
+  strict?: boolean;
+  risk?: "read" | "write" | "execute" | "network";
+  approval?: "never" | "always" | "policy";
+  timeoutMs?: number;
   execute: (
     params: Record<string, unknown>,
     signal?: AbortSignal,

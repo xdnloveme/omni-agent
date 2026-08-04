@@ -1,6 +1,19 @@
 import type { Api } from "@mariozechner/pi-ai";
 
-export type ProviderId = "anthropic" | "kimi" | "kimi-cn" | "kimi-code" | "custom";
+export type BuiltinProviderId =
+  | "openai"
+  | "anthropic"
+  | "google"
+  | "mistral"
+  | "deepseek"
+  | "qwen"
+  | "openrouter"
+  | "kimi"
+  | "kimi-cn"
+  | "kimi-code"
+  | "custom";
+
+export type ProviderId = BuiltinProviderId | (string & {});
 
 export interface ModelPreset {
   id: string;
@@ -13,5 +26,6 @@ export interface ModelPreset {
   maxTokens: number;
   contextWindow: number;
   keychainAccount?: string;
+  apiKeyEnvVar?: string;
   headers?: () => Record<string, string>;
 }
