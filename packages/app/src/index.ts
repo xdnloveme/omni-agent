@@ -30,7 +30,12 @@ export type {
 } from "./extensions/types";
 export { ConfigService } from "./config/config-service";
 export type { ConfigServiceOptions } from "./config/config-service";
-export type { AgentModelConfig, ConfigDiagnostic, OmniConfig } from "./config/types";
+export type {
+  AgentModelConfig,
+  ConfigDiagnostic,
+  OmniConfig,
+  ResolvedModelConfiguration,
+} from "./config/types";
 export { ModelService, createModelService } from "./models/model-service";
 export type { ModelServiceDiagnostic } from "./models/model-service";
 export type {

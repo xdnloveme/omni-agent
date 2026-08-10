@@ -1,4 +1,5 @@
 import type { ModelSelection } from "../models/model-service";
+import type { ConfigurationScope } from "@omni-agent/models";
 
 export interface AgentModelConfig {
   model: ModelSelection;
@@ -8,6 +9,12 @@ export interface OmniConfig {
   version: 3;
   model: ModelSelection;
   agents?: Record<string, AgentModelConfig>;
+}
+
+export interface ResolvedModelConfiguration {
+  readonly selection: ModelSelection;
+  readonly scope: ConfigurationScope;
+  readonly kind: "agent" | "shared";
 }
 
 export interface ConfigDiagnostic {

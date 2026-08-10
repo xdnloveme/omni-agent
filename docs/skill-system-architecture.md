@@ -591,7 +591,7 @@ This should be implemented after a general `ToolPolicyResolver` exists. Until th
 
 Current code maps cleanly:
 
-- `buildSystemPrompt(cwd)` already uses contributors. Add `skillsContributor`.
+- The coding Agent owns its base prompt and composes Core-provided context and skills contributors.
 - `AgentConfig.tools` is already an array. Add `skillReadTool`.
 - `runAgentLoop` already emits tool start/end. Add tool lifecycle adapters that can emit namespaced `extension_event`s around matching tools.
 - `StreamSession` already routes events to callbacks. Add `onExtensionEvent` once, then keep feature-specific rendering outside the generic stream layer.

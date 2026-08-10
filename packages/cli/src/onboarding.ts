@@ -1,6 +1,11 @@
 import { select } from "@inquirer/prompts";
 import chalk from "chalk";
-import type { ModelSelection, ModelService } from "@omni-agent/app";
+import type {
+  ConfigService,
+  ModelSelection,
+  ModelService,
+  ResolvedModelConfiguration,
+} from "@omni-agent/app";
 import { selectModel } from "./models/select-model";
 import { createAuthInteraction } from "./models/auth-interaction";
 
@@ -48,4 +53,17 @@ export async function runOnboarding(modelService: ModelService): Promise<Onboard
   );
   console.log();
   return { selection };
+}
+
+export async function persistOnboardingSelection(
+  configService: ConfigService,
+  agentId: string,
+  selection: ModelSelection,
+  current: ResolvedModelConfiguration | null,
+): Promise<void> {
+  if (current?.kind === "agent") {
+    await configService.saveAgentModel(agentId, selection, { scope: current.scope });
+    return;
+  }
+  await configService.saveSharedModel(selection);
 }

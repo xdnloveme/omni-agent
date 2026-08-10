@@ -40,7 +40,6 @@ export type {
 } from "./models";
 export { CommandRegistry } from "./commands/index";
 export type { Command, CommandContext, CommandTui } from "./commands/index";
-export { buildSystemPrompt, composeSystemPrompt, BASE_SYSTEM_PROMPT } from "./system-prompt/index";
 export { createSkillsContributor, defaultContributors } from "./system-prompt/index";
 export type { SystemPromptContributor } from "./system-prompt/index";
 export {

@@ -1,8 +1,3 @@
-import {
-  composeSystemPrompt,
-  createSkillsContributor,
-  defaultContributors,
-} from "../system-prompt";
 import type { AgentTool } from "../types";
 import { createSkillReadTool } from "./skill-read-tool";
 import { SkillReadLifecycleAdapter } from "./lifecycle-adapter";
@@ -15,12 +10,10 @@ export interface SkillRuntimeOptions {
 
 export class SkillRuntime {
   readonly registry: SkillRegistry;
-  private readonly cwd: string;
   private readonly skillReadTool: AgentTool;
   private readonly lifecycleAdapter: SkillReadLifecycleAdapter;
 
   constructor(options: SkillRuntimeOptions) {
-    this.cwd = options.cwd;
     this.registry = new SkillRegistry({ cwd: options.cwd });
     this.skillReadTool = createSkillReadTool(this.registry);
     this.lifecycleAdapter = new SkillReadLifecycleAdapter();
@@ -28,13 +21,6 @@ export class SkillRuntime {
 
   async initialize(): Promise<void> {
     await this.registry.initialize();
-  }
-
-  async buildSystemPrompt(): Promise<string> {
-    return composeSystemPrompt(this.cwd, [
-      ...defaultContributors,
-      createSkillsContributor(this.registry),
-    ]);
   }
 
   tool(): AgentTool {

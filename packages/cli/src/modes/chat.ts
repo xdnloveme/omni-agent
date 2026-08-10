@@ -4,13 +4,14 @@ import type { StreamCallbacks, TokenUsage } from "@omni-agent/core";
 import { AgentFactory, ConfigService, createModelService } from "@omni-agent/app";
 import { loadAgentBlueprint } from "../agents/agent-blueprint-loader";
 import { createOmniTui } from "../interaction/tui/tui";
-import { runOnboarding } from "../onboarding";
+import { persistOnboardingSelection, runOnboarding } from "../onboarding";
 import { createCommandRegistry } from "../commands/index";
 import { SkillCliController } from "../skills";
 
 export async function runChatMode(agentId: string): Promise<void> {
   const configService = new ConfigService();
-  const selection = await configService.resolveModel(agentId);
+  const resolvedConfiguration = await configService.resolveModelConfiguration(agentId);
+  const selection = resolvedConfiguration?.selection ?? null;
   for (const diagnostic of configService.diagnostics) {
     console.warn(chalk.yellow(`Configuration ${diagnostic.code}: ${diagnostic.message}`));
   }
@@ -27,7 +28,12 @@ export async function runChatMode(agentId: string): Promise<void> {
     }
     if (!selection || !configured) {
       const result = await runOnboarding(modelService);
-      await configService.saveSharedModel(result.selection);
+      await persistOnboardingSelection(
+        configService,
+        agentId,
+        result.selection,
+        resolvedConfiguration,
+      );
     }
 
     const blueprint = await loadAgentBlueprint(agentId);

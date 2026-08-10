@@ -34,7 +34,7 @@ async function fixture() {
   const configService = {
     saveAgentModel: vi.fn(async () => undefined),
     saveSharedModel: vi.fn(async () => undefined),
-    removeAgentModel: vi.fn(async () => undefined),
+    clearAgentModelOverrides: vi.fn(async () => undefined),
     resolveModel: vi.fn(async () => selection),
     resolveSharedModel: vi.fn(async () => selection),
   } as unknown as ConfigService;
@@ -96,12 +96,7 @@ describe("AgentApplication model selection", () => {
 
     await app.useSharedModel();
 
-    expect(configService.removeAgentModel).toHaveBeenNthCalledWith(1, "test", {
-      scope: "global",
-    });
-    expect(configService.removeAgentModel).toHaveBeenNthCalledWith(2, "test", {
-      scope: "project",
-    });
+    expect(configService.clearAgentModelOverrides).toHaveBeenCalledWith("test");
     expect(app.modelSelection).toEqual({
       vendorId: "test",
       connectionId: "default",

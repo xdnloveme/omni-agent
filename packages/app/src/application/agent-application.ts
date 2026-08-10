@@ -92,8 +92,7 @@ export class AgentApplication {
     if (!(await this.modelService.isConfigured(next.providerId))) {
       throw new Error(`Provider is not configured: ${next.providerId}`);
     }
-    await this.configService.removeAgentModel(this.agentId, { scope: "global" });
-    await this.configService.removeAgentModel(this.agentId, { scope: "project" });
+    await this.configService.clearAgentModelOverrides(this.agentId);
     const effective = await this.configService.resolveModel(this.agentId);
     if (!effective) throw new Error("Shared model is not configured");
     this.activateModel(effective, next);
