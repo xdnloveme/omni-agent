@@ -1,14 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type { SessionMessage, SessionEntry } from "./types";
-import {
-  readIndex,
-  upsertIndexEntry,
-  appendMessage,
-  appendMessages,
-  replayMessages,
-  clearSession as clearSessionFile,
-} from "./session-store";
+import { FileSessionStore, type SessionStore } from "./session-store";
 
 /**
  * SessionManager — manages the lifecycle of conversation sessions.
@@ -23,6 +16,8 @@ import {
 export class SessionManager {
   private _currentId: string | null = null;
   private _messages: SessionMessage[] = [];
+
+  constructor(private readonly store: SessionStore = new FileSessionStore()) {}
 
   /** The current session ID, or null if no session is active. */
   get currentId(): string | null {
@@ -46,7 +41,7 @@ export class SessionManager {
       createdAt: now,
       lastActiveAt: now,
     };
-    upsertIndexEntry(entry);
+    this.store.upsertIndexEntry(entry);
     this._currentId = id;
     this._messages = [];
     return id;
@@ -58,7 +53,7 @@ export class SessionManager {
    * Returns the session ID.
    */
   restoreLatest(): string {
-    const index = readIndex();
+    const index = this.store.readIndex();
     if (index.sessions.length === 0) {
       return this.create();
     }
@@ -68,7 +63,7 @@ export class SessionManager {
     const latest = sorted[0];
 
     this._currentId = latest.id;
-    this._messages = replayMessages(latest.id);
+    this._messages = this.store.replayMessages(latest.id);
     return latest.id;
   }
 
@@ -77,13 +72,13 @@ export class SessionManager {
    * Throws if the session doesn't exist in the index.
    */
   switchTo(sessionId: string): void {
-    const index = readIndex();
+    const index = this.store.readIndex();
     const entry = index.sessions.find((s) => s.id === sessionId);
     if (!entry) {
       throw new Error(`Session not found: ${sessionId}`);
     }
     this._currentId = sessionId;
-    this._messages = replayMessages(sessionId);
+    this._messages = this.store.replayMessages(sessionId);
   }
 
   /**
@@ -94,7 +89,7 @@ export class SessionManager {
       throw new Error("No active session. Call create() or restoreLatest() first.");
     }
     this._messages.push(message);
-    appendMessage(this._currentId, message);
+    this.store.appendMessage(this._currentId, message);
   }
 
   /**
@@ -105,7 +100,7 @@ export class SessionManager {
       throw new Error("No active session. Call create() or restoreLatest() first.");
     }
     this._messages.push(...messages);
-    appendMessages(this._currentId, messages);
+    this.store.appendMessages(this._currentId, messages);
   }
 
   /**
@@ -117,6 +112,6 @@ export class SessionManager {
       throw new Error("No active session. Call create() or restoreLatest() first.");
     }
     this._messages = [];
-    clearSessionFile(this._currentId);
+    this.store.clearSession(this._currentId);
   }
 }

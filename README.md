@@ -35,6 +35,8 @@ registered implicitly by core or app.
 Each Agent package exports an `agentFactory`; the CLI loads
 `@omni-agent/agent-<id>` by convention, so adding an installed Agent does not
 require another CLI branch.
+Agent sessions are isolated under `~/.omni-agent/sessions/<agent-id>/`; switching
+Agent IDs never restores another Agent's conversation history.
 
 ## Provider credentials
 

@@ -9,6 +9,9 @@ describe("createAgentComposition", () => {
     expect(composition.extension.contributions.agents?.[0]?.definition.id).toBe(
       "financial-analysis",
     );
+    expect(composition.extension.contributions.agents?.[0]?.definition.instructions).toContain(
+      "read-only financial analysis agent",
+    );
     expect(composition.skills).toBeUndefined();
   });
 

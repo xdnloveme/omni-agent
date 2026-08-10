@@ -28,16 +28,7 @@ import {
   createAssistantMessage,
   createToolResultMessage,
 } from "../session/factory";
-import {
-  readIndex,
-  writeIndex,
-  upsertIndexEntry,
-  appendMessage,
-  appendMessages,
-  replayMessages,
-  clearSession,
-  removeSession,
-} from "../session/session-store";
+import { FileSessionStore } from "../session/session-store";
 import { SessionManager } from "../session/session-manager";
 import type { SessionIndex, SessionEntry } from "../session/types";
 
@@ -103,12 +94,15 @@ describe("session/factory", () => {
 });
 
 describe("session/session-store", () => {
+  let store: FileSessionStore;
+
   beforeEach(() => {
     // Clean up test directory
     if (existsSync(SESSIONS_DIR)) {
       rmSync(SESSIONS_DIR, { recursive: true });
     }
     mkdirSync(SESSIONS_DIR, { recursive: true });
+    store = new FileSessionStore(SESSIONS_DIR);
   });
 
   afterEach(() => {
@@ -123,7 +117,7 @@ describe("session/session-store", () => {
       const indexPath = join(SESSIONS_DIR, "index.json");
       if (existsSync(indexPath)) rmSync(indexPath);
 
-      const index = readIndex();
+      const index = store.readIndex();
       expect(index.sessions).toEqual([]);
     });
 
@@ -131,8 +125,8 @@ describe("session/session-store", () => {
       const index: SessionIndex = {
         sessions: [{ id: "abc-123", createdAt: 1000, lastActiveAt: 2000 }],
       };
-      writeIndex(index);
-      const result = readIndex();
+      store.writeIndex(index);
+      const result = store.readIndex();
       expect(result).toEqual(index);
     });
   });
@@ -140,17 +134,17 @@ describe("session/session-store", () => {
   describe("upsertIndexEntry", () => {
     it("adds a new entry", () => {
       const entry: SessionEntry = { id: "new-id", createdAt: 100, lastActiveAt: 200 };
-      upsertIndexEntry(entry);
-      const index = readIndex();
+      store.upsertIndexEntry(entry);
+      const index = store.readIndex();
       expect(index.sessions).toHaveLength(1);
       expect(index.sessions[0]).toEqual(entry);
     });
 
     it("updates an existing entry", () => {
       const entry: SessionEntry = { id: "existing", createdAt: 100, lastActiveAt: 200 };
-      upsertIndexEntry(entry);
-      upsertIndexEntry({ ...entry, lastActiveAt: 500 });
-      const index = readIndex();
+      store.upsertIndexEntry(entry);
+      store.upsertIndexEntry({ ...entry, lastActiveAt: 500 });
+      const index = store.readIndex();
       expect(index.sessions).toHaveLength(1);
       expect(index.sessions[0].lastActiveAt).toBe(500);
     });
@@ -159,22 +153,22 @@ describe("session/session-store", () => {
   describe("appendMessage / replayMessages", () => {
     it("appends and replays messages", () => {
       const sessionId = "test-session";
-      upsertIndexEntry({ id: sessionId, createdAt: 100, lastActiveAt: 100 });
+      store.upsertIndexEntry({ id: sessionId, createdAt: 100, lastActiveAt: 100 });
 
       const msg1 = createUserMessage("Hello");
       const msg2 = createUserMessage("World");
 
-      appendMessage(sessionId, msg1);
-      appendMessage(sessionId, msg2);
+      store.appendMessage(sessionId, msg1);
+      store.appendMessage(sessionId, msg2);
 
-      const replayed = replayMessages(sessionId);
+      const replayed = store.replayMessages(sessionId);
       expect(replayed).toHaveLength(2);
       expect(replayed[0].role).toBe("user");
       expect(replayed[1].role).toBe("user");
     });
 
     it("returns empty array for non-existent session", () => {
-      const replayed = replayMessages("nonexistent");
+      const replayed = store.replayMessages("nonexistent");
       expect(replayed).toEqual([]);
     });
   });
@@ -182,21 +176,21 @@ describe("session/session-store", () => {
   describe("appendMessages (batch)", () => {
     it("appends multiple messages at once", () => {
       const sessionId = "batch-session";
-      upsertIndexEntry({ id: sessionId, createdAt: 100, lastActiveAt: 100 });
+      store.upsertIndexEntry({ id: sessionId, createdAt: 100, lastActiveAt: 100 });
 
       const msgs = [createUserMessage("One"), createUserMessage("Two"), createUserMessage("Three")];
 
-      appendMessages(sessionId, msgs);
+      store.appendMessages(sessionId, msgs);
 
-      const replayed = replayMessages(sessionId);
+      const replayed = store.replayMessages(sessionId);
       expect(replayed).toHaveLength(3);
     });
 
     it("does nothing for empty array", () => {
       const sessionId = "empty-batch";
-      upsertIndexEntry({ id: sessionId, createdAt: 100, lastActiveAt: 100 });
-      appendMessages(sessionId, []);
-      const replayed = replayMessages(sessionId);
+      store.upsertIndexEntry({ id: sessionId, createdAt: 100, lastActiveAt: 100 });
+      store.appendMessages(sessionId, []);
+      const replayed = store.replayMessages(sessionId);
       expect(replayed).toEqual([]);
     });
   });
@@ -204,12 +198,12 @@ describe("session/session-store", () => {
   describe("clearSession", () => {
     it("clears the JSONL file content", () => {
       const sessionId = "clear-test";
-      upsertIndexEntry({ id: sessionId, createdAt: 100, lastActiveAt: 100 });
-      appendMessage(sessionId, createUserMessage("Hello"));
+      store.upsertIndexEntry({ id: sessionId, createdAt: 100, lastActiveAt: 100 });
+      store.appendMessage(sessionId, createUserMessage("Hello"));
 
-      clearSession(sessionId);
+      store.clearSession(sessionId);
 
-      const replayed = replayMessages(sessionId);
+      const replayed = store.replayMessages(sessionId);
       expect(replayed).toEqual([]);
     });
   });
@@ -217,12 +211,12 @@ describe("session/session-store", () => {
   describe("removeSession", () => {
     it("removes the JSONL file and index entry", () => {
       const sessionId = "remove-test";
-      upsertIndexEntry({ id: sessionId, createdAt: 100, lastActiveAt: 100 });
-      appendMessage(sessionId, createUserMessage("Hello"));
+      store.upsertIndexEntry({ id: sessionId, createdAt: 100, lastActiveAt: 100 });
+      store.appendMessage(sessionId, createUserMessage("Hello"));
 
-      removeSession(sessionId);
+      store.removeSession(sessionId);
 
-      const index = readIndex();
+      const index = store.readIndex();
       expect(index.sessions.find((s) => s.id === sessionId)).toBeUndefined();
       expect(existsSync(join(SESSIONS_DIR, `${sessionId}.jsonl`))).toBe(false);
     });
@@ -231,13 +225,15 @@ describe("session/session-store", () => {
 
 describe("session/SessionManager", () => {
   let manager: SessionManager;
+  let store: FileSessionStore;
 
   beforeEach(() => {
     if (existsSync(SESSIONS_DIR)) {
       rmSync(SESSIONS_DIR, { recursive: true });
     }
     mkdirSync(SESSIONS_DIR, { recursive: true });
-    manager = new SessionManager();
+    store = new FileSessionStore(SESSIONS_DIR);
+    manager = new SessionManager(store);
   });
 
   afterEach(() => {
@@ -256,7 +252,7 @@ describe("session/SessionManager", () => {
 
     it("registers the session in the index", () => {
       const id = manager.create();
-      const index = readIndex();
+      const index = store.readIndex();
       expect(index.sessions.find((s) => s.id === id)).toBeDefined();
     });
   });
@@ -272,11 +268,11 @@ describe("session/SessionManager", () => {
       // Create two sessions with different lastActiveAt
       const oldId = "old-session";
       const newId = "new-session";
-      upsertIndexEntry({ id: oldId, createdAt: 100, lastActiveAt: 100 });
-      upsertIndexEntry({ id: newId, createdAt: 200, lastActiveAt: 300 });
+      store.upsertIndexEntry({ id: oldId, createdAt: 100, lastActiveAt: 100 });
+      store.upsertIndexEntry({ id: newId, createdAt: 200, lastActiveAt: 300 });
 
       // Write a message to the newer session
-      appendMessage(newId, createUserMessage("Latest"));
+      store.appendMessage(newId, createUserMessage("Latest"));
 
       const restoredId = manager.restoreLatest();
       expect(restoredId).toBe(newId);
@@ -294,7 +290,7 @@ describe("session/SessionManager", () => {
       expect(manager.messages[0]).toBe(msg);
 
       // Verify on disk
-      const replayed = replayMessages(manager.currentId!);
+      const replayed = store.replayMessages(manager.currentId!);
       expect(replayed).toHaveLength(1);
     });
 
@@ -310,7 +306,7 @@ describe("session/SessionManager", () => {
       manager.appendBatch(msgs);
 
       expect(manager.messages).toHaveLength(2);
-      const replayed = replayMessages(manager.currentId!);
+      const replayed = store.replayMessages(manager.currentId!);
       expect(replayed).toHaveLength(2);
     });
   });
@@ -322,7 +318,7 @@ describe("session/SessionManager", () => {
       manager.clear();
 
       expect(manager.messages).toEqual([]);
-      const replayed = replayMessages(manager.currentId!);
+      const replayed = store.replayMessages(manager.currentId!);
       expect(replayed).toEqual([]);
     });
 

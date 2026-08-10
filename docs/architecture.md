@@ -156,6 +156,12 @@ allowlist or switch statement. `pnpm dev` selects `coding` by default, while
 `pnpm run dev -- <id>` selects any installed Agent package through the same chat
 runtime.
 
+Each `AgentApplication` owns a Session service scoped by `agentId`. Session
+indexes and JSONL histories live under `~/.omni-agent/sessions/<agent-id>/`, so
+one Agent can never restore another Agent's conversation context. Model and
+credential services remain shared infrastructure; prompts, tools, runtime
+capabilities, and conversation state remain instance-local.
+
 Keytar is the credential source of truth. Its non-secret credential index is
 derived state; writes use provider-scoped serialization and compensation, while a
 corrupt index is quarantined and reconciled from known active provider IDs.

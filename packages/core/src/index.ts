@@ -82,12 +82,10 @@ export type {
   ToolResultPayload,
 } from "./stream/index";
 export {
+  FileSessionStore,
   SessionManager,
   createUserMessage,
   createAssistantMessage,
   createToolResultMessage,
-  readIndex,
-  replayMessages,
-  clearSession,
 } from "./session/index";
-export type { SessionMessage, SessionEntry, SessionIndex } from "./session/index";
+export type { SessionMessage, SessionEntry, SessionIndex, SessionStore } from "./session/index";

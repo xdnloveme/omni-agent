@@ -60,7 +60,8 @@ export async function createAgentApp(options: CreateAgentAppOptions): Promise<Ag
       middleware: manager.middleware,
       maxTurns: contribution.definition.maxTurns,
     };
-    const sessions = options.sessions ?? new SessionService();
+    const sessions =
+      options.sessions ?? SessionService.forAgent(options.defaultAgentId, options.globalDirectory);
     sessions.restoreLatest();
     return new AgentApplication({
       extensions: manager,

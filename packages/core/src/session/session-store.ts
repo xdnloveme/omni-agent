@@ -1,158 +1,115 @@
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  writeFileSync,
-  appendFileSync,
   unlinkSync,
+  writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-import type { SessionMessage, SessionEntry, SessionIndex } from "./types";
+import type { SessionEntry, SessionIndex, SessionMessage } from "./types";
 
-const SESSIONS_DIR = join(homedir(), ".omni-agent", "sessions");
-const INDEX_FILE = join(SESSIONS_DIR, "index.json");
-
-/**
- * Ensure the sessions directory exists.
- */
-function ensureDir(): void {
-  if (!existsSync(SESSIONS_DIR)) {
-    mkdirSync(SESSIONS_DIR, { recursive: true });
-  }
+export interface SessionStore {
+  readIndex(): SessionIndex;
+  writeIndex(index: SessionIndex): void;
+  upsertIndexEntry(entry: SessionEntry): void;
+  appendMessage(sessionId: string, message: SessionMessage): void;
+  appendMessages(sessionId: string, messages: SessionMessage[]): void;
+  replayMessages(sessionId: string): SessionMessage[];
+  clearSession(sessionId: string): void;
+  removeSession(sessionId: string): void;
 }
 
-/**
- * Get the JSONL file path for a given session ID.
- */
-function sessionPath(id: string): string {
-  return join(SESSIONS_DIR, `${id}.jsonl`);
-}
+export class FileSessionStore implements SessionStore {
+  private readonly indexFile: string;
 
-/**
- * Read the session index. Returns an empty index if the file doesn't exist.
- */
-export function readIndex(): SessionIndex {
-  ensureDir();
-  if (!existsSync(INDEX_FILE)) {
-    return { sessions: [] };
+  constructor(private readonly directory = join(homedir(), ".omni-agent", "sessions")) {
+    this.indexFile = join(directory, "index.json");
   }
-  try {
-    const raw = readFileSync(INDEX_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as SessionIndex;
-    if (!Array.isArray(parsed.sessions)) {
+
+  readIndex(): SessionIndex {
+    this.ensureDirectory();
+    if (!existsSync(this.indexFile)) return { sessions: [] };
+
+    try {
+      const parsed = JSON.parse(readFileSync(this.indexFile, "utf8")) as SessionIndex;
+      return Array.isArray(parsed.sessions) ? parsed : { sessions: [] };
+    } catch {
       return { sessions: [] };
     }
-    return parsed;
-  } catch {
-    return { sessions: [] };
-  }
-}
-
-/**
- * Write the session index atomically.
- */
-export function writeIndex(index: SessionIndex): void {
-  ensureDir();
-  writeFileSync(INDEX_FILE, JSON.stringify(index, null, 2) + "\n", "utf-8");
-}
-
-/**
- * Add or update a session entry in the index.
- */
-export function upsertIndexEntry(entry: SessionEntry): void {
-  const index = readIndex();
-  const existing = index.sessions.findIndex((s) => s.id === entry.id);
-  if (existing >= 0) {
-    index.sessions[existing] = entry;
-  } else {
-    index.sessions.push(entry);
-  }
-  writeIndex(index);
-}
-
-/**
- * Append a message to a session's JSONL file and update lastActiveAt.
- */
-export function appendMessage(sessionId: string, message: SessionMessage): void {
-  ensureDir();
-  const filePath = sessionPath(sessionId);
-  const line = JSON.stringify(message) + "\n";
-  appendFileSync(filePath, line, "utf-8");
-
-  // Update lastActiveAt in index
-  const index = readIndex();
-  const entry = index.sessions.find((s) => s.id === sessionId);
-  if (entry) {
-    entry.lastActiveAt = Date.now();
-    writeIndex(index);
-  }
-}
-
-/**
- * Append multiple messages to a session's JSONL file in one batch.
- */
-export function appendMessages(sessionId: string, messages: SessionMessage[]): void {
-  if (messages.length === 0) return;
-  ensureDir();
-  const filePath = sessionPath(sessionId);
-  const lines = messages.map((m) => JSON.stringify(m)).join("\n") + "\n";
-  appendFileSync(filePath, lines, "utf-8");
-
-  // Update lastActiveAt in index
-  const index = readIndex();
-  const entry = index.sessions.find((s) => s.id === sessionId);
-  if (entry) {
-    entry.lastActiveAt = Date.now();
-    writeIndex(index);
-  }
-}
-
-/**
- * Replay all messages from a session's JSONL file.
- * Returns an empty array if the file doesn't exist or is corrupted.
- */
-export function replayMessages(sessionId: string): SessionMessage[] {
-  const filePath = sessionPath(sessionId);
-  if (!existsSync(filePath)) {
-    return [];
   }
 
-  const raw = readFileSync(filePath, "utf-8");
-  const lines = raw.split("\n").filter((line) => line.trim().length > 0);
-  const messages: SessionMessage[] = [];
+  writeIndex(index: SessionIndex): void {
+    this.ensureDirectory();
+    writeFileSync(this.indexFile, `${JSON.stringify(index, null, 2)}\n`, "utf8");
+  }
 
-  for (const line of lines) {
-    try {
-      messages.push(JSON.parse(line) as SessionMessage);
-    } catch {
-      // Skip malformed lines — resilient to partial writes
+  upsertIndexEntry(entry: SessionEntry): void {
+    const index = this.readIndex();
+    const existing = index.sessions.findIndex((session) => session.id === entry.id);
+    if (existing >= 0) index.sessions[existing] = entry;
+    else index.sessions.push(entry);
+    this.writeIndex(index);
+  }
+
+  appendMessage(sessionId: string, message: SessionMessage): void {
+    this.ensureDirectory();
+    appendFileSync(this.sessionPath(sessionId), `${JSON.stringify(message)}\n`, "utf8");
+    this.touch(sessionId);
+  }
+
+  appendMessages(sessionId: string, messages: SessionMessage[]): void {
+    if (messages.length === 0) return;
+    this.ensureDirectory();
+    const lines = `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`;
+    appendFileSync(this.sessionPath(sessionId), lines, "utf8");
+    this.touch(sessionId);
+  }
+
+  replayMessages(sessionId: string): SessionMessage[] {
+    const path = this.sessionPath(sessionId);
+    if (!existsSync(path)) return [];
+
+    const messages: SessionMessage[] = [];
+    for (const line of readFileSync(path, "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      try {
+        messages.push(JSON.parse(line) as SessionMessage);
+      } catch {
+        // A partial final write must not make the whole session unreadable.
+      }
     }
+    return messages;
   }
 
-  return messages;
-}
-
-/**
- * Clear a session's JSONL file (truncate to empty).
- */
-export function clearSession(sessionId: string): void {
-  const filePath = sessionPath(sessionId);
-  if (existsSync(filePath)) {
-    writeFileSync(filePath, "", "utf-8");
+  clearSession(sessionId: string): void {
+    const path = this.sessionPath(sessionId);
+    if (existsSync(path)) writeFileSync(path, "", "utf8");
   }
-}
 
-/**
- * Remove a session entirely (JSONL file + index entry).
- */
-export function removeSession(sessionId: string): void {
-  const filePath = sessionPath(sessionId);
-  if (existsSync(filePath)) {
-    unlinkSync(filePath);
+  removeSession(sessionId: string): void {
+    const path = this.sessionPath(sessionId);
+    if (existsSync(path)) unlinkSync(path);
+    const index = this.readIndex();
+    index.sessions = index.sessions.filter((session) => session.id !== sessionId);
+    this.writeIndex(index);
   }
-  const index = readIndex();
-  index.sessions = index.sessions.filter((s) => s.id !== sessionId);
-  writeIndex(index);
+
+  private ensureDirectory(): void {
+    if (!existsSync(this.directory)) mkdirSync(this.directory, { recursive: true });
+  }
+
+  private sessionPath(sessionId: string): string {
+    return join(this.directory, `${sessionId}.jsonl`);
+  }
+
+  private touch(sessionId: string): void {
+    const index = this.readIndex();
+    const entry = index.sessions.find((session) => session.id === sessionId);
+    if (!entry) return;
+    entry.lastActiveAt = Date.now();
+    this.writeIndex(index);
+  }
 }
