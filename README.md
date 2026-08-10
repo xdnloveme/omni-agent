@@ -42,12 +42,13 @@ global `~/.omni-agent/.env`. Copy `.env.example` to `.env` when file-based
 project credentials are preferred; the CLI reads but never writes environment
 files.
 
-Non-secret configuration is layered from `~/.omni-agent` and the current
-project's `.omni-agent` directory. `config.json` is an atomic project override;
-`providers.json` merges vendors by `id` and connections by `id`, with project
-connections replacing matching global connections. Invalid project files are
-reported instead of silently falling back to global configuration. The project
-directory is ignored by Git by default.
+Non-secret configuration is layered from the global `~/.omni-agent` directory
+and `omni.config.json` / `omni.providers.json` in the project root. The project
+model selection is an atomic override; Provider vendors merge by `id` and
+connections by `id`, with project connections replacing matching global
+connections. Invalid project files are reported instead of silently falling
+back to global configuration. Project configuration can be committed; secrets
+remain in keytar or an ignored `.env` file.
 
 Provider plugins compose connection-level Factory strategies rather than building
 adapters in Core. Agent-facing connection settings use a constrained JSON Schema

@@ -107,28 +107,37 @@ const app = await createAgentApp({
 ```
 
 Optional extensions can be exported from `~/.omni-agent/extensions.mjs` and the
-current project's `.omni-agent/extensions.mjs`. They merge by extension manifest
-ID, with the project definition replacing the matching global definition. Local
+current project's `omni.extensions.mjs`. They merge by extension manifest ID,
+with the project definition replacing the matching global definition. Local
 extension code is trusted local code and is not sandboxed.
 
 ## Layered configuration
 
-Global configuration under `~/.omni-agent` is the baseline. The current
-project's `.omni-agent` directory is the override layer:
+Global configuration under `~/.omni-agent` is the baseline. Files in the
+current project root form the override layer:
 
-- `config.json`: the project model selection replaces the global selection as
-  one atomic value.
-- `providers.json`: vendors merge by vendor ID and connections merge by
+- `omni.config.json`: the project model selection replaces global
+  `~/.omni-agent/config.json` as one atomic value.
+- `omni.providers.json`: vendors merge with global
+  `~/.omni-agent/providers.json` by vendor ID and connections merge by
   connection ID; a matching project connection replaces the global connection
   as one atomic value.
-- `extensions.mjs`: extensions merge by manifest ID.
-- `.env`: process variables win, then the project file, then the global file.
+- `omni.extensions.mjs`: extensions merge with global
+  `~/.omni-agent/extensions.mjs` by manifest ID.
+- `.env`: process variables win, then the project file, then global
+  `~/.omni-agent/.env`.
 
 Each layer is validated independently before merging. A present but invalid
 project file is an error and never triggers a silent global fallback. Secrets do
 not participate in configuration merging; keytar remains the credential source
 of truth. Runtime assembly consumes only the validated effective result and does
 not create a second execution path.
+
+OpenAI-compatible connections use the portable `system` role by default;
+reasoning capability never implies `developer` role support. Native Provider
+factories retain their own authoritative capabilities. The compatible contract
+does not expose a speculative role switch; a provider-owned exception should be
+introduced only when a verified endpoint requires one.
 
 ## Runtime invariants
 

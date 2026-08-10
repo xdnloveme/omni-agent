@@ -1,10 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { fauxProvider } from "@earendil-works/pi-ai";
+import { createModels, fauxProvider } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "../runtime/model-runtime";
 import { VendorRegistry } from "../vendors/registry";
 import { builtinVendorPlugins } from "../providers";
 import { createVolcengineVendorPlugin } from "../providers/volcengine";
-import { createProviderContribution } from "../vendors/provider-contribution";
+import { createProviderContribution, installProvider } from "../vendors/provider-contribution";
 import { defineVendor } from "../vendors/define-vendor";
 import { compatibleConnection } from "../providers/factories/compatible";
 import { VendorPluginManager } from "../vendors/plugin-manager";
@@ -29,6 +29,37 @@ describe("VendorPluginManager", () => {
     const runtime = new ModelRuntime();
     return { runtime, manager: runtime.createPluginManager(new VendorRegistry(), process.cwd()) };
   }
+
+  it("applies the portable role policy inside the compatible Provider factory", async () => {
+    const connection = compatibleConnection({
+      id: "default",
+      displayName: "Compatible",
+      providerId: "custom-compatible",
+      providerName: "Compatible",
+      baseUrl: "https://models.example.com/v1",
+      envVars: ["COMPATIBLE_API_KEY"],
+      protocol: "openai-completions",
+      models: [
+        {
+          id: "reasoning-model",
+          contextWindow: 128_000,
+          maxTokens: 8_192,
+          reasoning: true,
+        },
+      ],
+    });
+    const [contribution] = await connection.factory.create(connection.config, {
+      cwd: process.cwd(),
+      vendorId: "compatible",
+      connection: connection.definition,
+    });
+    const models = createModels();
+    installProvider(models, contribution);
+
+    expect(models.getModel("custom-compatible", "reasoning-model")?.compat).toEqual({
+      supportsDeveloperRole: false,
+    });
+  });
 
   it("resolves models from the provider-owned catalog", async () => {
     const { runtime, manager } = createManager();

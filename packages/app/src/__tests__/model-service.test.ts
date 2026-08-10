@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProviderRepository, type ProviderDefinition } from "@omni-agent/models";
@@ -72,8 +72,7 @@ describe("ModelService", () => {
     const cwd = mkdtempSync(join(tmpdir(), "omni-model-service-"));
     const globalDirectory = mkdtempSync(join(tmpdir(), "omni-model-global-"));
     directories.push(cwd, globalDirectory);
-    mkdirSync(join(cwd, ".omni-agent"), { recursive: true });
-    writeFileSync(join(cwd, ".omni-agent/providers.json"), "invalid json");
+    writeFileSync(join(cwd, "omni.providers.json"), "invalid json");
 
     await expect(createModelService({ cwd, globalDirectory })).rejects.toThrow();
   });
@@ -81,9 +80,7 @@ describe("ModelService", () => {
   it("restores providers.json when the prepared runtime change cannot commit", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "omni-model-registration-"));
     directories.push(cwd);
-    const projectDirectory = join(cwd, ".omni-agent");
-    const path = join(projectDirectory, "providers.json");
-    mkdirSync(projectDirectory, { recursive: true });
+    const path = join(cwd, "omni.providers.json");
     const original = `${JSON.stringify({ version: 1, vendors: [] }, null, 2)}\n`;
     writeFileSync(path, original);
     const rollback = vi.fn(async () => undefined);
@@ -152,9 +149,7 @@ describe("ModelService", () => {
   it("preserves repository and rollback failures together", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "omni-model-registration-errors-"));
     directories.push(cwd);
-    const projectDirectory = join(cwd, ".omni-agent");
-    const path = join(projectDirectory, "providers.json");
-    mkdirSync(projectDirectory, { recursive: true });
+    const path = join(cwd, "omni.providers.json");
     const coordinator = new ProviderRegistrationCoordinator({
       providerPlugins: {
         prepareReplace: vi.fn(async () => {

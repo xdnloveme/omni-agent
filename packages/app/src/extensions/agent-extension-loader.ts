@@ -14,13 +14,15 @@ export interface AgentExtensionLoaderOptions {
   readonly globalDirectory?: string;
 }
 
+const PROJECT_EXTENSIONS_FILE = "omni.extensions.mjs";
+
 export async function loadAgentExtensions(
   options: AgentExtensionLoaderOptions = {},
 ): Promise<AgentExtensionLoadResult> {
   const cwd = options.cwd ?? process.cwd();
   const paths = [
     join(options.globalDirectory ?? join(homedir(), ".omni-agent"), "extensions.mjs"),
-    resolve(cwd, ".omni-agent/extensions.mjs"),
+    resolve(cwd, PROJECT_EXTENSIONS_FILE),
   ];
   const diagnostics: ExtensionDiagnostic[] = [];
   const extensions = new Map<string, { extension: AgentExtension; source: string }>();

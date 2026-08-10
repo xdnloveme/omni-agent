@@ -70,6 +70,8 @@ export interface ProviderRepositoryOptions {
   readonly globalDirectory?: string;
 }
 
+const PROJECT_PROVIDERS_FILE = "omni.providers.json";
+
 const providerFileSchema: JSONSchemaType<ProviderConfigFileDto> = {
   type: "object",
   properties: {
@@ -158,10 +160,7 @@ export class ProviderRepository {
       join(options.globalDirectory ?? join(homedir(), ".omni-agent"), "providers.json"),
       "global",
     );
-    this.project = new ProviderFileRepository(
-      resolve(cwd, ".omni-agent/providers.json"),
-      "project",
-    );
+    this.project = new ProviderFileRepository(resolve(cwd, PROJECT_PROVIDERS_FILE), "project");
   }
 
   async list(): Promise<readonly ProviderDefinition[]> {

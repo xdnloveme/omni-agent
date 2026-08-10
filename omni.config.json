@@ -1,0 +1,8 @@
+{
+  "version": 2,
+  "model": {
+    "vendorId": "volcengine-agent-plan",
+    "connectionId": "medium",
+    "modelId": "glm-5.2"
+  }
+}

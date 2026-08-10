@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { loadVendorPlugins } from "../config/provider-loader";
 import {
@@ -23,9 +23,9 @@ function workspace(): { cwd: string; globalDirectory: string } {
   return { cwd, globalDirectory };
 }
 
-function writeProviders(directory: string, vendors: unknown): void {
-  mkdirSync(directory, { recursive: true });
-  writeFileSync(join(directory, "providers.json"), JSON.stringify({ version: 1, vendors }));
+function writeProviders(path: string, vendors: unknown): void {
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, JSON.stringify({ version: 1, vendors }));
 }
 
 function connection(overrides: Record<string, unknown> = {}) {
@@ -44,7 +44,7 @@ function connection(overrides: Record<string, unknown> = {}) {
 describe("ProviderRepository", () => {
   it("merges vendors by id and replaces matching project connections atomically", async () => {
     const { cwd, globalDirectory } = workspace();
-    writeProviders(globalDirectory, [
+    writeProviders(join(globalDirectory, "providers.json"), [
       {
         id: "team",
         displayName: "Global Team",
@@ -54,7 +54,7 @@ describe("ProviderRepository", () => {
         ],
       },
     ]);
-    writeProviders(join(cwd, ".omni-agent"), [
+    writeProviders(join(cwd, "omni.providers.json"), [
       {
         id: "team",
         displayName: "Project Team",
@@ -83,7 +83,7 @@ describe("ProviderRepository", () => {
 
   it("loads one effective plugin with all merged connections", async () => {
     const { cwd, globalDirectory } = workspace();
-    writeProviders(globalDirectory, [
+    writeProviders(join(globalDirectory, "providers.json"), [
       { id: "team", displayName: "Team", connections: [connection()] },
     ]);
     const repository = new ProviderRepository({ cwd, globalDirectory });
@@ -100,7 +100,7 @@ describe("ProviderRepository", () => {
 
   it("rejects plaintext API keys in either layer", async () => {
     const { cwd, globalDirectory } = workspace();
-    writeProviders(join(cwd, ".omni-agent"), [
+    writeProviders(join(cwd, "omni.providers.json"), [
       {
         id: "team",
         displayName: "Team",
@@ -115,7 +115,7 @@ describe("ProviderRepository", () => {
 
   it("reports the exact invalid connection field", async () => {
     const { cwd, globalDirectory } = workspace();
-    writeProviders(join(cwd, ".omni-agent"), [
+    writeProviders(join(cwd, "omni.providers.json"), [
       {
         id: "team",
         displayName: "Team",
@@ -130,7 +130,7 @@ describe("ProviderRepository", () => {
 
   it("rejects duplicate model ids at the file boundary", async () => {
     const { cwd, globalDirectory } = workspace();
-    writeProviders(join(cwd, ".omni-agent"), [
+    writeProviders(join(cwd, "omni.providers.json"), [
       {
         id: "team",
         displayName: "Team",
@@ -152,7 +152,7 @@ describe("ProviderRepository", () => {
 
   it("validates the effective configuration before persisting an upsert", async () => {
     const { cwd, globalDirectory } = workspace();
-    writeProviders(globalDirectory, [
+    writeProviders(join(globalDirectory, "providers.json"), [
       { id: "global", displayName: "Global", connections: [connection()] },
     ]);
     const repository = new ProviderRepository({ cwd, globalDirectory });

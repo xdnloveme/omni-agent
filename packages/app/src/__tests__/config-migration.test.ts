@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -56,7 +56,7 @@ describe("config migration", () => {
       connectionId: "default",
       modelId: "custom-model",
     });
-    const stored = readFileSync(join(cwd, ".omni-agent/providers.json"), "utf-8");
+    const stored = readFileSync(join(cwd, "omni.providers.json"), "utf-8");
     expect(stored).toContain("https://example.test/v1");
     expect(stored).not.toMatch(/api[_-]?key\s*[:=]\s*["']?sk-/i);
   });
@@ -74,10 +74,9 @@ describe("config migration", () => {
   it("upserts the migrated custom provider without deleting existing entries", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "omni-custom-provider-merge-"));
     dirs.push(cwd);
-    const directory = join(cwd, ".omni-agent");
-    mkdirSync(directory, { recursive: true });
+    const path = join(cwd, "omni.providers.json");
     writeFileSync(
-      join(directory, "providers.json"),
+      path,
       JSON.stringify({
         version: 1,
         vendors: [
@@ -109,7 +108,7 @@ describe("config migration", () => {
       { cwd },
     );
 
-    const stored = JSON.parse(readFileSync(join(directory, "providers.json"), "utf-8")) as {
+    const stored = JSON.parse(readFileSync(path, "utf-8")) as {
       vendors: Array<{ id: string }>;
     };
     expect(stored.vendors.map((provider) => provider.id)).toEqual(["existing", "custom"]);
@@ -195,7 +194,6 @@ describe("config migration", () => {
     const cwd = mkdtempSync(join(tmpdir(), "omni-config-project-override-"));
     const globalDirectory = mkdtempSync(join(tmpdir(), "omni-config-global-override-"));
     dirs.push(cwd, globalDirectory);
-    mkdirSync(join(cwd, ".omni-agent"), { recursive: true });
     writeFileSync(
       join(globalDirectory, "config.json"),
       JSON.stringify({
@@ -204,7 +202,7 @@ describe("config migration", () => {
       }),
     );
     writeFileSync(
-      join(cwd, ".omni-agent/config.json"),
+      join(cwd, "omni.config.json"),
       JSON.stringify({
         version: 2,
         model: { vendorId: "anthropic", connectionId: "default", modelId: "project-model" },
@@ -221,7 +219,6 @@ describe("config migration", () => {
     const cwd = mkdtempSync(join(tmpdir(), "omni-config-invalid-project-"));
     const globalDirectory = mkdtempSync(join(tmpdir(), "omni-config-valid-global-"));
     dirs.push(cwd, globalDirectory);
-    mkdirSync(join(cwd, ".omni-agent"), { recursive: true });
     writeFileSync(
       join(globalDirectory, "config.json"),
       JSON.stringify({
@@ -229,7 +226,7 @@ describe("config migration", () => {
         model: { vendorId: "openai", connectionId: "default", modelId: "global-model" },
       }),
     );
-    writeFileSync(join(cwd, ".omni-agent/config.json"), "not-json");
+    writeFileSync(join(cwd, "omni.config.json"), "not-json");
     const service = new ConfigService({ cwd, globalDirectory });
 
     await expect(service.load()).resolves.toBeNull();
@@ -255,9 +252,7 @@ describe("config migration", () => {
     await service.save(projectConfig);
     await service.save(globalConfig, { scope: "global" });
 
-    expect(JSON.parse(readFileSync(join(cwd, ".omni-agent/config.json"), "utf-8"))).toEqual(
-      projectConfig,
-    );
+    expect(JSON.parse(readFileSync(join(cwd, "omni.config.json"), "utf-8"))).toEqual(projectConfig);
     expect(JSON.parse(readFileSync(join(globalDirectory, "config.json"), "utf-8"))).toEqual(
       globalConfig,
     );

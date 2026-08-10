@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -21,7 +21,6 @@ describe("loadAgentExtensions", () => {
     const cwd = mkdtempSync(join(tmpdir(), "omni-project-extensions-"));
     const globalDirectory = mkdtempSync(join(tmpdir(), "omni-global-extensions-"));
     directories.push(cwd, globalDirectory);
-    mkdirSync(join(cwd, ".omni-agent"), { recursive: true });
     writeFileSync(
       join(globalDirectory, "extensions.mjs"),
       `export default [
@@ -29,7 +28,7 @@ describe("loadAgentExtensions", () => {
         { manifest: { id: "global-only", version: "1", apiVersion: 1 }, contributions: {} }
       ];\n`,
     );
-    writeFileSync(join(cwd, ".omni-agent/extensions.mjs"), extensionSource("shared", "project"));
+    writeFileSync(join(cwd, "omni.extensions.mjs"), extensionSource("shared", "project"));
 
     const result = await loadAgentExtensions({ cwd, globalDirectory });
 
@@ -38,6 +37,6 @@ describe("loadAgentExtensions", () => {
       expect.objectContaining({ id: "shared", version: "project" }),
       expect.objectContaining({ id: "global-only", version: "1" }),
     ]);
-    expect(result.extensions[0]?.source).toBe(join(cwd, ".omni-agent/extensions.mjs"));
+    expect(result.extensions[0]?.source).toBe(join(cwd, "omni.extensions.mjs"));
   });
 });

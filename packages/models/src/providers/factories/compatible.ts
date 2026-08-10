@@ -1,4 +1,10 @@
-import { createProvider, envApiKeyAuth, type ProviderStreams } from "@earendil-works/pi-ai";
+import {
+  createProvider,
+  envApiKeyAuth,
+  type Api,
+  type Model,
+  type ProviderStreams,
+} from "@earendil-works/pi-ai";
 import { anthropicMessagesApi } from "@earendil-works/pi-ai/api/anthropic-messages.lazy";
 import { googleGenerativeAIApi } from "@earendil-works/pi-ai/api/google-generative-ai.lazy";
 import { mistralConversationsApi } from "@earendil-works/pi-ai/api/mistral-conversations.lazy";
@@ -49,6 +55,8 @@ export const compatibleProviderFactory: ConnectionProviderFactory<CompatibleConn
       api: config.protocol,
     } as const;
     const fetchModels = config.fetchModels;
+    const mapModel = (model: CompatibleModelDefinition) =>
+      applyPortableProtocolPolicy(toProviderModel(model, modelContext));
     return [
       createProviderContribution(
         createProvider({
@@ -56,7 +64,7 @@ export const compatibleProviderFactory: ConnectionProviderFactory<CompatibleConn
           name: config.providerName,
           baseUrl: config.baseUrl,
           auth: { apiKey: envApiKeyAuth(`${config.providerName} API key`, config.envVars) },
-          models: config.models.map((model) => toProviderModel(model, modelContext)),
+          models: config.models.map(mapModel),
           fetchModels: fetchModels
             ? async (context) =>
                 (
@@ -66,7 +74,7 @@ export const compatibleProviderFactory: ConnectionProviderFactory<CompatibleConn
                     force: context.force,
                     signal: context.signal,
                   })
-                ).map((model) => toProviderModel(model, modelContext))
+                ).map(mapModel)
             : undefined,
           api: protocolImplementations[config.protocol](),
         }),
@@ -75,6 +83,17 @@ export const compatibleProviderFactory: ConnectionProviderFactory<CompatibleConn
     ];
   },
 };
+
+function applyPortableProtocolPolicy(model: Model<Api>): Model<Api> {
+  if (model.api !== "openai-completions" && model.api !== "openai-responses") return model;
+  return {
+    ...model,
+    compat: {
+      ...model.compat,
+      supportsDeveloperRole: false,
+    },
+  };
+}
 
 export function compatibleConnection(
   options: CompatibleConnectionOptions,

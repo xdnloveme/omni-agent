@@ -16,6 +16,8 @@ interface LoadedConfig {
   readonly config: OmniConfigV2 | null;
 }
 
+const PROJECT_CONFIG_FILE = "omni.config.json";
+
 export class ConfigService {
   readonly diagnostics: ConfigDiagnostic[] = [];
   private readonly cwd: string;
@@ -27,7 +29,7 @@ export class ConfigService {
     this.cwd = options.cwd ?? process.cwd();
     this.globalDirectory = options.globalDirectory ?? join(homedir(), ".omni-agent");
     this.globalPath = join(this.globalDirectory, "config.json");
-    this.projectPath = resolve(this.cwd, ".omni-agent/config.json");
+    this.projectPath = resolve(this.cwd, PROJECT_CONFIG_FILE);
   }
 
   async load(): Promise<OmniConfigV2 | null> {
