@@ -57,7 +57,14 @@ describe("session/factory", () => {
       api: "anthropic-messages" as const,
       provider: "anthropic",
       model: "claude-3",
-      usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0, totalTokens: 15, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+      usage: {
+        input: 10,
+        output: 5,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 15,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+      },
       stopReason: "stop" as const,
       timestamp: Date.now(),
     };
@@ -122,9 +129,7 @@ describe("session/session-store", () => {
 
     it("writes and reads back an index", () => {
       const index: SessionIndex = {
-        sessions: [
-          { id: "abc-123", createdAt: 1000, lastActiveAt: 2000 },
-        ],
+        sessions: [{ id: "abc-123", createdAt: 1000, lastActiveAt: 2000 }],
       };
       writeIndex(index);
       const result = readIndex();
@@ -179,11 +184,7 @@ describe("session/session-store", () => {
       const sessionId = "batch-session";
       upsertIndexEntry({ id: sessionId, createdAt: 100, lastActiveAt: 100 });
 
-      const msgs = [
-        createUserMessage("One"),
-        createUserMessage("Two"),
-        createUserMessage("Three"),
-      ];
+      const msgs = [createUserMessage("One"), createUserMessage("Two"), createUserMessage("Three")];
 
       appendMessages(sessionId, msgs);
 

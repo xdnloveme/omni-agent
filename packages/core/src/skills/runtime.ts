@@ -1,4 +1,8 @@
-import { composeSystemPrompt, createSkillsContributor, defaultContributors } from "../system-prompt";
+import {
+  composeSystemPrompt,
+  createSkillsContributor,
+  defaultContributors,
+} from "../system-prompt";
 import type { AgentTool } from "../types";
 import { createSkillReadTool } from "./skill-read-tool";
 import { SkillReadLifecycleAdapter } from "./lifecycle-adapter";

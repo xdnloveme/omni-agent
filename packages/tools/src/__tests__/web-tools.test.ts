@@ -91,9 +91,7 @@ describe("webFetchTool", () => {
 
   it("should truncate output exceeding 20000 chars", async () => {
     const longText = "x".repeat(25000);
-    mockFetch.mockResolvedValueOnce(
-      makeResponse(longText, { contentType: "text/plain" }),
-    );
+    mockFetch.mockResolvedValueOnce(makeResponse(longText, { contentType: "text/plain" }));
 
     const result = await webFetchTool.execute({ url: "https://example.com/big" });
 
@@ -116,7 +114,10 @@ describe("webFetchTool", () => {
     err.name = "TimeoutError";
     mockFetch.mockRejectedValueOnce(err);
 
-    const result = await webFetchTool.execute({ url: "https://slow.example.com", timeout_ms: 5000 });
+    const result = await webFetchTool.execute({
+      url: "https://slow.example.com",
+      timeout_ms: 5000,
+    });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("timed out");

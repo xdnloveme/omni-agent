@@ -2,9 +2,19 @@ import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
-import { SkillLoader, SkillRegistry, SkillSourceScope, createSkillReadTool, type SkillMetadata } from "../skills";
+import {
+  SkillLoader,
+  SkillRegistry,
+  SkillSourceScope,
+  createSkillReadTool,
+  type SkillMetadata,
+} from "../skills";
 
-async function writeSkill(root: string, name: string, body = "Follow these instructions."): Promise<string> {
+async function writeSkill(
+  root: string,
+  name: string,
+  body = "Follow these instructions.",
+): Promise<string> {
   const dir = path.join(root, name);
   await mkdir(dir, { recursive: true });
   const filePath = path.join(dir, "SKILL.md");
@@ -72,7 +82,11 @@ describe("skills", () => {
   it("does not reuse a cached body when a skill reloads from a different path", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "omni-skills-"));
     const firstPath = await writeSkill(path.join(cwd, "first"), "frontend-design", "First body.");
-    const secondPath = await writeSkill(path.join(cwd, "second"), "frontend-design", "Second body.");
+    const secondPath = await writeSkill(
+      path.join(cwd, "second"),
+      "frontend-design",
+      "Second body.",
+    );
     let activePath = firstPath;
     const registry = new SkillRegistry({
       cwd,
@@ -112,7 +126,7 @@ describe("skills", () => {
       skillName: "frontend-design",
       status: "loaded",
     });
-    expect(result.content[0].text).toContain("<skill name=\"frontend-design\"");
+    expect(result.content[0].text).toContain('<skill name="frontend-design"');
   });
 
   it("builds explicit slash preload as user-message text", async () => {
@@ -125,7 +139,7 @@ describe("skills", () => {
 
     expect(preload).not.toBeNull();
     expect(preload!.displayInput).toBe("/frontend-design build this page");
-    expect(preload!.modelInput).toContain("<explicit_skill name=\"frontend-design\"");
+    expect(preload!.modelInput).toContain('<explicit_skill name="frontend-design"');
     expect(preload!.modelInput).toContain("Explicit body.");
     expect(preload!.modelInput).toContain("User request:\nbuild this page");
   });

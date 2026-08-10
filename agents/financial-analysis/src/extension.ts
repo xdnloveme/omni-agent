@@ -6,9 +6,11 @@ export const financialAnalysisExtension: AgentExtension = {
   manifest: { id: "financial-analysis", version: "0.0.1", apiVersion: 1 },
   contributions: {
     tools: [computeTechnicalIndicatorsTool],
-    agents: [{
-      definition: financialAnalysisAgent,
-      tools: { include: [computeTechnicalIndicatorsTool.name] },
-    }],
+    agents: [
+      {
+        definition: financialAnalysisAgent,
+        tools: { include: [computeTechnicalIndicatorsTool.name] },
+      },
+    ],
   },
 };

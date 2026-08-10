@@ -1,9 +1,4 @@
-import type {
-  StreamEvent,
-  StreamCallbacks,
-  StreamState,
-  AccumulatedMessage,
-} from "./types";
+import type { StreamEvent, StreamCallbacks, StreamState, AccumulatedMessage } from "./types";
 import type { ExtensionEvent } from "../extension-events";
 import type { TokenUsage } from "../types";
 
@@ -113,7 +108,11 @@ export class StreamSession {
   private handleToolEnd(
     toolName: string,
     toolCallId: string,
-    result: { content: Array<{ type: "text"; text: string }>; isError: boolean; meta?: Record<string, unknown> },
+    result: {
+      content: Array<{ type: "text"; text: string }>;
+      isError: boolean;
+      meta?: Record<string, unknown>;
+    },
     durationMs: number,
   ): void {
     // Stay in streaming — more events may follow

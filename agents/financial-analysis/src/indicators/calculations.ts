@@ -14,7 +14,9 @@ export function emaSeries(values: readonly number[], period: number): number[] {
   const result = [seed];
   const multiplier = 2 / (period + 1);
   for (let index = period; index < values.length; index++) {
-    result.push((values[index] - result[result.length - 1]) * multiplier + result[result.length - 1]);
+    result.push(
+      (values[index] - result[result.length - 1]) * multiplier + result[result.length - 1],
+    );
   }
   return result;
 }
@@ -69,11 +71,13 @@ export function atr(bars: readonly OhlcvBar[], period = 14): number | null {
   for (let index = 1; index < bars.length; index++) {
     const bar = bars[index];
     const previousClose = bars[index - 1].close;
-    trueRanges.push(Math.max(
-      bar.high - bar.low,
-      Math.abs(bar.high - previousClose),
-      Math.abs(bar.low - previousClose),
-    ));
+    trueRanges.push(
+      Math.max(
+        bar.high - bar.low,
+        Math.abs(bar.high - previousClose),
+        Math.abs(bar.low - previousClose),
+      ),
+    );
   }
   let value = trueRanges.slice(0, period).reduce((sum, range) => sum + range, 0) / period;
   for (let index = period; index < trueRanges.length; index++) {
@@ -89,5 +93,6 @@ function alignedEma(values: readonly number[], period: number, alignPeriod: numb
 }
 
 function validatePeriod(period: number): void {
-  if (!Number.isInteger(period) || period <= 0) throw new Error("period must be a positive integer");
+  if (!Number.isInteger(period) || period <= 0)
+    throw new Error("period must be a positive integer");
 }

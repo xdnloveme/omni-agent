@@ -189,7 +189,12 @@ describe("StreamSession", () => {
     });
 
     it("handles a session with tool calls", () => {
-      session.handle({ type: "tool_use_start", toolName: "bash", toolCallId: "c1", input: { cmd: "ls" } });
+      session.handle({
+        type: "tool_use_start",
+        toolName: "bash",
+        toolCallId: "c1",
+        input: { cmd: "ls" },
+      });
       session.handle({
         type: "tool_use_end",
         toolName: "bash",

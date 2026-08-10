@@ -23,7 +23,7 @@ export const SkillReadStatus = {
   Failed: "failed",
 } as const;
 
-export type SkillReadStatus = typeof SkillReadStatus[keyof typeof SkillReadStatus];
+export type SkillReadStatus = (typeof SkillReadStatus)[keyof typeof SkillReadStatus];
 
 export const SkillSourceScope = {
   Project: "project",
@@ -31,7 +31,7 @@ export const SkillSourceScope = {
   Plugin: "plugin",
 } as const;
 
-export type SkillSourceScope = typeof SkillSourceScope[keyof typeof SkillSourceScope];
+export type SkillSourceScope = (typeof SkillSourceScope)[keyof typeof SkillSourceScope];
 
 export const SkillDiagnosticType = {
   Warning: "warning",

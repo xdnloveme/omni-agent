@@ -45,12 +45,7 @@ export interface ErrorEvent {
 
 /** Union of all stream events */
 export type StreamEvent =
-  | TextDeltaEvent
-  | ToolUseStartEvent
-  | ToolUseEndEvent
-  | ExtensionEvent
-  | DoneEvent
-  | ErrorEvent;
+  TextDeltaEvent | ToolUseStartEvent | ToolUseEndEvent | ExtensionEvent | DoneEvent | ErrorEvent;
 
 /** Tool result payload (mirrors core ToolResult but decoupled) */
 export interface ToolResultPayload {
@@ -68,7 +63,12 @@ export interface ToolResultPayload {
 export interface StreamCallbacks {
   onTextChunk?: (delta: string) => void;
   onToolStart?: (toolName: string, toolCallId: string, input: Record<string, unknown>) => void;
-  onToolEnd?: (toolName: string, toolCallId: string, result: ToolResultPayload, durationMs: number) => void;
+  onToolEnd?: (
+    toolName: string,
+    toolCallId: string,
+    result: ToolResultPayload,
+    durationMs: number,
+  ) => void;
   onExtensionEvent?: (event: ExtensionEvent) => void;
   onDone?: (usage?: TokenUsage) => void;
   onError?: (error: string) => void;

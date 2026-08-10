@@ -15,7 +15,14 @@ export class SkillReadService {
   async read(name: string, options: SkillReadOptions = {}): Promise<SkillReadResult> {
     const skill = this.repository.get(name);
     if (!skill) {
-      throw new Error(`Unknown skill "${name}". Available skills: ${this.repository.list().map((s) => s.name).join(", ") || "none"}`);
+      throw new Error(
+        `Unknown skill "${name}". Available skills: ${
+          this.repository
+            .list()
+            .map((s) => s.name)
+            .join(", ") || "none"
+        }`,
+      );
     }
     if (skill.disableModelInvocation && !options.explicit) {
       throw new Error(`Skill "${name}" is disabled for model invocation`);

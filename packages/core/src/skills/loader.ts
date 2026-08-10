@@ -4,12 +4,7 @@ import { SkillFileDiscoverer } from "./file-discoverer";
 import { SkillParser } from "./parser";
 import { SkillPathResolver } from "./path-resolver";
 import { SkillValidator } from "./validator";
-import type {
-  SkillDiagnostic,
-  SkillLoadResult,
-  SkillLoaderOptions,
-  SkillMetadata,
-} from "./types";
+import type { SkillDiagnostic, SkillLoadResult, SkillLoaderOptions, SkillMetadata } from "./types";
 
 export class SkillLoader {
   private readonly pathResolver: SkillPathResolver;
@@ -34,7 +29,11 @@ export class SkillLoader {
       const candidates = await this.discoverer.discover(entry.dir, entry.source);
       for (const candidate of candidates) {
         try {
-          const draft = await this.parser.parse(candidate.filePath, candidate.fallbackName, candidate.source);
+          const draft = await this.parser.parse(
+            candidate.filePath,
+            candidate.fallbackName,
+            candidate.source,
+          );
           const validated = this.validator.validate(draft);
           diagnostics.push(...validated.diagnostics);
           if (validated.skill) parsedSkills.push(validated.skill);

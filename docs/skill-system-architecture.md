@@ -112,7 +112,7 @@ It should not include full bodies. It also should not require exposing absolute 
 `skill_read` is a first-class tool that loads the complete skill body by name.
 
 ```ts
-skill_read({ name: "frontend-design" })
+skill_read({ name: "frontend-design" });
 ```
 
 The tool result becomes a regular conversation message:

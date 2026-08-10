@@ -115,17 +115,13 @@ export const webSearchTool: AgentTool = {
 
       if (results.length === 0) {
         return {
-          content: [
-            { type: "text", text: "No results found for the given query." },
-          ],
+          content: [{ type: "text", text: "No results found for the given query." }],
           isError: false,
         };
       }
 
       return {
-        content: [
-          { type: "text", text: JSON.stringify(results, null, 2) },
-        ],
+        content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
         isError: false,
       };
     } catch (err: unknown) {

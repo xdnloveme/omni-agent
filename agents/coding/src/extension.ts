@@ -28,21 +28,19 @@ export function createCodingExtension(
     for (const section of dynamic) if (section) sections.push(section);
     return sections.join("\n\n");
   };
-  const tools = [
-    ...localCodingToolset,
-    ...webResearchToolset,
-    skillRuntime.tool(),
-  ];
+  const tools = [...localCodingToolset, ...webResearchToolset, skillRuntime.tool()];
   return {
     buildSystemPrompt,
     extension: {
       manifest: { id: "coding", version: "0.0.1", apiVersion: 1 },
       contributions: {
         tools,
-        agents: [{
-          definition: createCodingAgent(buildSystemPrompt),
-          tools: { include: tools.map((tool) => tool.name) },
-        }],
+        agents: [
+          {
+            definition: createCodingAgent(buildSystemPrompt),
+            tools: { include: tools.map((tool) => tool.name) },
+          },
+        ],
       },
     },
   };

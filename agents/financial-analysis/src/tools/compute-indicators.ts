@@ -7,11 +7,16 @@ export const computeTechnicalIndicatorsTool: AgentTool = {
   strict: true,
   risk: "read",
   approval: "never",
-  description: "Compute deterministic SMA, EMA, RSI, MACD, and ATR values from timestamped OHLCV bars.",
+  description:
+    "Compute deterministic SMA, EMA, RSI, MACD, and ATR values from timestamped OHLCV bars.",
   schema: {
     type: "object",
     properties: {
-      bars: { type: "array", items: { type: "object" }, description: "OHLCV bars ordered oldest to newest" },
+      bars: {
+        type: "array",
+        items: { type: "object" },
+        description: "OHLCV bars ordered oldest to newest",
+      },
       period: { type: "integer", minimum: 1, default: 14 },
     },
     required: ["bars"],
@@ -44,7 +49,8 @@ export const computeTechnicalIndicatorsTool: AgentTool = {
 };
 
 function parseBars(value: unknown): OhlcvBar[] {
-  if (!Array.isArray(value) || value.length === 0) throw new Error("bars must be a non-empty array");
+  if (!Array.isArray(value) || value.length === 0)
+    throw new Error("bars must be a non-empty array");
   return value.map((entry, index) => {
     if (!entry || typeof entry !== "object") throw new Error(`bars[${index}] must be an object`);
     const candidate = entry as Record<string, unknown>;

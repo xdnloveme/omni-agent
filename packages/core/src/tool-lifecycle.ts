@@ -46,9 +46,11 @@ function collectLifecycleEvents(
   for (const adapter of adapters ?? []) {
     try {
       if (!adapter.supports(input.toolName)) continue;
-      events.push(...(phase === "start"
-        ? adapter.onStart(input)
-        : adapter.onEnd(input as ToolLifecycleEndInput)));
+      events.push(
+        ...(phase === "start"
+          ? adapter.onStart(input)
+          : adapter.onEnd(input as ToolLifecycleEndInput)),
+      );
     } catch (err) {
       events.push(createAdapterErrorEvent(input, phase, err));
     }

@@ -12,7 +12,9 @@
     "./web": "./src/web/index.ts",
     "./toolsets": "./src/toolsets/index.ts"
   },
-  "scripts": { "build": "tsc -p tsconfig.json" },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
   "dependencies": {
     "@omni-agent/core": "workspace:*",
     "cheerio": "^1.2.0",

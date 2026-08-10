@@ -23,7 +23,12 @@ export function createSkillReadTool(registry: SkillRegistry): AgentTool {
         return {
           content: [{ type: "text", text: "Error: name is required" }],
           isError: true,
-          meta: { kind: SKILL_TOOL_NAME, skillName: "", status: SkillReadStatus.Failed, error: "name is required" },
+          meta: {
+            kind: SKILL_TOOL_NAME,
+            skillName: "",
+            status: SkillReadStatus.Failed,
+            error: "name is required",
+          },
         };
       }
 

@@ -33,7 +33,11 @@ describe("ToolExecutor", () => {
   });
 
   it("validates strict tool inputs before execution", async () => {
-    const strictTool = { ...echoTool, strict: true, schema: { type: "object", required: ["value"] } };
+    const strictTool = {
+      ...echoTool,
+      strict: true,
+      schema: { type: "object", required: ["value"] },
+    };
     const execution = await new ToolExecutor().execute([strictTool], "echo", {});
     expect(execution.result.content[0].text).toBe("Invalid tool input: value is required");
   });

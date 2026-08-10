@@ -19,7 +19,9 @@ export interface ExplicitSkillReadRenderEvent {
 export type SkillReadRenderEvent = ExplicitSkillReadRenderEvent;
 
 export function renderSkillReadStart(sink: SkillRenderSink, skillName: string): void {
-  sink.line(`${chalk.magenta("◇")} ${chalk.bold("Reading skill")} ${chalk.cyan(skillName || "(unknown)")}`);
+  sink.line(
+    `${chalk.magenta("◇")} ${chalk.bold("Reading skill")} ${chalk.cyan(skillName || "(unknown)")}`,
+  );
 }
 
 export function renderSkillReadEnd(
@@ -27,16 +29,19 @@ export function renderSkillReadEnd(
   event: SkillReadRenderEvent,
   mode: "inferred" | "explicit" = "inferred",
 ): void {
-  const status = event.status === SkillReadStatus.Failed
-    ? chalk.red(SkillReadStatus.Failed)
-    : event.status === SkillReadStatus.Cached
-      ? chalk.yellow(SkillReadStatus.Cached)
-      : chalk.green(SkillReadStatus.Loaded);
+  const status =
+    event.status === SkillReadStatus.Failed
+      ? chalk.red(SkillReadStatus.Failed)
+      : event.status === SkillReadStatus.Cached
+        ? chalk.yellow(SkillReadStatus.Cached)
+        : chalk.green(SkillReadStatus.Loaded);
   const pieces = [
     mode === "explicit" ? chalk.dim("explicit") : null,
     sourceLabel(event.source),
     status,
-    typeof event.tokenEstimate === "number" ? chalk.dim(`${event.tokenEstimate.toLocaleString()} tokens`) : null,
+    typeof event.tokenEstimate === "number"
+      ? chalk.dim(`${event.tokenEstimate.toLocaleString()} tokens`)
+      : null,
     typeof event.durationMs === "number" ? chalk.dim(`${event.durationMs}ms`) : null,
   ].filter((piece): piece is string => Boolean(piece));
 

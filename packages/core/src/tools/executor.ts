@@ -95,7 +95,10 @@ async function executeWithTimeout(
   }
 }
 
-function validateInput(schema: Record<string, unknown>, input: Record<string, unknown>): string | null {
+function validateInput(
+  schema: Record<string, unknown>,
+  input: Record<string, unknown>,
+): string | null {
   const required = Array.isArray(schema.required) ? schema.required : [];
   for (const key of required) {
     if (typeof key === "string" && input[key] === undefined) return `${key} is required`;
@@ -110,9 +113,13 @@ function validateInput(schema: Record<string, unknown>, input: Record<string, un
     if (property.type === "number" && (typeof value !== "number" || !Number.isFinite(value))) {
       return `${key} must be a finite number`;
     }
-    if (property.type === "integer" && (!Number.isInteger(value))) return `${key} must be an integer`;
+    if (property.type === "integer" && !Number.isInteger(value)) return `${key} must be an integer`;
     if (property.type === "array" && !Array.isArray(value)) return `${key} must be an array`;
-    if (typeof property.minimum === "number" && typeof value === "number" && value < property.minimum) {
+    if (
+      typeof property.minimum === "number" &&
+      typeof value === "number" &&
+      value < property.minimum
+    ) {
       return `${key} must be >= ${property.minimum}`;
     }
   }

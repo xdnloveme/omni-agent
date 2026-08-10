@@ -31,19 +31,16 @@ export const globTool: AgentTool = {
     properties: {
       pattern: {
         type: "string",
-        description:
-          "Glob pattern to match files (e.g. '**/*.ts', 'src/**/*.{js,ts}')",
+        description: "Glob pattern to match files (e.g. '**/*.ts', 'src/**/*.{js,ts}')",
       },
       dir_path: {
         type: "string",
-        description:
-          "Directory to search in. Defaults to current working directory.",
+        description: "Directory to search in. Defaults to current working directory.",
       },
       exclude: {
         type: "array",
         items: { type: "string" },
-        description:
-          "Patterns to exclude (e.g. ['node_modules/**', '*.test.ts'])",
+        description: "Patterns to exclude (e.g. ['node_modules/**', '*.test.ts'])",
       },
     },
     required: ["pattern"],
@@ -57,9 +54,7 @@ export const globTool: AgentTool = {
       };
     }
 
-    const cwd = params.dir_path
-      ? path.resolve(params.dir_path as string)
-      : process.cwd();
+    const cwd = params.dir_path ? path.resolve(params.dir_path as string) : process.cwd();
 
     const exclude = (params.exclude as string[] | undefined) ?? [];
 

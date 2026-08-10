@@ -74,7 +74,10 @@ function unquote(value: string): string {
   return value.replace(/^["'](.*)["']$/, "$1");
 }
 
-export function getStringField(frontmatter: Record<string, unknown>, ...keys: string[]): string | undefined {
+export function getStringField(
+  frontmatter: Record<string, unknown>,
+  ...keys: string[]
+): string | undefined {
   for (const key of keys) {
     const value = frontmatter[key];
     if (typeof value === "string") return value;
@@ -94,7 +97,10 @@ export function getBooleanField(
   return defaultValue;
 }
 
-export function getStringArrayField(frontmatter: Record<string, unknown>, ...keys: string[]): string[] | undefined {
+export function getStringArrayField(
+  frontmatter: Record<string, unknown>,
+  ...keys: string[]
+): string[] | undefined {
   for (const key of keys) {
     const value = frontmatter[key];
     if (Array.isArray(value)) {
@@ -102,7 +108,10 @@ export function getStringArrayField(frontmatter: Record<string, unknown>, ...key
       return strings.length > 0 ? strings : undefined;
     }
     if (typeof value === "string" && value.trim()) {
-      return value.split(",").map((item) => item.trim()).filter(Boolean);
+      return value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
     }
   }
   return undefined;

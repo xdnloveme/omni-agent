@@ -70,13 +70,11 @@ export const grepTool: AgentTool = {
       },
       search_path: {
         type: "string",
-        description:
-          "File or directory to search in. Defaults to current working directory.",
+        description: "File or directory to search in. Defaults to current working directory.",
       },
       glob: {
         type: "string",
-        description:
-          "Restrict search to files matching this glob (e.g. '*.ts', '**/*.py')",
+        description: "Restrict search to files matching this glob (e.g. '*.ts', '**/*.py')",
       },
       ignore_case: {
         type: "boolean",

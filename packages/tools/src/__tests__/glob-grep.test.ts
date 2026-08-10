@@ -71,9 +71,7 @@ describe("globTool", () => {
     // Create 210 files
     const promises = [];
     for (let i = 0; i < 210; i++) {
-      promises.push(
-        fs.writeFile(path.join(tmpDir, `file-${String(i).padStart(3, "0")}.txt`), ""),
-      );
+      promises.push(fs.writeFile(path.join(tmpDir, `file-${String(i).padStart(3, "0")}.txt`), ""));
     }
     await Promise.all(promises);
 
@@ -131,10 +129,7 @@ describe("grepTool", () => {
   });
 
   it("should support ignore_case", async () => {
-    await fs.writeFile(
-      path.join(tmpDir, "case.txt"),
-      "Hello World\nhello world\nHELLO WORLD\n",
-    );
+    await fs.writeFile(path.join(tmpDir, "case.txt"), "Hello World\nhello world\nHELLO WORLD\n");
 
     const result = await grepTool.execute({
       regex: "hello",
@@ -167,9 +162,7 @@ describe("grepTool", () => {
 
   it("should respect max_results", async () => {
     // Create a file with many matching lines
-    const lines = Array.from({ length: 100 }, (_, i) => `match line ${i}`).join(
-      "\n",
-    );
+    const lines = Array.from({ length: 100 }, (_, i) => `match line ${i}`).join("\n");
     await fs.writeFile(path.join(tmpDir, "many.txt"), lines);
 
     const result = await grepTool.execute({

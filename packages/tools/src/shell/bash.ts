@@ -119,7 +119,12 @@ export const bashTool: AgentTool = {
       };
     } catch (err) {
       return {
-        content: [{ type: "text", text: `Failed to execute command: ${err instanceof Error ? err.message : String(err)}` }],
+        content: [
+          {
+            type: "text",
+            text: `Failed to execute command: ${err instanceof Error ? err.message : String(err)}`,
+          },
+        ],
         isError: true,
       };
     }

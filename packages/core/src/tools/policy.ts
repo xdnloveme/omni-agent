@@ -5,9 +5,7 @@ export interface ToolPolicyContext {
   input: Record<string, unknown>;
 }
 
-export type ToolPolicyDecision =
-  | { allowed: true }
-  | { allowed: false; reason: string };
+export type ToolPolicyDecision = { allowed: true } | { allowed: false; reason: string };
 
 export interface ToolPolicy {
   evaluate(context: ToolPolicyContext): ToolPolicyDecision | Promise<ToolPolicyDecision>;

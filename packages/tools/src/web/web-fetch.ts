@@ -15,7 +15,10 @@ function extractTextFromHtml(html: string): string {
   $("script, style, nav, header, footer, aside, noscript, iframe, svg").remove();
   // Get text and collapse whitespace
   const text = $("body").text();
-  return text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+  return text
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
 export const webFetchTool: AgentTool = {

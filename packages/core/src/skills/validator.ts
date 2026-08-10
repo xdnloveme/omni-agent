@@ -1,10 +1,6 @@
 import path from "node:path";
 import { SkillDiagnosticCode, SkillDiagnosticType, SkillFrontmatterKeys } from "./constants";
-import {
-  getBooleanField,
-  getStringArrayField,
-  getStringField,
-} from "./frontmatter";
+import { getBooleanField, getStringArrayField, getStringField } from "./frontmatter";
 import type { SkillDraft } from "./parser";
 import type { SkillDiagnostic, SkillMetadata } from "./types";
 
@@ -16,7 +12,8 @@ export interface SkillValidationResult {
 export class SkillValidator {
   validate(draft: SkillDraft): SkillValidationResult {
     const diagnostics: SkillDiagnostic[] = [];
-    const name = getStringField(draft.frontmatter, ...SkillFrontmatterKeys.name) ?? draft.fallbackName;
+    const name =
+      getStringField(draft.frontmatter, ...SkillFrontmatterKeys.name) ?? draft.fallbackName;
     const description = getStringField(draft.frontmatter, ...SkillFrontmatterKeys.description);
 
     if (!description || !description.trim()) {
@@ -56,8 +53,16 @@ export class SkillValidator {
         filePath: draft.filePath,
         baseDir: path.dirname(draft.filePath),
         source: draft.source,
-        userInvocable: getBooleanField(draft.frontmatter, true, ...SkillFrontmatterKeys.userInvocable),
-        disableModelInvocation: getBooleanField(draft.frontmatter, false, ...SkillFrontmatterKeys.disableModelInvocation),
+        userInvocable: getBooleanField(
+          draft.frontmatter,
+          true,
+          ...SkillFrontmatterKeys.userInvocable,
+        ),
+        disableModelInvocation: getBooleanField(
+          draft.frontmatter,
+          false,
+          ...SkillFrontmatterKeys.disableModelInvocation,
+        ),
         allowedTools: getStringArrayField(draft.frontmatter, ...SkillFrontmatterKeys.allowedTools),
       },
       diagnostics,

@@ -51,29 +51,23 @@ export const fileReadTool: AgentTool = {
     const resolved = path.resolve(filePath);
 
     try {
-      const text = await fileMutex.withLock(resolved, () =>
-        fs.readFile(resolved, "utf-8"),
-      );
+      const text = await fileMutex.withLock(resolved, () => fs.readFile(resolved, "utf-8"));
 
       const allLines = text.split("\n");
       const offset = Math.max(1, Number(params.offset) || 1);
-      const limit =
-        params.limit != null ? Number(params.limit) : allLines.length;
+      const limit = params.limit != null ? Number(params.limit) : allLines.length;
 
       const startIdx = offset - 1;
       const slice = allLines.slice(startIdx, startIdx + limit);
 
-      const numbered = slice.map(
-        (line, i) => `${offset + i}|${line}`,
-      );
+      const numbered = slice.map((line, i) => `${offset + i}|${line}`);
 
       return {
         content: [{ type: "text", text: numbered.join("\n") }],
         isError: false,
       };
     } catch (err: unknown) {
-      const msg =
-        err instanceof Error ? err.message : String(err);
+      const msg = err instanceof Error ? err.message : String(err);
       return {
         content: [{ type: "text", text: `Error reading file: ${msg}` }],
         isError: true,

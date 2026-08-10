@@ -15,7 +15,11 @@ export function createSkillsCommand(
         await onReload?.();
         ctx.tui.sink.line(chalk.green(`Reloaded ${result.skills.length} skills.`));
         if (result.diagnostics.length > 0) {
-          ctx.tui.sink.line(chalk.yellow(`${result.diagnostics.length} diagnostics. Run /skills diagnostics for details.`));
+          ctx.tui.sink.line(
+            chalk.yellow(
+              `${result.diagnostics.length} diagnostics. Run /skills diagnostics for details.`,
+            ),
+          );
         }
         ctx.tui.sink.spacer();
         return;
@@ -30,7 +34,9 @@ export function createSkillsCommand(
         }
         ctx.tui.sink.line(chalk.bold("Skill diagnostics"));
         for (const diagnostic of diagnostics) {
-          ctx.tui.sink.line(`${diagnostic.type === "error" ? chalk.red("error") : chalk.yellow("warning")} ${diagnostic.code}: ${diagnostic.message}`);
+          ctx.tui.sink.line(
+            `${diagnostic.type === "error" ? chalk.red("error") : chalk.yellow("warning")} ${diagnostic.code}: ${diagnostic.message}`,
+          );
           ctx.tui.sink.line(chalk.dim(`  ${diagnostic.path}`));
         }
         ctx.tui.sink.spacer();
@@ -50,7 +56,9 @@ export function createSkillsCommand(
           skill.source.scope,
           skill.userInvocable ? "slash" : null,
           skill.disableModelInvocation ? "hidden" : null,
-        ].filter(Boolean).join(", ");
+        ]
+          .filter(Boolean)
+          .join(", ");
         ctx.tui.sink.line(`${chalk.cyan(skill.name)} ${chalk.dim(`[${flags}]`)}`);
         ctx.tui.sink.line(chalk.dim(`  ${skill.description}`));
       }
