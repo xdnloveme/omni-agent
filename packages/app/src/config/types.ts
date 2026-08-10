@@ -1,12 +1,17 @@
 import type { ModelSelection } from "../models/model-service";
 
-export interface OmniConfigV2 {
-  version: 2;
+export interface AgentModelConfig {
   model: ModelSelection;
 }
 
+export interface OmniConfig {
+  version: 3;
+  model: ModelSelection;
+  agents?: Record<string, AgentModelConfig>;
+}
+
 export interface ConfigDiagnostic {
-  code: "invalid_config" | "migration_failed";
+  code: "invalid_config" | "read_failed";
   source: "global" | "project";
   message: string;
 }

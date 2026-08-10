@@ -73,7 +73,7 @@ stream events, configuration behavior, credential storage, and JSONL session
 format unless a change explicitly requires a migration.
 
 `ModelRuntimePort`, `AgentMessage`, `AgentRunner`, `ToolExecutor`,
-`createAgentApp()`, and `AgentExtension` are the current architecture. Do not
+`AgentFactory`, `AgentBlueprint`, and `AgentExtension` are the current architecture. Do not
 add legacy model execution branches, compatibility overloads, global runtime
 setters, static model registries, or aliases for removed model-library types.
 Historical configuration and credentials may be handled only by isolated,

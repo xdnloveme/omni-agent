@@ -15,7 +15,7 @@ export interface SessionEntry {
 }
 
 /**
- * The index file structure stored at ~/.omni-agent/sessions/index.json
+ * The index file structure stored at ~/.omni-agent/sessions/<agent-id>/index.json.
  */
 export interface SessionIndex {
   sessions: SessionEntry[];

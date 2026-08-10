@@ -1,25 +1,26 @@
 import {
   AgentRunner,
+  createUserMessage,
   createStreamSession,
   type AgentConfig,
   type AgentEvent,
   type StreamCallbacks,
 } from "@omni-agent/core";
+import type { AgentSessionRepository } from "@omni-agent/core";
+import { ConfigService } from "../config/config-service";
 import { ExtensionManager } from "../extensions/extension-manager";
-import { SessionService } from "../sessions/session-service";
 import { ModelService, type ModelSelection } from "../models/model-service";
 
 export class AgentApplication {
   readonly runner: AgentRunner;
   readonly extensions: ExtensionManager;
-  readonly sessions: SessionService;
+  readonly sessions: AgentSessionRepository;
   readonly agentConfig: AgentConfig;
   readonly agentId: string;
   readonly cwd: string;
   readonly modelService: ModelService;
   private activeSelection: ModelSelection;
-  private readonly persistModelSelection?: (selection: ModelSelection) => void | Promise<void>;
-  private readonly ownsModelService: boolean;
+  private readonly configService: ConfigService;
 
   constructor(dependencies: AgentApplicationDependencies) {
     this.extensions = dependencies.extensions;
@@ -29,28 +30,28 @@ export class AgentApplication {
     this.cwd = dependencies.cwd;
     this.modelService = dependencies.modelService;
     this.activeSelection = dependencies.modelSelection;
-    this.persistModelSelection = dependencies.persistModelSelection;
-    this.ownsModelService = dependencies.ownsModelService ?? false;
+    this.configService = dependencies.configService;
     this.runner = new AgentRunner(dependencies.modelService.runtime);
   }
 
   async run(input: string, callbacks: StreamCallbacks, signal?: AbortSignal): Promise<void> {
-    this.sessions.appendUserInput(input);
+    const sessionId = this.requireSessionId();
+    await this.sessions.append(sessionId, [createUserMessage(input)]);
     const streamSession = createStreamSession(callbacks);
     const events = this.runner.run(this.agentConfig, this.sessions.messages, signal, {
       session: streamSession,
     });
     for await (const event of events) {
-      this.persistProduced(event);
+      await this.persistProduced(event);
     }
   }
 
-  newSession(): string {
-    return this.sessions.create();
+  async newSession(): Promise<string> {
+    return (await this.sessions.create()).id;
   }
 
-  clearSession(): void {
-    this.sessions.clear();
+  async clearSession(): Promise<void> {
+    await this.sessions.clear(this.requireSessionId());
   }
 
   async refreshInstructions(): Promise<void> {
@@ -61,12 +62,41 @@ export class AgentApplication {
       typeof instructions === "function" ? await instructions({ cwd: this.cwd }) : instructions;
   }
 
-  async setModel(selection: ModelSelection): Promise<void> {
+  async setAgentModel(selection: ModelSelection): Promise<void> {
     const next = await this.modelService.resolve(selection);
     const auth = await this.modelService.isConfigured(next.providerId);
     if (!auth) throw new Error(`Provider is not configured: ${next.providerId}`);
-    await this.persistModelSelection?.(selection);
+    await this.configService.saveAgentModel(this.agentId, selection);
     this.activateModel(selection, next);
+  }
+
+  async setSharedModel(selection: ModelSelection): Promise<void> {
+    const shared = await this.modelService.resolve(selection);
+    if (!(await this.modelService.isConfigured(shared.providerId))) {
+      throw new Error(`Provider is not configured: ${shared.providerId}`);
+    }
+    await this.configService.saveSharedModel(selection);
+    const effective = await this.configService.resolveModel(this.agentId);
+    if (!effective) throw new Error(`Model is not configured for agent: ${this.agentId}`);
+    const next = await this.modelService.resolve(effective);
+    if (!(await this.modelService.isConfigured(next.providerId))) {
+      throw new Error(`Provider is not configured: ${next.providerId}`);
+    }
+    this.activateModel(effective, next);
+  }
+
+  async useSharedModel(): Promise<void> {
+    const shared = await this.configService.resolveSharedModel();
+    if (!shared) throw new Error("Shared model is not configured");
+    const next = await this.modelService.resolve(shared);
+    if (!(await this.modelService.isConfigured(next.providerId))) {
+      throw new Error(`Provider is not configured: ${next.providerId}`);
+    }
+    await this.configService.removeAgentModel(this.agentId, { scope: "global" });
+    await this.configService.removeAgentModel(this.agentId, { scope: "project" });
+    const effective = await this.configService.resolveModel(this.agentId);
+    if (!effective) throw new Error("Shared model is not configured");
+    this.activateModel(effective, next);
   }
 
   get modelSelection(): ModelSelection {
@@ -74,17 +104,19 @@ export class AgentApplication {
   }
 
   async dispose(): Promise<void> {
-    try {
-      await this.extensions.dispose();
-    } finally {
-      if (this.ownsModelService) await this.modelService.dispose();
+    await this.extensions.dispose();
+  }
+
+  private async persistProduced(event: AgentEvent): Promise<void> {
+    if (event.type === "done" && event.produced) {
+      await this.sessions.append(this.requireSessionId(), event.produced);
     }
   }
 
-  private persistProduced(event: AgentEvent): void {
-    if (event.type === "done" && event.produced) {
-      this.sessions.appendProduced(event.produced);
-    }
+  private requireSessionId(): string {
+    const sessionId = this.sessions.currentId;
+    if (!sessionId) throw new Error("Agent session is not initialized");
+    return sessionId;
   }
 
   private activateModel(selection: ModelSelection, model: AgentConfig["model"]): void {
@@ -95,12 +127,11 @@ export class AgentApplication {
 
 export interface AgentApplicationDependencies {
   readonly extensions: ExtensionManager;
-  readonly sessions: SessionService;
+  readonly sessions: AgentSessionRepository;
   readonly agentConfig: AgentConfig;
   readonly agentId: string;
   readonly cwd: string;
   readonly modelService: ModelService;
   readonly modelSelection: ModelSelection;
-  readonly persistModelSelection?: (selection: ModelSelection) => void | Promise<void>;
-  readonly ownsModelService?: boolean;
+  readonly configService: ConfigService;
 }

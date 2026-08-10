@@ -98,13 +98,10 @@ Middleware contributions are stored by the extension manager and executed around
 model and tool calls by the single agent loop; unregistering an extension removes
 the same middleware instances from the live application.
 
-```ts
-const app = await createAgentApp({
-  modelSelection: { vendorId: "openai", connectionId: "default", modelId: "gpt-5.4" },
-  defaultAgentId: "coding",
-  extensions: [codingExtension],
-});
-```
+Each installed Agent exports an `AgentBlueprint`. The application-scoped
+`AgentFactory` is the only assembly entry point: it validates the blueprint,
+builds and registers its extension, resolves the effective model, restores the
+Agent's Session, and creates an isolated `AgentApplication`.
 
 Optional extensions can be exported from `~/.omni-agent/extensions.mjs` and the
 current project's `omni.extensions.mjs`. They merge by extension manifest ID,
@@ -116,8 +113,9 @@ extension code is trusted local code and is not sandboxed.
 Global configuration under `~/.omni-agent` is the baseline. Files in the
 current project root form the override layer:
 
-- `omni.config.json`: the project model selection replaces global
-  `~/.omni-agent/config.json` as one atomic value.
+- `omni.config.json`: version 3 stores a shared default model and optional
+  `agents.<agent-id>.model` overrides. Resolution order is project Agent,
+  global Agent, project shared, then global shared.
 - `omni.providers.json`: vendors merge with global
   `~/.omni-agent/providers.json` by vendor ID and connections merge by
   connection ID; a matching project connection replaces the global connection
@@ -143,24 +141,24 @@ introduced only when a verified endpoint requires one.
 
 `AgentRunner` receives exactly one `ModelRuntimePort` through its constructor.
 There is no legacy execution branch, global runtime setter, static model
-registry, or API key in `AgentConfig`. Configuration migration is isolated in
-App and converts historical config one-way into `OmniConfigV2` and the current
-Provider definition format; historical formats never participate in model
-execution. The default CLI preserves the existing session, command, tool, event,
-and TUI behavior.
+registry, or API key in `AgentConfig`. Runtime configuration accepts only
+`OmniConfig` version 3; historical formats do not participate in model execution.
+The default CLI preserves the existing command, tool, event, and TUI behavior.
 
-Agent packages expose an `agentFactory` from their package root. The CLI resolves
-`@omni-agent/agent-<id>` dynamically and asks that factory for the extension and
-optional runtime capabilities. Agent IDs are therefore not maintained in a CLI
-allowlist or switch statement. `pnpm dev` selects `coding` by default, while
-`pnpm run dev -- <id>` selects any installed Agent package through the same chat
-runtime.
+Agent packages expose an `agentBlueprint` from their package root. The CLI
+resolves `@omni-agent/agent-<id>` dynamically and passes that blueprint to the
+single `AgentFactory`. Agent IDs are therefore not maintained in a CLI allowlist
+or switch statement. `pnpm dev` selects `coding` only as its default argument,
+while `pnpm run dev -- <id>` selects any installed Agent package through the same
+chat runtime.
 
-Each `AgentApplication` owns a Session service scoped by `agentId`. Session
-indexes and JSONL histories live under `~/.omni-agent/sessions/<agent-id>/`, so
-one Agent can never restore another Agent's conversation context. Model and
-credential services remain shared infrastructure; prompts, tools, runtime
-capabilities, and conversation state remain instance-local.
+Each `AgentApplication` owns an `AgentSessionRepository` constructed with an
+explicit `agentId`. Session indexes and JSONL histories live under
+`~/.omni-agent/sessions/<agent-id>/`; the Repository restores the latest Session
+on startup and creates a Session only when the directory is empty or `/new` is
+requested. Model providers, catalogs, and credentials remain shared
+infrastructure; model selection may be overridden per Agent. Prompts, tools,
+capabilities, Runner, Session, and mutable runtime state remain instance-local.
 
 Keytar is the credential source of truth. Its non-secret credential index is
 derived state; writes use provider-scoped serialization and compensation, while a

@@ -32,11 +32,12 @@ agents/
 
 The models package depends on core; app composes both. Concrete agents are never
 registered implicitly by core or app.
-Each Agent package exports an `agentFactory`; the CLI loads
+Each Agent package exports an `agentBlueprint`; the CLI loads
 `@omni-agent/agent-<id>` by convention, so adding an installed Agent does not
 require another CLI branch.
 Agent sessions are isolated under `~/.omni-agent/sessions/<agent-id>/`; switching
-Agent IDs never restores another Agent's conversation history.
+Agent IDs never restores another Agent's conversation history. Starting the same
+Agent restores its most recently active persisted Session.
 
 ## Provider credentials
 
@@ -48,8 +49,10 @@ project credentials are preferred; the CLI reads but never writes environment
 files.
 
 Non-secret configuration is layered from the global `~/.omni-agent` directory
-and `omni.config.json` / `omni.providers.json` in the project root. The project
-model selection is an atomic override; Provider vendors merge by `id` and
+and `omni.config.json` / `omni.providers.json` in the project root. A shared model
+is the default for every Agent, while `agents.<id>.model` optionally overrides it.
+Project Agent overrides win over global Agent overrides, followed by project and
+global shared defaults. Provider vendors merge by `id` and
 connections by `id`, with project connections replacing matching global
 connections. Invalid project files are reported instead of silently falling
 back to global configuration. Project configuration can be committed; secrets

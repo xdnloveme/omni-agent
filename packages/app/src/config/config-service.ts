@@ -1,82 +1,138 @@
-import { copyFile, readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { containsSecretField, type ConfigurationScope } from "@omni-agent/models";
 import { AtomicJsonFile } from "../persistence/atomic-json-file";
-import { migrateLegacyConfig, type OmniConfigV1 } from "./config-migration";
-import type { ConfigDiagnostic, OmniConfigV2 } from "./types";
+import type { ModelSelection } from "../models/model-service";
+import type { ConfigDiagnostic, OmniConfig } from "./types";
 
 export interface ConfigServiceOptions {
   readonly cwd?: string;
   readonly globalDirectory?: string;
 }
 
-interface LoadedConfig {
+interface ConfigLayer {
   readonly present: boolean;
-  readonly config: OmniConfigV2 | null;
+  readonly config: OmniConfig | null;
+}
+
+interface ConfigLayers {
+  readonly global: ConfigLayer;
+  readonly project: ConfigLayer;
 }
 
 const PROJECT_CONFIG_FILE = "omni.config.json";
 
 export class ConfigService {
   readonly diagnostics: ConfigDiagnostic[] = [];
-  private readonly cwd: string;
-  private readonly globalDirectory: string;
   private readonly globalPath: string;
   private readonly projectPath: string;
 
   constructor(options: ConfigServiceOptions = {}) {
-    this.cwd = options.cwd ?? process.cwd();
-    this.globalDirectory = options.globalDirectory ?? join(homedir(), ".omni-agent");
-    this.globalPath = join(this.globalDirectory, "config.json");
-    this.projectPath = resolve(this.cwd, PROJECT_CONFIG_FILE);
+    const cwd = options.cwd ?? process.cwd();
+    const globalDirectory = options.globalDirectory ?? join(homedir(), ".omni-agent");
+    this.globalPath = join(globalDirectory, "config.json");
+    this.projectPath = resolve(cwd, PROJECT_CONFIG_FILE);
   }
 
-  async load(): Promise<OmniConfigV2 | null> {
+  async resolveModel(agentId: string): Promise<ModelSelection | null> {
+    assertAgentId(agentId);
+    const layers = await this.loadLayers();
+    if (layers.project.present && !layers.project.config) return null;
+    if (layers.global.present && !layers.global.config) return null;
+    return (
+      layers.project.config?.agents?.[agentId]?.model ??
+      layers.global.config?.agents?.[agentId]?.model ??
+      layers.project.config?.model ??
+      layers.global.config?.model ??
+      null
+    );
+  }
+
+  async resolveSharedModel(): Promise<ModelSelection | null> {
+    const layers = await this.loadLayers();
+    if (layers.project.present && !layers.project.config) return null;
+    if (layers.global.present && !layers.global.config) return null;
+    return layers.project.config?.model ?? layers.global.config?.model ?? null;
+  }
+
+  async saveSharedModel(
+    model: ModelSelection,
+    options: { scope?: ConfigurationScope } = {},
+  ): Promise<void> {
+    const scope = options.scope ?? "project";
+    const current = await this.loadWritableLayer(scope, model);
+    await this.writeLayer(scope, { ...current, model });
+  }
+
+  async saveAgentModel(
+    agentId: string,
+    model: ModelSelection,
+    options: { scope?: ConfigurationScope } = {},
+  ): Promise<void> {
+    assertAgentId(agentId);
+    const scope = options.scope ?? "project";
+    const shared = await this.resolveSharedModel();
+    const current = await this.loadWritableLayer(scope, shared ?? model);
+    await this.writeLayer(scope, {
+      ...current,
+      agents: {
+        ...current.agents,
+        [agentId]: { model },
+      },
+    });
+  }
+
+  async removeAgentModel(
+    agentId: string,
+    options: { scope?: ConfigurationScope } = {},
+  ): Promise<void> {
+    assertAgentId(agentId);
+    const scope = options.scope ?? "project";
+    const layer = await this.loadLayer(scope);
+    if (!layer.present) return;
+    if (!layer.config) throw new InvalidConfigError(`Cannot update invalid ${scope} config`);
+    if (!layer.config.agents?.[agentId]) return;
+
+    const agents = { ...layer.config.agents };
+    delete agents[agentId];
+    const next: OmniConfig = { ...layer.config };
+    if (Object.keys(agents).length === 0) delete next.agents;
+    else next.agents = agents;
+    await this.writeLayer(scope, next);
+  }
+
+  private async loadLayers(): Promise<ConfigLayers> {
     this.diagnostics.length = 0;
-    const global = await this.loadLayer("global");
-    const project = await this.loadLayer("project");
-    if (project.present) return project.config;
-    return global.config;
+    const [global, project] = await Promise.all([
+      this.loadLayer("global"),
+      this.loadLayer("project"),
+    ]);
+    return { global, project };
   }
 
-  save(config: OmniConfigV2, options: { scope?: ConfigurationScope } = {}): Promise<void> {
-    assertSecretFreeConfig(config);
-    return this.saveLayer(config, options.scope ?? "project");
+  private async loadWritableLayer(
+    scope: ConfigurationScope,
+    fallbackModel: ModelSelection,
+  ): Promise<OmniConfig> {
+    const layer = await this.loadLayer(scope);
+    if (layer.config) return layer.config;
+    if (layer.present) throw new InvalidConfigError(`Cannot update invalid ${scope} config`);
+    return { version: 3, model: fallbackModel };
   }
 
-  private path(scope: ConfigurationScope): string {
-    return scope === "global" ? this.globalPath : this.projectPath;
-  }
-
-  private async loadLayer(scope: ConfigurationScope): Promise<LoadedConfig> {
-    const path = this.path(scope);
+  private async loadLayer(scope: ConfigurationScope): Promise<ConfigLayer> {
     try {
-      const parsed = await new AtomicJsonFile<unknown>(path).read();
-      if (parsed === undefined) return { present: false, config: null };
-      if (isConfigV2(parsed)) {
-        assertSecretFreeConfig(parsed);
-        return { present: true, config: parsed };
-      }
-      if (isConfigV1(parsed)) {
-        const migrated: OmniConfigV2 = {
-          version: 2,
-          model: await migrateLegacyConfig(parsed, {
-            cwd: this.cwd,
-            globalDirectory: this.globalDirectory,
-            scope,
-          }),
-        };
-        await this.saveLayer(migrated, scope);
-        return { present: true, config: migrated };
-      }
-      throw new InvalidConfigError("Configuration format is invalid");
+      const value = await new AtomicJsonFile<unknown>(this.path(scope)).read();
+      if (value === undefined) return { present: false, config: null };
+      if (!isOmniConfig(value)) throw new InvalidConfigError("Configuration format is invalid");
+      assertSecretFreeConfig(value);
+      return { present: true, config: value };
     } catch (error) {
       this.diagnostics.push({
         code:
           error instanceof SyntaxError || error instanceof InvalidConfigError
             ? "invalid_config"
-            : "migration_failed",
+            : "read_failed",
         source: scope,
         message: error instanceof Error ? error.message : String(error),
       });
@@ -84,50 +140,51 @@ export class ConfigService {
     }
   }
 
-  private async saveLayer(config: OmniConfigV2, scope: ConfigurationScope): Promise<void> {
-    const path = this.path(scope);
-    try {
-      const current = JSON.parse(await readFile(path, "utf8")) as { version?: unknown };
-      if (current.version !== 2) await copyFile(path, `${path}.v1.backup`);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException)?.code !== "ENOENT" && !(error instanceof SyntaxError)) {
-        throw error;
-      }
-    }
-    await new AtomicJsonFile<OmniConfigV2>(path).write(config);
+  private writeLayer(scope: ConfigurationScope, config: OmniConfig): Promise<void> {
+    assertSecretFreeConfig(config);
+    return new AtomicJsonFile<OmniConfig>(this.path(scope)).write(config);
+  }
+
+  private path(scope: ConfigurationScope): string {
+    return scope === "global" ? this.globalPath : this.projectPath;
   }
 }
 
 class InvalidConfigError extends Error {}
 
-function assertSecretFreeConfig(config: OmniConfigV2): void {
+function assertSecretFreeConfig(config: OmniConfig): void {
   if (containsSecretField(config)) {
     throw new InvalidConfigError("Secret values are not allowed in model configuration");
   }
 }
 
-function isConfigV2(value: unknown): value is OmniConfigV2 {
-  if (typeof value !== "object" || value === null) return false;
-  const obj = value as Record<string, unknown>;
-  if (obj.version !== 2 || typeof obj.model !== "object" || obj.model === null) return false;
-  const model = obj.model as Record<string, unknown>;
-  return (
-    ["vendorId", "connectionId", "modelId"].every(
-      (key) => typeof model[key] === "string" && model[key] !== "",
-    ) &&
-    (model.settings === undefined ||
-      (typeof model.settings === "object" &&
-        model.settings !== null &&
-        !Array.isArray(model.settings)))
+function isOmniConfig(value: unknown): value is OmniConfig {
+  if (!isRecord(value) || value.version !== 3 || !isModelSelection(value.model)) return false;
+  if (value.agents === undefined) return true;
+  if (!isRecord(value.agents)) return false;
+  return Object.entries(value.agents).every(
+    ([agentId, entry]) => isAgentId(agentId) && isRecord(entry) && isModelSelection(entry.model),
   );
 }
 
-function isConfigV1(value: unknown): value is OmniConfigV1 {
-  if (typeof value !== "object" || value === null) return false;
-  const config = value as Record<string, unknown>;
+function assertAgentId(agentId: string): void {
+  if (!isAgentId(agentId)) throw new InvalidConfigError(`Invalid agent id: ${agentId}`);
+}
+
+function isAgentId(agentId: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(agentId);
+}
+
+function isModelSelection(value: unknown): value is ModelSelection {
+  if (!isRecord(value)) return false;
   return (
-    typeof config.provider === "string" &&
-    typeof config.endpoint === "string" &&
-    typeof config.model === "string"
+    ["vendorId", "connectionId", "modelId"].every(
+      (key) => typeof value[key] === "string" && value[key].length > 0,
+    ) &&
+    (value.settings === undefined || isRecord(value.settings))
   );
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }

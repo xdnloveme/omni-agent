@@ -1,17 +1,14 @@
 import { select } from "@inquirer/prompts";
 import chalk from "chalk";
-import { ConfigService, type ModelService, type OmniConfigV2 } from "@omni-agent/app";
+import type { ModelSelection, ModelService } from "@omni-agent/app";
 import { selectModel } from "./models/select-model";
 import { createAuthInteraction } from "./models/auth-interaction";
 
 export interface OnboardingResult {
-  config: OmniConfigV2;
+  selection: ModelSelection;
 }
 
-export async function runOnboarding(
-  modelService: ModelService,
-  options: { persist?: boolean } = {},
-): Promise<OnboardingResult> {
+export async function runOnboarding(modelService: ModelService): Promise<OnboardingResult> {
   console.log();
   console.log(chalk.bold("  Welcome to omni-agent"));
   console.log(chalk.dim("  Let's set up your model provider.\n"));
@@ -40,9 +37,6 @@ export async function runOnboarding(
   const resolved = await modelService.resolve(selection);
   const configured = await modelService.isConfigured(resolved.providerId);
 
-  const config: OmniConfigV2 = { version: 2, model: selection };
-  if (options.persist !== false) await new ConfigService().save(config);
-
   console.log();
   console.log(chalk.green("  ✓ Configuration ready."));
   console.log(chalk.dim(`    Provider: ${selection.vendorId}/${selection.connectionId}`));
@@ -53,5 +47,5 @@ export async function runOnboarding(
     ),
   );
   console.log();
-  return { config };
+  return { selection };
 }

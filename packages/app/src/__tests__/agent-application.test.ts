@@ -1,38 +1,45 @@
-import { describe, expect, it, vi } from "vitest";
-import type { AgentConfig, ModelRuntimePort } from "@omni-agent/core";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { AgentSessionRepository, type AgentConfig, type ModelRuntimePort } from "@omni-agent/core";
 import { AgentApplication } from "../application/agent-application";
+import type { ConfigService } from "../config/config-service";
 import type { ExtensionManager } from "../extensions/extension-manager";
 import type { ModelService } from "../models/model-service";
-import { SessionService } from "../sessions/session-service";
 
-function fixture(
-  ownsModelService: boolean,
-  persistModelSelection?: ConstructorParameters<
-    typeof AgentApplication
-  >[0]["persistModelSelection"],
-) {
-  const runtime: ModelRuntimePort = {
-    async *stream() {
-      /* no events */
-    },
-  };
-  const disposeExtensions = vi.fn(async () => undefined);
-  const disposeModels = vi.fn(async () => undefined);
+const directories: string[] = [];
+
+afterEach(async () => {
+  await Promise.all(
+    directories.splice(0).map((directory) => rm(directory, { recursive: true, force: true })),
+  );
+});
+
+async function fixture() {
+  const root = await mkdtemp(join(tmpdir(), "omni-agent-app-"));
+  directories.push(root);
+  const sessions = new AgentSessionRepository({ agentId: "test", sessionsRoot: root });
+  await sessions.restoreLatestOrCreate();
+  const runtime: ModelRuntimePort = { async *stream() {} };
   const selection = { vendorId: "test", connectionId: "default", modelId: "model" };
-  const resolveModel = vi.fn<ModelService["resolve"]>(async (nextSelection) => ({
-    ...nextSelection,
-    providerId: nextSelection.vendorId,
+  const resolve = vi.fn<ModelService["resolve"]>(async (next) => ({
+    ...next,
+    providerId: next.vendorId,
     contextWindow: 2_000,
     maxOutputTokens: 200,
   }));
   const isConfigured = vi.fn<ModelService["isConfigured"]>(async () => ({ type: "api_key" }));
-  const extensions = { dispose: disposeExtensions } as unknown as ExtensionManager;
-  const modelService = {
-    runtime,
-    dispose: disposeModels,
-    resolve: resolveModel,
-    isConfigured,
-  } as unknown as ModelService;
+  const modelService = { runtime, resolve, isConfigured } as unknown as ModelService;
+  const configService = {
+    saveAgentModel: vi.fn(async () => undefined),
+    saveSharedModel: vi.fn(async () => undefined),
+    removeAgentModel: vi.fn(async () => undefined),
+    resolveModel: vi.fn(async () => selection),
+    resolveSharedModel: vi.fn(async () => selection),
+  } as unknown as ConfigService;
+  const dispose = vi.fn(async () => undefined);
+  const extensions = { dispose, agents: { get: vi.fn() } } as unknown as ExtensionManager;
   const config: AgentConfig = {
     model: {
       ...selection,
@@ -46,86 +53,65 @@ function fixture(
   return {
     app: new AgentApplication({
       extensions,
-      sessions: new SessionService(),
+      sessions,
       agentConfig: config,
       agentId: "test",
-      cwd: process.cwd(),
+      cwd: root,
       modelService,
       modelSelection: selection,
-      persistModelSelection,
-      ownsModelService,
+      configService,
     }),
-    disposeExtensions,
-    disposeModels,
+    configService,
+    dispose,
     isConfigured,
-    resolveModel,
   };
 }
 
-describe("AgentApplication model service ownership", () => {
-  it("does not dispose an injected model service", async () => {
-    const { app, disposeExtensions, disposeModels } = fixture(false);
-    await app.dispose();
-    expect(disposeExtensions).toHaveBeenCalledOnce();
-    expect(disposeModels).not.toHaveBeenCalled();
-  });
-
-  it("disposes a model service created for the application", async () => {
-    const { app, disposeModels } = fixture(true);
-    await app.dispose();
-    expect(disposeModels).toHaveBeenCalledOnce();
-  });
-
-  it("disposes its model service even when extension cleanup fails", async () => {
-    const { app, disposeExtensions, disposeModels } = fixture(true);
-    disposeExtensions.mockRejectedValueOnce(new Error("extension cleanup failed"));
-    await expect(app.dispose()).rejects.toThrow("extension cleanup failed");
-    expect(disposeModels).toHaveBeenCalledOnce();
-  });
-
-  it("switches model only after resolution, authentication, and persistence succeed", async () => {
-    const persist = vi.fn(async () => undefined);
-    const { app } = fixture(false, persist);
+describe("AgentApplication model selection", () => {
+  it("persists an Agent override before activating it", async () => {
+    const { app, configService } = await fixture();
     const next = { vendorId: "next", connectionId: "regional", modelId: "next-model" };
 
-    await app.setModel(next);
+    await app.setAgentModel(next);
 
-    expect(persist).toHaveBeenCalledWith(next);
+    expect(configService.saveAgentModel).toHaveBeenCalledWith("test", next);
     expect(app.modelSelection).toEqual(next);
-    expect(app.agentConfig.model).toEqual(
-      expect.objectContaining({ providerId: "next", modelId: "next-model" }),
-    );
   });
 
-  it("keeps the active model unchanged when authentication fails", async () => {
-    const persist = vi.fn(async () => undefined);
-    const { app, isConfigured } = fixture(false, persist);
+  it("keeps the current model when authentication fails", async () => {
+    const { app, configService, isConfigured } = await fixture();
     isConfigured.mockResolvedValueOnce(undefined);
-    const previousSelection = app.modelSelection;
-    const previousModel = app.agentConfig.model;
+    const previous = app.modelSelection;
 
     await expect(
-      app.setModel({ vendorId: "next", connectionId: "default", modelId: "next-model" }),
+      app.setAgentModel({ vendorId: "next", connectionId: "default", modelId: "next" }),
     ).rejects.toThrow("Provider is not configured");
 
-    expect(persist).not.toHaveBeenCalled();
-    expect(app.modelSelection).toBe(previousSelection);
-    expect(app.agentConfig.model).toBe(previousModel);
+    expect(configService.saveAgentModel).not.toHaveBeenCalled();
+    expect(app.modelSelection).toBe(previous);
   });
 
-  it("keeps the active model unchanged when atomic persistence fails", async () => {
-    const persist = vi.fn(async () => {
-      throw new Error("config write failed");
+  it("removes an Agent override before activating the shared model", async () => {
+    const { app, configService } = await fixture();
+
+    await app.useSharedModel();
+
+    expect(configService.removeAgentModel).toHaveBeenNthCalledWith(1, "test", {
+      scope: "global",
     });
-    const { app } = fixture(false, persist);
-    const previousSelection = app.modelSelection;
-    const previousModel = app.agentConfig.model;
+    expect(configService.removeAgentModel).toHaveBeenNthCalledWith(2, "test", {
+      scope: "project",
+    });
+    expect(app.modelSelection).toEqual({
+      vendorId: "test",
+      connectionId: "default",
+      modelId: "model",
+    });
+  });
 
-    await expect(
-      app.setModel({ vendorId: "next", connectionId: "default", modelId: "next-model" }),
-    ).rejects.toThrow("config write failed");
-
-    expect(app.modelSelection).toBe(previousSelection);
-    expect(app.agentConfig.model).toBe(previousModel);
+  it("disposes extensions idempotently through its owning instance", async () => {
+    const { app, dispose } = await fixture();
+    await app.dispose();
+    expect(dispose).toHaveBeenCalledOnce();
   });
 });
