@@ -32,6 +32,7 @@ Host (LLM App) ──► Client ──► Server (Tool Provider)
 ```
 
 **优点**：
+
 - 已成为行业标准，OpenAI、Google DeepMind、Anthropic 均采用
 - 传输无关（stdio/HTTP），支持本地和远程
 - 有状态会话支持进度追踪、取消、错误上报
@@ -39,6 +40,7 @@ Host (LLM App) ──► Client ──► Server (Tool Provider)
 - 丰富的社区生态（GitHub server、filesystem server 等开箱即用）
 
 **缺点**：
+
 - 每个集成需独立 server 进程，简单 CLI 包装存在过度开销
 - 输出只定义输入 schema，无输出 schema 标准化
 - 有状态会话增加复杂度
@@ -46,6 +48,7 @@ Host (LLM App) ──► Client ──► Server (Tool Provider)
 - 协议仍在快速演进（最新 spec 2025-06-18）
 
 **对我们的借鉴**：
+
 - `inputSchema` 格式（JSON Schema）直接可复用
 - stdio 传输模式适合本地 CLI 包装
 - 工具发现机制（`tools/list`）可借鉴做插件注册
@@ -60,16 +63,19 @@ Host (LLM App) ──► Client ──► Server (Tool Provider)
 ```typescript
 // oclif 命令定义示例
 export default class CreateIssue extends Command {
-  static description = 'Create a GitHub issue'
+  static description = "Create a GitHub issue";
   static flags = {
-    title: Flags.string({ char: 't', required: true }),
-    repo: Flags.string({ char: 'r', default: '.' }),
+    title: Flags.string({ char: "t", required: true }),
+    repo: Flags.string({ char: "r", default: "." }),
+  };
+  async run() {
+    /* ... */
   }
-  async run() { /* ... */ }
 }
 ```
 
 **优点**：
+
 - 大规模验证（Salesforce CLI 50+ 插件）
 - TypeScript 原生，flags/args 强类型
 - npm 分发，运行时安装无需重建
@@ -77,12 +83,14 @@ export default class CreateIssue extends Command {
 - Hooks 机制支持横切关注点
 
 **缺点**：
+
 - 设计为「构建 CLI」而非「包装现有 CLI」
 - 插件接口基于类继承，非声明式
 - 无「为 LLM 消费的 tool schema」概念
 - 加载多个插件有启动延迟
 
 **对我们的借鉴**：
+
 - npm 包分发 + manifest 缓存的发现模式
 - Hooks 生命周期（pre-execute/post-execute）
 - 运行时安装能力的 UX 设计
@@ -101,15 +109,16 @@ export default class CreateIssue extends Command {
     "commands": [{ "command": "gh.createIssue", "title": "Create Issue" }],
     "configuration": {
       "properties": {
-        "gh.token": { "type": "string", "scope": "machine" }
-      }
-    }
+        "gh.token": { "type": "string", "scope": "machine" },
+      },
+    },
   },
-  "activationEvents": ["onCommand:gh.createIssue"]
+  "activationEvents": ["onCommand:gh.createIssue"],
 }
 ```
 
 **优点**：
+
 - 元数据（声明式）与行为（命令式）优雅分离
 - 懒激活最小化资源占用
 - JSON Schema 驱动的配置，IDE 自动补全
@@ -117,12 +126,14 @@ export default class CreateIssue extends Command {
 - 海量生态证明模式可扩展
 
 **缺点**：
+
 - 与 VSCode 运行时紧耦合
 - Extension Host 进程模型增加复杂度
 - 无「输出解析」标准
 - 面向 UI 交互，非 headless agent 执行
 
 **对我们的借鉴**：
+
 - **声明式 manifest + 命令式 handler** 的分层模式（核心借鉴）
 - Activation events / 懒加载策略
 - Configuration 的 JSON Schema 声明
@@ -135,18 +146,21 @@ export default class CreateIssue extends Command {
 **机制**：一切皆插件，前后端独立。Backend 插件通过 `createBackendPlugin` 创建，声明服务依赖（logger、httpRouter 等），运行时注入。Extension points 允许模块扩展已有插件。插件间完全隔离，仅通过网络通信。
 
 **优点**：
+
 - 插件完全隔离（无共享状态）
 - Extension points 允许深度定制
 - 服务注入模式干净、可测试
 - 经大规模验证
 
 **缺点**：
+
 - 极重量级（完整 React + Express 应用）
 - 面向开发者门户，非 agent 工具系统
 - 插件创建样板代码多
 - 不适用于 CLI 包装场景
 
 **对我们的借鉴**：
+
 - Extension point + module 的扩展模式概念
 - 服务注入模式（声明依赖，运行时提供）
 - 插件间隔离的安全边界思路
@@ -180,18 +194,21 @@ export default class CreateIssue extends Command {
 ```
 
 **优点**：
+
 - JSON Schema 作为通用工具定义格式已成为事实标准
 - 类型推断消除 schema 重复定义
 - 语言无关（任何能生成 JSON Schema 的语言均可）
 - 与 LLM 交互模式天然契合
 
 **缺点**：
+
 - 无内建 CLI 包装模式（需手写 subprocess 代码）
 - LangChain 绑定 Python 生态
 - 无输出解析/验证标准
 - 无认证/凭证管理机制
 
 **对我们的借鉴**：
+
 - JSON Schema 作为 inputSchema 的标准格式（已采用）
 - 从 TypeScript 类型自动生成 schema 的模式
 - 工具定义与执行分离的契约思路
@@ -224,6 +241,7 @@ output:
 ```
 
 **优点**：
+
 - 非开发者可定义工具（运维、Prompt 工程师）
 - 版本可控、可 diff、可 review
 - 语言无关
@@ -232,6 +250,7 @@ output:
 - 目录扫描即可发现新工具
 
 **缺点**：
+
 - 复杂逻辑（条件分支、重试、多步骤）表达力有限
 - 模板插值遇 shell 转义容易出错
 - regex/JSONPath 解析在输出格式变化时脆弱
@@ -239,6 +258,7 @@ output:
 - 调试不如命令式代码直观
 
 **对我们的借鉴**：
+
 - **最直接适用的模式**——声明式定义 CLI 包装
 - typed args → CLI flags 映射机制
 - 命令模板 + 条件参数拼装
@@ -251,22 +271,24 @@ output:
 
 **业界常见方案**：
 
-| 方案 | 机制 | 安全性 | 便利性 | 跨平台 |
-|------|------|--------|--------|--------|
-| OS Keychain | macOS Keychain / Linux gnome-keyring / Windows Credential Manager | 高 | 中 | 需适配 |
-| 环境变量 | `GITHUB_TOKEN` 等 | 低 | 高 | 好 |
-| 配置文件 | `~/.config/tool/credentials.yml` | 低 | 高 | 好 |
-| OAuth Flow | 浏览器授权 → 本地 callback → token 存储 | 高 | 低 | 好 |
-| Git Credential Helper | stdin/stdout 协议 | 中 | 中 | 好 |
-| 加密配置 | Electron safeStorage / age 加密 | 高 | 中 | 需适配 |
+| 方案                  | 机制                                                              | 安全性 | 便利性 | 跨平台 |
+| --------------------- | ----------------------------------------------------------------- | ------ | ------ | ------ |
+| OS Keychain           | macOS Keychain / Linux gnome-keyring / Windows Credential Manager | 高     | 中     | 需适配 |
+| 环境变量              | `GITHUB_TOKEN` 等                                                 | 低     | 高     | 好     |
+| 配置文件              | `~/.config/tool/credentials.yml`                                  | 低     | 高     | 好     |
+| OAuth Flow            | 浏览器授权 → 本地 callback → token 存储                           | 高     | 低     | 好     |
+| Git Credential Helper | stdin/stdout 协议                                                 | 中     | 中     | 好     |
+| 加密配置              | Electron safeStorage / age 加密                                   | 高     | 中     | 需适配 |
 
 **最佳实践（分层降级）**：
+
 1. 优先读环境变量（CI/CD 友好）
 2. 其次读 OS Keychain（交互式开发安全）
 3. 最后检查工具原生凭证（如 `gh auth status`）
 4. 未认证时引导用户完成认证流程
 
 **对我们的借鉴**：
+
 - 分层降级策略（env → keychain → native → prompt）
 - 每个集成声明所需凭证类型
 - 凭证存储抽象接口，实现可替换
@@ -276,13 +298,13 @@ output:
 
 ### 调研总结对比
 
-| 维度 | MCP | oclif | VSCode | Backstage | LangChain | 声明式 | 凭证管理 |
-|------|-----|-------|--------|-----------|-----------|--------|----------|
-| 适用于 CLI 包装 | ★★★ | ★★ | ★★ | ★ | ★★ | ★★★★ | ★★★★ |
-| 实现复杂度 | 高 | 中 | 高 | 极高 | 低 | 低-中 | 中 |
-| 可扩展性 | 高 | 高 | 高 | 高 | 中 | 高 | 中 |
-| 与现有架构契合度 | 中 | 中 | 中 | 低 | 高 | 高 | 高 |
-| 社区/标准化程度 | 高 | 中 | 高 | 中 | 高 | 低 | — |
+| 维度             | MCP | oclif | VSCode | Backstage | LangChain | 声明式 | 凭证管理 |
+| ---------------- | --- | ----- | ------ | --------- | --------- | ------ | -------- |
+| 适用于 CLI 包装  | ★★★ | ★★    | ★★     | ★         | ★★        | ★★★★   | ★★★★     |
+| 实现复杂度       | 高  | 中    | 高     | 极高      | 低        | 低-中  | 中       |
+| 可扩展性         | 高  | 高    | 高     | 高        | 中        | 高     | 中       |
+| 与现有架构契合度 | 中  | 中    | 中     | 低        | 高        | 高     | 高       |
+| 社区/标准化程度  | 高  | 中    | 高     | 中        | 高        | 低     | —        |
 
 **结论**：推荐以「声明式命令定义」为核心，融合 MCP 的 schema 标准、oclif 的发现/加载模式、VSCode 的 manifest 分层，搭配分层凭证管理。
 
@@ -293,27 +315,30 @@ output:
 ### 2.1 Tool 粒度：每操作一个 tool vs 单 tool + action 参数
 
 **方案 A：每操作一个 tool**
+
 ```
 gh_issue_list, gh_issue_create, gh_pr_list, gh_pr_create, gh_pr_merge ...
 ```
 
 **方案 B：单 tool + action 参数**
+
 ```
 github(action: "issue_list", params: {...})
 github(action: "pr_create", params: {...})
 ```
 
-| 维度 | 方案 A (细粒度) | 方案 B (粗粒度) |
-|------|----------------|----------------|
-| LLM 选择精度 | 高——tool 名直接语义化 | 低——需理解 action 枚举 |
-| Schema 简洁性 | 每个 tool schema 小而专注 | 单 schema 需 union type 或 anyOf |
-| tool 数量膨胀 | 可能 50+ tools 占用 context | 少数 tools 但 schema 复杂 |
-| 可组合性 | 好——agent 自由组合 | 差——需理解内部路由 |
-| 错误提示 | 精确——「issue_create 缺少 title」 | 模糊——需额外上下文 |
+| 维度          | 方案 A (细粒度)                   | 方案 B (粗粒度)                  |
+| ------------- | --------------------------------- | -------------------------------- |
+| LLM 选择精度  | 高——tool 名直接语义化             | 低——需理解 action 枚举           |
+| Schema 简洁性 | 每个 tool schema 小而专注         | 单 schema 需 union type 或 anyOf |
+| tool 数量膨胀 | 可能 50+ tools 占用 context       | 少数 tools 但 schema 复杂        |
+| 可组合性      | 好——agent 自由组合                | 差——需理解内部路由               |
+| 错误提示      | 精确——「issue_create 缺少 title」 | 模糊——需额外上下文               |
 
 **推荐：方案 A（细粒度），配合命名空间约定和懒加载**
 
 理由：
+
 1. LLM 在 tool selection 阶段的准确率高度依赖 tool name 的语义清晰度
 2. 每个 tool 的 schema 简洁，参数验证精确，错误信息直观
 3. 通过命名空间前缀（`gh_issue_list`）保持逻辑分组
@@ -321,6 +346,7 @@ github(action: "pr_create", params: {...})
 5. 与现有 `AgentTool` 接口完全兼容，无需修改
 
 缓解 tool 数量问题的策略：
+
 - 按需激活：用户配置启用哪些集成，只加载对应 tools
 - 分组注册：每个集成定义一组 tools，整组启用/禁用
 - 描述精炼：优化 description 减少 token 占用
@@ -346,12 +372,14 @@ github(action: "pr_create", params: {...})
 ```
 
 **凭证隔离策略**：
+
 - 每个集成声明自己的 credential scope（如 `github`、`feishu`）
 - CredentialProvider 按 scope 隔离存取
 - 集成 A 无法访问集成 B 的凭证
 - 凭证查找链路：env → keychain → native tool auth → 引导用户认证
 
 **推荐理由**：
+
 1. 项目已依赖 `keytar`，可直接用于 OS Keychain 操作
 2. 独立层允许统一测试凭证流程（mock CredentialProvider）
 3. 声明式凭证需求让集成定义自文档化
@@ -373,13 +401,15 @@ OutputParser
 ```
 
 **设计原则**：
+
 1. **默认宽松**：未指定解析器时，使用 Passthrough 返回原始文本——LLM 自身有理解能力
 2. **渐进结构化**：从 Passthrough 开始，按需升级到 JSON/Regex 解析
 3. **可组合**：支持管道式组合（先 regex 提取，再 json parse）
 4. **容错**：解析失败时降级到原始文本，附加解析错误说明，不硬报错
 
 **示例**：
-```yaml
+
+````yaml
 output:
   # gh issue list --json 输出
   parser: json
@@ -397,9 +427,10 @@ output:
       pattern: "```json\\n(?<json>[\\s\\S]*?)\\n```"
     - parser: json
       extract: "$.result"
-```
+````
 
 **推荐理由**：
+
 1. 许多 CLI 支持 `--json` 输出（gh、jq 等），JSON 解析覆盖最常见场景
 2. Regex 覆盖文本输出中提取关键信息的场景
 3. Passthrough 兜底让系统永远不因解析失败而阻塞
@@ -412,18 +443,19 @@ output:
 
 **对比**：
 
-| 维度 | 复用 MCP | 自研轻量层 | 混合方案 |
-|------|----------|------------|----------|
-| 实现成本 | 中-高（需实现 client/server） | 低 | 低-中 |
-| 生态复用 | 高——可直接用社区 MCP servers | 无 | 部分 |
-| 架构复杂度 | 高——多进程通信 | 低——同进程 | 中 |
-| 性能 | IPC 开销 | 无额外开销 | 视具体场景 |
-| 灵活性 | 受协议约束 | 完全自主 | 最灵活 |
-| 未来扩展 | 可与任何 MCP client 互操作 | 封闭 | 可选互操作 |
+| 维度       | 复用 MCP                      | 自研轻量层 | 混合方案   |
+| ---------- | ----------------------------- | ---------- | ---------- |
+| 实现成本   | 中-高（需实现 client/server） | 低         | 低-中      |
+| 生态复用   | 高——可直接用社区 MCP servers  | 无         | 部分       |
+| 架构复杂度 | 高——多进程通信                | 低——同进程 | 中         |
+| 性能       | IPC 开销                      | 无额外开销 | 视具体场景 |
+| 灵活性     | 受协议约束                    | 完全自主   | 最灵活     |
+| 未来扩展   | 可与任何 MCP client 互操作    | 封闭       | 可选互操作 |
 
 **推荐：自研轻量插件层 + 可选 MCP 适配器（混合方案）**
 
 理由：
+
 1. **当前阶段**：omni-agent 是本地 CLI 工具，不需要远程 tool serving，多进程通信是过度工程
 2. **核心需求**：把 CLI 命令包装成 `AgentTool`，同进程执行即可
 3. **未来兼容**：设计时遵循 MCP 的 schema 规范（JSON Schema for inputSchema），未来写一层薄 adapter 即可暴露为 MCP server
@@ -431,6 +463,7 @@ output:
 5. **已有生态**：`keytar` 已在依赖中，无需额外基础设施
 
 具体做法：
+
 - 内部插件层用 TypeScript 同进程加载
 - 插件定义遵循 MCP tool schema 格式（name/description/inputSchema）
 - 预留 `packages/mcp-adapter` 位置，未来可导出为 MCP server
@@ -495,8 +528,8 @@ interface CredentialProvider {
 }
 
 interface Credential {
-  type: 'token' | 'oauth' | 'basic' | 'custom';
-  value: Record<string, string>;  // 如 { token: "ghp_xxx" } 或 { client_id, client_secret }
+  type: "token" | "oauth" | "basic" | "custom";
+  value: Record<string, string>; // 如 { token: "ghp_xxx" } 或 { client_id, client_secret }
   expiresAt?: number;
 }
 ```
@@ -562,11 +595,11 @@ interface IntegrationConfig {
 ```typescript
 interface CLIIntegrationDefinition {
   /** 集成唯一 ID，作为 tool 名前缀 */
-  id: string;                    // e.g. "gh"
+  id: string; // e.g. "gh"
   /** 集成显示名 */
-  displayName: string;           // e.g. "GitHub CLI"
+  displayName: string; // e.g. "GitHub CLI"
   /** CLI 二进制名 */
-  binary: string;                // e.g. "gh"
+  binary: string; // e.g. "gh"
   /** 健康检查配置 */
   health: HealthCheck;
   /** 认证配置 */
@@ -581,7 +614,7 @@ interface CLIIntegrationDefinition {
 ```typescript
 interface CLICommandDefinition {
   /** 命令名（与集成 id 组合成 tool name：`${integrationId}_${name}`） */
-  name: string;                  // e.g. "issue_create"
+  name: string; // e.g. "issue_create"
   /** tool description（给 LLM 看） */
   description: string;
   /** 输入参数 schema (JSON Schema) */
@@ -604,7 +637,7 @@ interface CLICommandDefinition {
 ```typescript
 interface CommandTemplate {
   /** 固定子命令部分 */
-  subcommands: string[];         // e.g. ["issue", "create"]
+  subcommands: string[]; // e.g. ["issue", "create"]
   /** 参数到 CLI flags 的映射 */
   args: ArgMapping[];
   /** 全局追加的 flags */
@@ -621,17 +654,18 @@ interface ArgMapping {
   /** 对应 inputSchema 中的参数名 */
   param: string;
   /** CLI flag 名 */
-  flag: string;                  // e.g. "--title"
+  flag: string; // e.g. "--title"
   /** 映射类型 */
-  type: 'flag-value'             // --title "xxx"
-      | 'flag-repeated'          // --label a --label b (数组)
-      | 'flag-boolean'           // --draft (布尔)
-      | 'flag-json'              // --json (值为 JSON 序列化)
-      | 'positional';            // 无 flag，位置参数
+  type:
+    | "flag-value" // --title "xxx"
+    | "flag-repeated" // --label a --label b (数组)
+    | "flag-boolean" // --draft (布尔)
+    | "flag-json" // --json (值为 JSON 序列化)
+    | "positional"; // 无 flag，位置参数
   /** 参数缺失时是否省略整个 flag */
-  omitIfEmpty?: boolean;         // default: true
+  omitIfEmpty?: boolean; // default: true
   /** 值转换（可选） */
-  transform?: 'join-comma' | 'json-stringify' | 'quote';
+  transform?: "join-comma" | "json-stringify" | "quote";
 }
 ```
 
@@ -640,7 +674,7 @@ interface ArgMapping {
 ```typescript
 interface OutputDefinition {
   /** 期望输出格式 */
-  format: 'json' | 'text' | 'lines' | 'silent';
+  format: "json" | "text" | "lines" | "silent";
   /** 解析管道 */
   parsers?: OutputParser[];
   /** 成功判定（默认 exitCode === 0） */
@@ -655,10 +689,10 @@ interface OutputDefinition {
 }
 
 type OutputParser =
-  | { type: 'json'; extract?: string }           // JSONPath 提取
-  | { type: 'regex'; pattern: string; groups?: string[] }
-  | { type: 'lines'; filter?: string; map?: string }
-  | { type: 'passthrough' };
+  | { type: "json"; extract?: string } // JSONPath 提取
+  | { type: "regex"; pattern: string; groups?: string[] }
+  | { type: "lines"; filter?: string; map?: string }
+  | { type: "passthrough" };
 ```
 
 #### AuthDefinition
@@ -666,15 +700,15 @@ type OutputParser =
 ```typescript
 interface AuthDefinition {
   /** 凭证 scope（对应 CredentialProvider 的 key） */
-  scope: string;                 // e.g. "github"
+  scope: string; // e.g. "github"
   /** 凭证类型 */
-  type: 'token' | 'oauth' | 'env' | 'native';
+  type: "token" | "oauth" | "env" | "native";
   /** 环境变量名（token 注入方式） */
-  envVar?: string;               // e.g. "GITHUB_TOKEN"
+  envVar?: string; // e.g. "GITHUB_TOKEN"
   /** 认证状态检查命令 */
-  checkCommand?: string;         // e.g. "gh auth status"
+  checkCommand?: string; // e.g. "gh auth status"
   /** 引导认证命令 */
-  loginCommand?: string;         // e.g. "gh auth login"
+  loginCommand?: string; // e.g. "gh auth login"
   /** 是否必需（false 表示可匿名使用部分功能） */
   required?: boolean;
 }
@@ -706,10 +740,7 @@ CLIIntegrationDefinition
 ```typescript
 interface ToolFactory {
   /** 从集成定义创建 AgentTool 数组 */
-  create(
-    definition: CLIIntegrationDefinition,
-    options?: ToolFactoryOptions,
-  ): Promise<AgentTool[]>;
+  create(definition: CLIIntegrationDefinition, options?: ToolFactoryOptions): Promise<AgentTool[]>;
 }
 
 interface ToolFactoryOptions {
@@ -743,18 +774,18 @@ function buildCommand(
     if (value === undefined && mapping.omitIfEmpty !== false) continue;
 
     switch (mapping.type) {
-      case 'flag-value':
+      case "flag-value":
         args.push(mapping.flag, String(value));
         break;
-      case 'flag-repeated':
+      case "flag-repeated":
         for (const item of value as string[]) {
           args.push(mapping.flag, item);
         }
         break;
-      case 'flag-boolean':
+      case "flag-boolean":
         if (value) args.push(mapping.flag);
         break;
-      case 'positional':
+      case "positional":
         args.push(String(value));
         break;
     }
@@ -781,16 +812,16 @@ function processOutput(
 
   // 2. 如果是错误，返回 stderr + stdout
   if (isError) {
-    return { content: [{ type: 'text', text: stderr || stdout }], isError: true };
+    return { content: [{ type: "text", text: stderr || stdout }], isError: true };
   }
 
   // 3. 执行解析管道
   let result = stdout;
-  for (const parser of definition.parsers ?? [{ type: 'passthrough' }]) {
+  for (const parser of definition.parsers ?? [{ type: "passthrough" }]) {
     result = applyParser(result, parser);
   }
 
-  return { content: [{ type: 'text', text: result }], isError: false };
+  return { content: [{ type: "text", text: result }], isError: false };
 }
 ```
 
@@ -869,8 +900,8 @@ packages/cli/src/
   "main": "./dist/index.js",
   "omniAgent": {
     "type": "cli-integration",
-    "id": "jira"
-  }
+    "id": "jira",
+  },
 }
 ```
 
@@ -893,6 +924,7 @@ interface AgentTool {
 ```
 
 生成的 tool 示例：
+
 ```typescript
 {
   name: "gh_issue_create",
@@ -914,6 +946,7 @@ interface AgentTool {
 ### 4.2 tools/index.ts barrel 导出对接
 
 现有：
+
 ```typescript
 // packages/cli/src/tools/index.ts
 export { bashTool } from "./bash";
@@ -922,6 +955,7 @@ export { fileReadTool } from "./file-read";
 ```
 
 新增导出（不修改现有导出）：
+
 ```typescript
 // 新增
 export { loadIntegrationTools } from "../integrations/registry";
@@ -930,11 +964,13 @@ export { loadIntegrationTools } from "../integrations/registry";
 ### 4.3 index.ts 注册集成
 
 现有注册方式（L45）：
+
 ```typescript
 tools: [bashTool, fileReadTool, fileEditTool, fileWriteTool, globTool, grepTool, webFetchTool, webSearchTool],
 ```
 
 衔接方式：
+
 ```typescript
 import { loadIntegrationTools } from "./integrations/registry";
 
@@ -945,7 +981,14 @@ const agentConfig: AgentConfig = {
   // ...
   tools: [
     // 内置 tools（不变）
-    bashTool, fileReadTool, fileEditTool, fileWriteTool, globTool, grepTool, webFetchTool, webSearchTool,
+    bashTool,
+    fileReadTool,
+    fileEditTool,
+    fileWriteTool,
+    globTool,
+    grepTool,
+    webFetchTool,
+    webSearchTool,
     // 集成 tools（新增，动态加载）
     ...integrationTools,
   ],
@@ -954,6 +997,7 @@ const agentConfig: AgentConfig = {
 ```
 
 **要点**：
+
 - 内置 tools 保持不变，不受影响
 - 集成 tools 以 spread 方式追加，无侵入性
 - `loadIntegrationTools` 负责发现、验证、生成所有集成 tools
@@ -963,16 +1007,22 @@ const agentConfig: AgentConfig = {
 
 在现有 config 基础上扩展集成配置：
 
-```yaml
-# ~/.omni-agent/config.yaml
-model: claude-opus-4-6
-integrations:
-  github:
-    enabled: true
-  feishu:
-    enabled: true
-    env:
-      FEISHU_APP_ID: "cli_xxxx"
+```json
+{
+  "version": 2,
+  "model": {
+    "vendorId": "anthropic",
+    "connectionId": "default",
+    "modelId": "claude-opus-4-6"
+  },
+  "integrations": {
+    "github": { "enabled": true },
+    "feishu": {
+      "enabled": true,
+      "env": { "FEISHU_APP_ID": "cli_xxxx" }
+    }
+  }
+}
 ```
 
 ---
@@ -1002,18 +1052,26 @@ const githubIntegration: CLIIntegrationDefinition = {
     envVar: "GITHUB_TOKEN",
     checkCommand: "gh auth status",
     loginCommand: "gh auth login",
-    required: false,  // 部分操作可匿名
+    required: false, // 部分操作可匿名
   },
   commands: [
     // --- Issue 操作 ---
     {
       name: "issue_list",
-      description: "List issues in a GitHub repository. Returns issue number, title, state, author, and URL.",
+      description:
+        "List issues in a GitHub repository. Returns issue number, title, state, author, and URL.",
       inputSchema: {
         type: "object",
         properties: {
-          repo: { type: "string", description: "Repository in owner/repo format. Uses current repo if omitted." },
-          state: { type: "string", enum: ["open", "closed", "all"], description: "Filter by state" },
+          repo: {
+            type: "string",
+            description: "Repository in owner/repo format. Uses current repo if omitted.",
+          },
+          state: {
+            type: "string",
+            enum: ["open", "closed", "all"],
+            description: "Filter by state",
+          },
           label: { type: "array", items: { type: "string" }, description: "Filter by labels" },
           limit: { type: "number", description: "Max results (default 30)" },
           assignee: { type: "string", description: "Filter by assignee username" },
@@ -1040,7 +1098,8 @@ const githubIntegration: CLIIntegrationDefinition = {
     },
     {
       name: "issue_create",
-      description: "Create a new issue in a GitHub repository. Returns the URL of the created issue.",
+      description:
+        "Create a new issue in a GitHub repository. Returns the URL of the created issue.",
       inputSchema: {
         type: "object",
         properties: {
@@ -1048,7 +1107,11 @@ const githubIntegration: CLIIntegrationDefinition = {
           body: { type: "string", description: "Issue body (markdown supported)" },
           repo: { type: "string", description: "Repository in owner/repo format" },
           labels: { type: "array", items: { type: "string" }, description: "Labels to add" },
-          assignees: { type: "array", items: { type: "string" }, description: "Usernames to assign" },
+          assignees: {
+            type: "array",
+            items: { type: "string" },
+            description: "Usernames to assign",
+          },
         },
         required: ["title", "repo"],
       },
@@ -1157,7 +1220,7 @@ export default githubIntegration;
 const feishuIntegration: CLIIntegrationDefinition = {
   id: "feishu",
   displayName: "Feishu/Lark CLI",
-  binary: "feishu-cli",  // 假设的二进制名
+  binary: "feishu-cli", // 假设的二进制名
   health: {
     binary: "feishu-cli",
     versionCommand: "feishu-cli --version",
@@ -1181,7 +1244,11 @@ const feishuIntegration: CLIIntegrationDefinition = {
           chatId: { type: "string", description: "Target chat ID (starts with oc_)" },
           userId: { type: "string", description: "Target user open_id (alternative to chatId)" },
           content: { type: "string", description: "Message content (text or markdown)" },
-          msgType: { type: "string", enum: ["text", "interactive", "markdown"], description: "Message type (default: text)" },
+          msgType: {
+            type: "string",
+            enum: ["text", "interactive", "markdown"],
+            description: "Message type (default: text)",
+          },
         },
         required: ["content"],
       },
@@ -1207,7 +1274,11 @@ const feishuIntegration: CLIIntegrationDefinition = {
         type: "object",
         properties: {
           docToken: { type: "string", description: "Document token or full URL" },
-          format: { type: "string", enum: ["markdown", "text", "json"], description: "Output format (default: markdown)" },
+          format: {
+            type: "string",
+            enum: ["markdown", "text", "json"],
+            description: "Output format (default: markdown)",
+          },
         },
         required: ["docToken"],
       },
@@ -1321,12 +1392,12 @@ Step 6: 启动时自动加载，tools 自动注册
 
 ### 6.1 需要进一步讨论的决策
 
-| 问题 | 备选方案 | 影响 |
-|------|----------|------|
-| 是否支持远程 MCP server 桥接 | A: 仅本地 CLI / B: 兼容远程 MCP | 架构复杂度差异大 |
-| 集成配置文件格式 | A: YAML / B: TypeScript / C: 两者都支持 | 开发体验 vs 类型安全 |
-| CLI 二进制不存在时行为 | A: 静默跳过 / B: 启动警告 / C: 用户确认 | UX 决策 |
-| 是否需要 tool 动态启用/禁用 | A: 仅启动时 / B: 运行时可切换 | 实现复杂度 |
+| 问题                         | 备选方案                                | 影响                 |
+| ---------------------------- | --------------------------------------- | -------------------- |
+| 是否支持远程 MCP server 桥接 | A: 仅本地 CLI / B: 兼容远程 MCP         | 架构复杂度差异大     |
+| 集成配置文件格式             | A: YAML / B: TypeScript / C: 两者都支持 | 开发体验 vs 类型安全 |
+| CLI 二进制不存在时行为       | A: 静默跳过 / B: 启动警告 / C: 用户确认 | UX 决策              |
+| 是否需要 tool 动态启用/禁用  | A: 仅启动时 / B: 运行时可切换           | 实现复杂度           |
 
 ### 6.2 技术风险
 
@@ -1476,13 +1547,13 @@ mini-agent 项目已实现了一套完整的 sidecar 机制来解决这个问题
 
 ### 7.4 与本文方案的差异说明
 
-| 维度 | mini-agent sidecar | agent-deck sidecar | 本文可插拔架构 |
-|------|-------------------|-------------------|--------------|
-| 核心定位 | 命令式控制平面 + 后台 job 调度器 | UI 渲染旁路（taskflow.render.json） | 同步 CLI 工具包装 + LLM tool 生成 |
-| IPC 机制 | Unix socket + JSON-line | 文件系统 state push | 无（同进程调用） |
-| 异步任务 | 原生支持（JobManager + detached spawn） | 不涉及 | 当前不支持，未来需求 |
-| 事件回灌 | `session send` 注入 agent loop | 无（单向 push） | 当前不涉及 |
-| UI 旁路 | 无 | render.json 驱动 UI 更新 | 无，也不需要 |
+| 维度     | mini-agent sidecar                      | agent-deck sidecar                  | 本文可插拔架构                    |
+| -------- | --------------------------------------- | ----------------------------------- | --------------------------------- |
+| 核心定位 | 命令式控制平面 + 后台 job 调度器        | UI 渲染旁路（taskflow.render.json） | 同步 CLI 工具包装 + LLM tool 生成 |
+| IPC 机制 | Unix socket + JSON-line                 | 文件系统 state push                 | 无（同进程调用）                  |
+| 异步任务 | 原生支持（JobManager + detached spawn） | 不涉及                              | 当前不支持，未来需求              |
+| 事件回灌 | `session send` 注入 agent loop          | 无（单向 push）                     | 当前不涉及                        |
+| UI 旁路  | 无                                      | render.json 驱动 UI 更新            | 无，也不需要                      |
 
 关键区分：
 

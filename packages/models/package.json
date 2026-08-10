@@ -1,0 +1,24 @@
+{
+  "name": "@omni-agent/models",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.84.1",
+    "@omni-agent/core": "workspace:*",
+    "ajv": "8.20.0",
+    "dotenv": "17.4.2",
+    "keytar": "^7.9.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "typescript": "^5.9.2"
+  }
+}

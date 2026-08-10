@@ -1,10 +1,9 @@
-import type { Message } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "../models/messages";
 
 /**
- * Re-export the LLM Message type as SessionMessage for clarity.
- * The session stores messages in the exact format the LLM API expects.
+ * Session-facing name for the stable agent message wire format.
  */
-export type SessionMessage = Message;
+export type SessionMessage = AgentMessage;
 
 /**
  * Metadata for a single session in the index.

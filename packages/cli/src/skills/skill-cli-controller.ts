@@ -11,7 +11,7 @@ import {
   type SkillRuntime,
   type StreamCallbacks,
 } from "@omni-agent/core";
-import type { OmniTui, SlashCommand } from "../tui";
+import type { OmniTui, SlashCommand } from "../interaction/tui/tui";
 import { createSkillsCommand } from "../commands/skills";
 import { renderSkillReadEnd, renderSkillReadStart } from "./skill-renderer";
 
@@ -39,10 +39,12 @@ export class SkillCliController {
   }
 
   registerCommands(): void {
-    this.commandRegistry.register(createSkillsCommand(this.skillRuntime.registry, async () => {
-      this.agentConfig.systemPrompt = await this.buildSystemPrompt();
-      this.refreshAutocomplete();
-    }));
+    this.commandRegistry.register(
+      createSkillsCommand(this.skillRuntime.registry, async () => {
+        this.agentConfig.systemPrompt = await this.buildSystemPrompt();
+        this.refreshAutocomplete();
+      }),
+    );
   }
 
   refreshAutocomplete(): void {
@@ -57,18 +59,24 @@ export class SkillCliController {
     this.tui.setCommands([...builtins, ...skillCommands]);
   }
 
-  async resolveSlashPreload(input: string): Promise<{ displayInput: string; modelInput: string } | null> {
+  async resolveSlashPreload(
+    input: string,
+  ): Promise<{ displayInput: string; modelInput: string } | null> {
     const preload = await this.skillRuntime.resolveSlashPreload(input);
     if (!preload) return null;
 
     renderSkillReadStart(this.tui.sink, preload.skill.name);
-    renderSkillReadEnd(this.tui.sink, {
-      skillName: preload.skill.name,
-      status: preload.status,
-      source: preload.skill.source,
-      filePath: preload.skill.filePath,
-      tokenEstimate: preload.skill.tokenEstimate,
-    }, "explicit");
+    renderSkillReadEnd(
+      this.tui.sink,
+      {
+        skillName: preload.skill.name,
+        status: preload.status,
+        source: preload.skill.source,
+        filePath: preload.skill.filePath,
+        tokenEstimate: preload.skill.tokenEstimate,
+      },
+      "explicit",
+    );
 
     return {
       displayInput: preload.displayInput,

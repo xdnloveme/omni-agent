@@ -1,62 +1,41 @@
 import chalk from "chalk";
 
-import {
-  SkillRuntime,
-  loadLocalModelExtensions,
-  type OmniConfig,
-  type StreamCallbacks,
-  type TokenUsage,
-} from "@omni-agent/core";
-import { ConfigService, CredentialService, createAgentApp } from "@omni-agent/app";
+import { SkillRuntime, type StreamCallbacks, type TokenUsage } from "@omni-agent/core";
+import { ConfigService, createAgentApp, createModelService } from "@omni-agent/app";
 import { createCodingExtension } from "@omni-agent/agent-coding";
 import { createOmniTui } from "../interaction/tui/tui";
 import { runOnboarding } from "../onboarding";
 import { createCommandRegistry } from "../commands/index";
 import { SkillCliController } from "../skills";
 
-async function resolveApiKey(config: OmniConfig, credentials: CredentialService): Promise<string | null> {
-  if (config.apiKeyEnvVar) {
-    const envApiKey = process.env[config.apiKeyEnvVar];
-    if (envApiKey) return envApiKey;
-  }
-
-  return credentials.get(config.provider);
-}
-
 export async function runChatMode(): Promise<void> {
-  await loadLocalModelExtensions();
   const configService = new ConfigService();
-  const credentialService = new CredentialService();
-
-  // 1. Try to load existing config
-  let config = configService.load();
-  let apiKey: string | null = null;
-
+  let config = await configService.load();
+  for (const diagnostic of configService.diagnostics) {
+    console.warn(chalk.yellow(`Configuration ${diagnostic.code}: ${diagnostic.message}`));
+  }
+  const modelService = await createModelService({ cwd: process.cwd() });
+  let configured = false;
   if (config) {
-    apiKey = await resolveApiKey(config, credentialService);
+    try {
+      const resolved = await modelService.resolve(config.model);
+      configured = Boolean(await modelService.isConfigured(resolved.providerId));
+    } catch {
+      configured = false;
+    }
   }
-
-  // 2. If config missing or key unavailable, run onboarding
-  if (!config || !apiKey) {
-    const result = await runOnboarding();
+  if (!config || !configured) {
+    const result = await runOnboarding(modelService);
     config = result.config;
-    apiKey = result.apiKey;
   }
 
-  // 3. Initialize the default coding extension and application host
   const skillRuntime = new SkillRuntime({ cwd: process.cwd() });
   await skillRuntime.initialize();
   const coding = createCodingExtension(skillRuntime);
   const app = await createAgentApp({
-    runtime: {
-      model: config.model,
-      apiKey,
-      endpoint: config.endpoint,
-      provider: config.provider,
-      maxTurns: 10,
-      maxTokens: config.maxTokens,
-      contextWindow: config.contextWindow,
-    },
+    modelSelection: config.model,
+    modelService,
+    persistModelSelection: (selection) => configService.save({ version: 2, model: selection }),
     extensions: [coding.extension],
     defaultAgentId: "coding",
   });
@@ -65,7 +44,7 @@ export async function runChatMode(): Promise<void> {
   const sessionManager = app.sessions.manager;
 
   const tui = createOmniTui();
-  const registry = createCommandRegistry();
+  const registry = createCommandRegistry(app);
   let activeAbort: AbortController | null = null;
   let running = false;
 
@@ -146,12 +125,15 @@ export async function runChatMode(): Promise<void> {
         return;
       }
 
-      let explicitSkillPreload: Awaited<ReturnType<typeof skillController.resolveSlashPreload>> = null;
+      let explicitSkillPreload: Awaited<ReturnType<typeof skillController.resolveSlashPreload>> =
+        null;
       try {
         explicitSkillPreload = await skillController.resolveSlashPreload(input);
       } catch (err) {
         tui.appendUserMessage(input);
-        tui.sink.line(chalk.red(`Error reading skill: ${err instanceof Error ? err.message : String(err)}`));
+        tui.sink.line(
+          chalk.red(`Error reading skill: ${err instanceof Error ? err.message : String(err)}`),
+        );
         tui.sink.spacer();
         return;
       }
@@ -184,7 +166,9 @@ export async function runChatMode(): Promise<void> {
       onToolStart(toolName, _toolCallId, toolInput) {
         if (skillController.shouldSuppressToolPreview(toolName)) return;
         tui.sink.line();
-        tui.sink.line(`${chalk.cyan("▶")} ${chalk.bold(toolName)} ${chalk.dim(JSON.stringify(toolInput))}`);
+        tui.sink.line(
+          `${chalk.cyan("▶")} ${chalk.bold(toolName)} ${chalk.dim(JSON.stringify(toolInput))}`,
+        );
         tui.setStatus(chalk.cyan(`running: ${toolName}...`));
       },
       onToolEnd(_toolName, _toolCallId, result, durationMs) {
@@ -240,9 +224,18 @@ export async function runChatMode(): Promise<void> {
 
   // Welcome message
   tui.sink.line(chalk.bold("omni-agent"));
-  tui.sink.line(chalk.dim("Type your request below. Session history is preserved across restarts."));
+  tui.sink.line(
+    chalk.dim("Type your request below. Session history is preserved across restarts."),
+  );
   tui.sink.spacer();
 
-  await tui.start();
-  await app.dispose();
+  try {
+    await tui.start();
+  } finally {
+    try {
+      await app.dispose();
+    } finally {
+      await modelService.dispose();
+    }
+  }
 }

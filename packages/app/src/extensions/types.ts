@@ -1,9 +1,5 @@
-import type {
-  AgentDefinition,
-  AgentTool,
-  Command,
-  RuntimeMiddleware,
-} from "@omni-agent/core";
+import type { AgentDefinition, AgentTool, Command, RuntimeMiddleware } from "@omni-agent/core";
+import type { VendorPlugin } from "@omni-agent/models";
 
 export interface ToolExposure {
   include: string[] | "*";
@@ -20,6 +16,7 @@ export interface AgentExtensionContributions {
   tools?: AgentTool[];
   commands?: Command[];
   middleware?: RuntimeMiddleware[];
+  providers?: VendorPlugin[];
 }
 
 export interface AgentExtensionManifest {

@@ -1,23 +1,33 @@
 import { describe, expect, it } from "vitest";
 import type { AgentExtension } from "../extensions/types";
 import { ExtensionManager } from "../extensions/extension-manager";
+import {
+  ModelRuntime,
+  VendorRegistry,
+  compatibleConnection,
+  defineVendor,
+} from "@omni-agent/models";
 
 function extension(id: string, activate?: () => void): AgentExtension {
   return {
     manifest: { id, version: "1.0.0", apiVersion: 1 },
     contributions: {
-      tools: [{
-        name: `${id}_tool`,
-        description: "test",
-        schema: { type: "object" },
-        async execute() {
-          return { content: [{ type: "text", text: "ok" }], isError: false };
+      tools: [
+        {
+          name: `${id}_tool`,
+          description: "test",
+          schema: { type: "object" },
+          async execute() {
+            return { content: [{ type: "text", text: "ok" }], isError: false };
+          },
         },
-      }],
-      agents: [{
-        definition: { id: `${id}_agent`, description: "test", instructions: "test" },
-        tools: { include: [`${id}_tool`] },
-      }],
+      ],
+      agents: [
+        {
+          definition: { id: `${id}_agent`, description: "test", instructions: "test" },
+          tools: { include: [`${id}_tool`] },
+        },
+      ],
     },
     activate,
   };
@@ -32,13 +42,49 @@ describe("ExtensionManager", () => {
     expect(manager.tools.resolve(agent!.tools).map((tool) => tool.name)).toEqual(["sample_tool"]);
   });
 
+  it("removes all contributions when an extension is unregistered", async () => {
+    const manager = new ExtensionManager({ cwd: process.cwd() });
+    const removable = extension("removable");
+    const middleware = { beforeModel() {} };
+    removable.contributions.middleware = [middleware];
+    await manager.register(removable);
+    expect(manager.middleware).toEqual([middleware]);
+    await manager.unregister("removable");
+    expect(manager.agents.has("removable_agent")).toBe(false);
+    expect(manager.tools.has("removable_tool")).toBe(false);
+    expect(manager.list()).toEqual([]);
+    expect(manager.middleware).toEqual([]);
+  });
+
   it("rolls back all contributions when activation fails", async () => {
     const manager = new ExtensionManager({ cwd: process.cwd() });
-    await expect(manager.register(extension("broken", () => {
+    const broken = extension("broken", () => {
       throw new Error("activation failed");
-    }))).rejects.toThrow("activation failed");
+    });
+    broken.contributions.middleware = [{ beforeTool() {} }];
+    await expect(manager.register(broken)).rejects.toThrow("activation failed");
     expect(manager.agents.has("broken_agent")).toBe(false);
     expect(manager.tools.has("broken_tool")).toBe(false);
+    expect(manager.middleware).toEqual([]);
+  });
+
+  it("keeps the activation error when extension cleanup also fails", async () => {
+    const manager = new ExtensionManager({ cwd: process.cwd() });
+    const broken = extension("cleanup-broken", () => {
+      throw new Error("activation failed");
+    });
+    broken.dispose = async () => {
+      throw new Error("cleanup failed");
+    };
+
+    await expect(manager.register(broken)).rejects.toThrow("activation failed");
+    expect(manager.diagnostics).toContainEqual(
+      expect.objectContaining({
+        extensionId: "cleanup-broken",
+        source: "activation-rollback",
+        message: "cleanup failed",
+      }),
+    );
   });
 
   it("rejects an agent that exposes an unknown tool before registration", async () => {
@@ -55,13 +101,48 @@ describe("ExtensionManager", () => {
 
   it("isolates optional extension failures as diagnostics", async () => {
     const manager = new ExtensionManager({ cwd: process.cwd() });
-    await manager.registerOptional(extension("broken", () => {
+    await manager.registerOptional(
+      extension("broken", () => {
+        throw new Error("activation failed");
+      }),
+      "local.mjs",
+    );
+    expect(manager.diagnostics).toEqual([
+      expect.objectContaining({
+        extensionId: "broken",
+        source: "local.mjs",
+        message: "activation failed",
+      }),
+    ]);
+  });
+
+  it("rolls back provider contributions when extension activation fails", async () => {
+    const runtime = new ModelRuntime();
+    const providers = runtime.createPluginManager(new VendorRegistry(), process.cwd());
+    const manager = new ExtensionManager({ cwd: process.cwd(), modelProviders: providers });
+    const broken = extension("provider-broken", () => {
       throw new Error("activation failed");
-    }), "local.mjs");
-    expect(manager.diagnostics).toEqual([expect.objectContaining({
-      extensionId: "broken",
-      source: "local.mjs",
-      message: "activation failed",
-    })]);
+    });
+    broken.contributions.providers = [
+      defineVendor({
+        id: "example-vendor",
+        displayName: "Example",
+        connections: [
+          compatibleConnection({
+            id: "default",
+            displayName: "Example",
+            providerId: "example-vendor",
+            providerName: "Example",
+            baseUrl: "https://example.test/v1",
+            envVars: ["EXAMPLE_API_KEY"],
+            protocol: "openai-completions",
+            models: [{ id: "example-model", contextWindow: 32_000, maxTokens: 4_096 }],
+          }),
+        ],
+      }),
+    ];
+    await expect(manager.register(broken)).rejects.toThrow("activation failed");
+    expect(providers.hasProvider("example-vendor")).toBe(false);
+    expect(providers.vendors.get("example-vendor")).toBeUndefined();
   });
 });

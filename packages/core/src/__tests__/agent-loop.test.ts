@@ -1,21 +1,18 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { AgentConfig, AgentEvent, AgentTool, Message } from "../types";
-
-// Mock the llm module
-vi.mock("../llm", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("../llm")>();
-  return {
-    ...actual,
-    streamLLM: vi.fn(),
-  };
-});
-
-import { streamLLM } from "../llm";
+import type { AgentMessage } from "../models/messages";
+import type { AgentConfig, AgentEvent, AgentTool } from "../types";
+import type { ModelRuntimePort } from "../models";
 import { runAgentLoop } from "../agent-loop";
-import { SkillEventName, SkillEventNamespace, SkillReadLifecycleAdapter, SkillReadStatus } from "../skills";
+import {
+  SkillEventName,
+  SkillEventNamespace,
+  SkillReadLifecycleAdapter,
+  SkillReadStatus,
+} from "../skills";
 import type { ToolLifecycleAdapter } from "../tool-lifecycle";
 
-const mockedStreamLLM = vi.mocked(streamLLM);
+const streamModel = vi.fn<ModelRuntimePort["stream"]>();
+const modelRuntime: ModelRuntimePort = { stream: streamModel };
 
 function makeTool(name = "test_tool"): AgentTool {
   return {
@@ -31,16 +28,26 @@ function makeTool(name = "test_tool"): AgentTool {
 
 function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
   return {
-    model: "test-model",
-    apiKey: "test-key",
+    model: {
+      vendorId: "test",
+      connectionId: "default",
+      providerId: "test",
+      modelId: "test-model",
+      contextWindow: 128_000,
+      maxOutputTokens: 4_096,
+    },
     systemPrompt: "You are a test assistant.",
     tools: [makeTool()],
     ...overrides,
   };
 }
 
-function makeMessages(userContent: string): Message[] {
+function makeMessages(userContent: string): AgentMessage[] {
   return [{ role: "user", content: userContent, timestamp: Date.now() }];
+}
+
+function executeLoop(config: AgentConfig, messages: AgentMessage[], signal?: AbortSignal) {
+  return runAgentLoop({ config, messages, modelRuntime, signal });
 }
 
 /**
@@ -69,7 +76,7 @@ describe("runAgentLoop", () => {
   });
 
   it("should yield text_delta and done for a normal text response", async () => {
-    mockedStreamLLM.mockReturnValue(
+    streamModel.mockReturnValue(
       fakeStream([
         { type: "text_delta", delta: "Hello " },
         { type: "text_delta", delta: "world" },
@@ -86,7 +93,7 @@ describe("runAgentLoop", () => {
     );
 
     const config = makeConfig({ tools: [] });
-    const events = await collectEvents(runAgentLoop(config, makeMessages("Hi")));
+    const events = await collectEvents(executeLoop(config, makeMessages("Hi")));
 
     expect(events).toEqual([
       { type: "text_delta", delta: "Hello " },
@@ -103,7 +110,7 @@ describe("runAgentLoop", () => {
       timestamp: Date.now(),
     };
 
-    mockedStreamLLM.mockReturnValue(
+    streamModel.mockReturnValue(
       fakeStream([
         { type: "text_delta", delta: "Hello world" },
         { type: "done", message: assistantMsg },
@@ -111,7 +118,7 @@ describe("runAgentLoop", () => {
     );
 
     const config = makeConfig({ tools: [] });
-    const events = await collectEvents(runAgentLoop(config, makeMessages("Hi")));
+    const events = await collectEvents(executeLoop(config, makeMessages("Hi")));
 
     const doneEvent = events.find((e) => e.type === "done");
     expect(doneEvent).toBeDefined();
@@ -127,7 +134,7 @@ describe("runAgentLoop", () => {
     const config = makeConfig({ tools: [tool] });
 
     // First call: LLM returns a tool use
-    mockedStreamLLM.mockReturnValueOnce(
+    streamModel.mockReturnValueOnce(
       fakeStream([
         {
           type: "done",
@@ -149,7 +156,7 @@ describe("runAgentLoop", () => {
     );
 
     // Second call: LLM returns text
-    mockedStreamLLM.mockReturnValueOnce(
+    streamModel.mockReturnValueOnce(
       fakeStream([
         { type: "text_delta", delta: "Done!" },
         {
@@ -164,7 +171,7 @@ describe("runAgentLoop", () => {
       ]) as any,
     );
 
-    const events = await collectEvents(runAgentLoop(config, makeMessages("Run a command")));
+    const events = await collectEvents(executeLoop(config, makeMessages("Run a command")));
 
     // Verify tool_start and tool_end events
     const toolStart = events.find((e) => e.type === "tool_start");
@@ -198,6 +205,72 @@ describe("runAgentLoop", () => {
     }
   });
 
+  it("runs extension middleware around model and tool execution", async () => {
+    const order: string[] = [];
+    const tool = makeTool("bash");
+    vi.mocked(tool.execute).mockImplementation(async () => {
+      order.push("execute-tool");
+      return { content: [{ type: "text", text: "ok" }], isError: false };
+    });
+    const config = makeConfig({
+      tools: [tool],
+      middleware: [
+        {
+          beforeModel: () => {
+            order.push("before-model");
+          },
+          afterModel: () => {
+            order.push("after-model");
+          },
+          beforeTool: () => {
+            order.push("before-tool");
+          },
+          afterTool: () => {
+            order.push("after-tool");
+          },
+        },
+      ],
+    });
+    streamModel.mockReturnValueOnce(
+      fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call_1", name: "bash", arguments: {} }],
+            stopReason: "toolUse",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as any,
+    );
+    streamModel.mockReturnValueOnce(
+      fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+            stopReason: "stop",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as any,
+    );
+
+    await collectEvents(executeLoop(config, makeMessages("run")));
+
+    expect(order).toEqual([
+      "before-model",
+      "after-model",
+      "before-tool",
+      "execute-tool",
+      "after-tool",
+      "before-model",
+      "after-model",
+    ]);
+  });
+
   it("should emit extension events around skill_read tool calls", async () => {
     const skillTool = makeTool("skill_read");
     vi.mocked(skillTool.execute).mockResolvedValue({
@@ -215,7 +288,7 @@ describe("runAgentLoop", () => {
       toolLifecycleAdapters: [new SkillReadLifecycleAdapter()],
     });
 
-    mockedStreamLLM.mockReturnValueOnce(
+    streamModel.mockReturnValueOnce(
       fakeStream([
         {
           type: "done",
@@ -236,7 +309,7 @@ describe("runAgentLoop", () => {
       ]) as any,
     );
 
-    mockedStreamLLM.mockReturnValueOnce(
+    streamModel.mockReturnValueOnce(
       fakeStream([
         {
           type: "done",
@@ -250,7 +323,7 @@ describe("runAgentLoop", () => {
       ]) as any,
     );
 
-    const events = await collectEvents(runAgentLoop(config, makeMessages("Use a skill")));
+    const events = await collectEvents(executeLoop(config, makeMessages("Use a skill")));
 
     expect(events).toContainEqual({
       type: "extension_event",
@@ -286,7 +359,7 @@ describe("runAgentLoop", () => {
       toolLifecycleAdapters: [failingAdapter],
     });
 
-    mockedStreamLLM.mockReturnValueOnce(
+    streamModel.mockReturnValueOnce(
       fakeStream([
         {
           type: "done",
@@ -306,7 +379,7 @@ describe("runAgentLoop", () => {
         },
       ]) as any,
     );
-    mockedStreamLLM.mockReturnValueOnce(
+    streamModel.mockReturnValueOnce(
       fakeStream([
         {
           type: "done",
@@ -320,12 +393,14 @@ describe("runAgentLoop", () => {
       ]) as any,
     );
 
-    const events = await collectEvents(runAgentLoop(config, makeMessages("Run a command")));
+    const events = await collectEvents(executeLoop(config, makeMessages("Run a command")));
 
-    expect(events).toContainEqual(expect.objectContaining({
-      type: "tool_end",
-      toolCallId: "call_1",
-    }));
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_end",
+        toolCallId: "call_1",
+      }),
+    );
     expect(events).toContainEqual({
       type: "extension_event",
       namespace: "tool_lifecycle",
@@ -355,7 +430,7 @@ describe("runAgentLoop", () => {
     const config = makeConfig({ tools: [tool], maxTurns: 1 });
 
     // LLM always returns tool use — loop should stop after 1 turn
-    mockedStreamLLM.mockReturnValue(
+    streamModel.mockReturnValue(
       fakeStream([
         {
           type: "done",
@@ -376,7 +451,7 @@ describe("runAgentLoop", () => {
       ]) as any,
     );
 
-    const events = await collectEvents(runAgentLoop(config, makeMessages("Loop forever")));
+    const events = await collectEvents(executeLoop(config, makeMessages("Loop forever")));
 
     const lastEvent = events[events.length - 1];
     expect(lastEvent).toEqual({ type: "error", error: "Max turns reached" });
@@ -387,21 +462,19 @@ describe("runAgentLoop", () => {
     const controller = new AbortController();
     controller.abort();
 
-    const events = await collectEvents(runAgentLoop(config, makeMessages("Hi"), controller.signal));
+    const events = await collectEvents(executeLoop(config, makeMessages("Hi"), controller.signal));
 
     expect(events).toEqual([{ type: "error", error: "Aborted" }]);
-    expect(mockedStreamLLM).not.toHaveBeenCalled();
+    expect(streamModel).not.toHaveBeenCalled();
   });
 
   it("should yield error when LLM returns an error event", async () => {
-    mockedStreamLLM.mockReturnValue(
-      fakeStream([
-        { type: "error", error: { errorMessage: "Rate limit exceeded" } },
-      ]) as any,
+    streamModel.mockReturnValue(
+      fakeStream([{ type: "error", error: { errorMessage: "Rate limit exceeded" } }]) as any,
     );
 
     const config = makeConfig();
-    const events = await collectEvents(runAgentLoop(config, makeMessages("Hi")));
+    const events = await collectEvents(executeLoop(config, makeMessages("Hi")));
 
     expect(events).toEqual([{ type: "error", error: "Rate limit exceeded" }]);
   });
@@ -409,7 +482,7 @@ describe("runAgentLoop", () => {
   it("should return isError=true when tool is not found", async () => {
     const config = makeConfig({ tools: [] }); // no tools registered
 
-    mockedStreamLLM.mockReturnValueOnce(
+    streamModel.mockReturnValueOnce(
       fakeStream([
         {
           type: "done",
@@ -431,7 +504,7 @@ describe("runAgentLoop", () => {
     );
 
     // Second call returns done so loop ends
-    mockedStreamLLM.mockReturnValueOnce(
+    streamModel.mockReturnValueOnce(
       fakeStream([
         {
           type: "done",
@@ -445,16 +518,19 @@ describe("runAgentLoop", () => {
       ]) as any,
     );
 
-    const events = await collectEvents(runAgentLoop(config, makeMessages("Use a tool")));
+    const events = await collectEvents(executeLoop(config, makeMessages("Use a tool")));
 
-    const toolEnd = events.find((e) => e.type === "tool_end") as Extract<AgentEvent, { type: "tool_end" }>;
+    const toolEnd = events.find((e) => e.type === "tool_end") as Extract<
+      AgentEvent,
+      { type: "tool_end" }
+    >;
     expect(toolEnd).toBeDefined();
     expect(toolEnd.result.isError).toBe(true);
     expect(toolEnd.result.content[0].text).toContain("Tool not found");
   });
 
   it("should not mutate the input messages array", async () => {
-    mockedStreamLLM.mockReturnValue(
+    streamModel.mockReturnValue(
       fakeStream([
         { type: "text_delta", delta: "Hi" },
         {
@@ -473,7 +549,7 @@ describe("runAgentLoop", () => {
     const messages = makeMessages("Hello");
     const originalLength = messages.length;
 
-    await collectEvents(runAgentLoop(config, messages));
+    await collectEvents(executeLoop(config, messages));
 
     expect(messages).toHaveLength(originalLength);
   });

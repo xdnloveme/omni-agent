@@ -6,18 +6,21 @@
   "scripts": {
     "dev": "tsx packages/cli/src/index.ts",
     "build": "pnpm -r run build",
-    "typecheck": "tsc -b packages/core packages/tools packages/app agents/coding agents/financial-analysis packages/cli",
+    "typecheck": "tsc -b packages/core packages/tools packages/models packages/app agents/coding agents/financial-analysis packages/cli",
     "test": "vitest run",
     "test:watch": "vitest",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
     "prepare": "husky"
   },
   "devDependencies": {
     "husky": "^9.1.7",
+    "prettier": "^3.9.6",
     "tsx": "^4.21.0",
     "typescript": "^5.9.2",
     "vitest": "^4.1.8"
   },
   "engines": {
-    "node": ">=20.0.0"
+    "node": ">=22.19.0"
   }
 }

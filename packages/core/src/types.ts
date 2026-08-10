@@ -1,7 +1,7 @@
-import type { AssistantMessageEvent, Message } from "@mariozechner/pi-ai";
 import type { ToolLifecycleAdapter } from "./tool-lifecycle";
 import type { ExtensionEvent } from "./extension-events";
-import type { ProviderId } from "./models";
+import type { AgentMessage } from "./models/messages";
+import type { ModelRuntimePort, RuntimeModelSelection } from "./models/runtime";
 
 export interface AgentTool {
   name: string;
@@ -11,10 +11,7 @@ export interface AgentTool {
   risk?: "read" | "write" | "execute" | "network";
   approval?: "never" | "always" | "policy";
   timeoutMs?: number;
-  execute: (
-    params: Record<string, unknown>,
-    signal?: AbortSignal,
-  ) => Promise<ToolResult>;
+  execute: (params: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult>;
 }
 
 export interface ToolResult {
@@ -33,25 +30,36 @@ export interface TokenUsage {
 }
 
 export interface AgentConfig {
-  model: string;
-  apiKey: string;
-  endpoint?: string;
-  provider?: ProviderId;
+  model: RuntimeModelSelection;
   systemPrompt: string;
   tools: AgentTool[];
   toolLifecycleAdapters?: ToolLifecycleAdapter[];
+  middleware?: readonly import("./middleware/types").RuntimeMiddleware[];
   maxTurns?: number;
-  maxTokens?: number;
-  contextWindow?: number;
+}
+
+export interface AgentLoopInput {
+  config: AgentConfig;
+  messages: readonly AgentMessage[];
+  modelRuntime: ModelRuntimePort;
+  toolExecutor?: import("./tools/executor").ToolExecutor;
+  signal?: AbortSignal;
+  options?: import("./agent-loop").AgentLoopOptions;
 }
 
 // Events emitted by the agent loop
 export type AgentEvent =
   | { type: "text_delta"; delta: string }
   | { type: "tool_start"; toolName: string; toolCallId: string; input: Record<string, unknown> }
-  | { type: "tool_end"; toolName: string; toolCallId: string; result: ToolResult; durationMs: number }
+  | {
+      type: "tool_end";
+      toolName: string;
+      toolCallId: string;
+      result: ToolResult;
+      durationMs: number;
+    }
   | ExtensionEvent
   | { type: "error"; error: string }
-  | { type: "done"; produced?: Message[]; usage?: TokenUsage };
+  | { type: "done"; produced?: AgentMessage[]; usage?: TokenUsage };
 
-export type { Message, AssistantMessageEvent };
+export type { AgentMessage };

@@ -1,8 +1,9 @@
-import type { AgentConfig, Message, ToolResult } from "../types";
+import type { AgentMessage } from "../models/messages";
+import type { AgentConfig, ToolResult } from "../types";
 
 export interface RunMiddleware {
-  beforeModel?(config: AgentConfig, messages: readonly Message[]): void | Promise<void>;
-  afterModel?(config: AgentConfig, messages: readonly Message[]): void | Promise<void>;
+  beforeModel?(config: AgentConfig, messages: readonly AgentMessage[]): void | Promise<void>;
+  afterModel?(config: AgentConfig, messages: readonly AgentMessage[]): void | Promise<void>;
 }
 
 export interface ToolMiddleware {

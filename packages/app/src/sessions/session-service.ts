@@ -1,4 +1,4 @@
-import { SessionManager, createUserMessage, type Message } from "@omni-agent/core";
+import { SessionManager, createUserMessage, type AgentMessage } from "@omni-agent/core";
 
 export class SessionService {
   constructor(readonly manager = new SessionManager()) {}
@@ -15,17 +15,17 @@ export class SessionService {
     this.manager.clear();
   }
 
-  appendUserInput(input: string): Message {
+  appendUserInput(input: string): AgentMessage {
     const message = createUserMessage(input);
     this.manager.append(message);
     return message;
   }
 
-  appendProduced(messages: Message[]): void {
+  appendProduced(messages: AgentMessage[]): void {
     this.manager.appendBatch(messages);
   }
 
-  get messages(): readonly Message[] {
+  get messages(): readonly AgentMessage[] {
     return this.manager.messages;
   }
 

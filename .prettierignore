@@ -1,0 +1,11 @@
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+.nyc_output/
+.verdent/
+.omni-agent.local/
+.git/
+pnpm-lock.yaml
+*.log
+*.sqlite

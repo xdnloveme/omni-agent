@@ -14,7 +14,8 @@ extensions without coupling the runtime kernel to a product domain.
 ## Repository Layers
 
 ```text
-packages/core   Agent execution kernel and compatibility APIs
+packages/core   Agent execution kernel and stable runtime ports
+packages/models Model runtime, vendor plugins, catalogs, and credentials
 packages/app    Application lifecycle, registries, extensions, and sessions
 packages/tools  Domain-neutral filesystem, shell, search, and web tools
 packages/cli    CLI composition root, interaction layer, and onboarding
@@ -25,7 +26,8 @@ Allowed workspace dependency direction:
 
 ```text
 tools -> core
-app -> core
+models -> core
+app -> core, models
 agents/* -> app, core, tools
 cli -> app, core, tools, agent-coding
 ```
@@ -38,10 +40,12 @@ See `docs/architecture.md` for the detailed architecture contract.
 
 ## Ownership Rules
 
-- Put model/tool execution, cancellation, events, middleware, and runtime policy
-  in `packages/core`.
+- Put the agent loop, tool execution, cancellation, events, middleware, and the
+  stable `ModelRuntimePort` contract in `packages/core`.
+- Put model transport execution, vendor/provider plugins, model catalogs,
+  protocol conversion, and credential persistence in `packages/models`.
 - Put agent/tool/command registration, extension loading, application lifecycle,
-  sessions, configuration, and credentials in `packages/app`.
+  sessions, and configuration in `packages/app`.
 - Put a tool in `packages/tools` only when it has complete technical meaning
   outside a specific agent or business domain.
 - Keep prompts, domain types, domain services, domain tools, and workflows in the
@@ -61,16 +65,19 @@ RSI, MACD, IBKR data adapters         -> agents/financial-analysis
 TUI widgets and keyboard interaction  -> packages/cli
 ```
 
-## Compatibility Requirements
+## Runtime Contract
 
 The coding agent is the default agent and must remain usable after every change.
 Preserve its system prompt composition, exposed tool names and order, commands,
 stream events, configuration behavior, credential storage, and JSONL session
 format unless a change explicitly requires a migration.
 
-`AgentTool`, `AgentConfig`, and `runAgentLoop()` are compatibility APIs. New
-application code should use `AgentRunner`, `ToolExecutor`, `createAgentApp()`,
-and `AgentExtension`, but existing callers must not be broken accidentally.
+`ModelRuntimePort`, `AgentMessage`, `AgentRunner`, `ToolExecutor`,
+`createAgentApp()`, and `AgentExtension` are the current architecture. Do not
+add legacy model execution branches, compatibility overloads, global runtime
+setters, static model registries, or aliases for removed model-library types.
+Historical configuration and credentials may be handled only by isolated,
+one-way data migration into the current format.
 
 Local ESM extensions are trusted local code. Do not imply that
 `.omni-agent.local/extensions.mjs` or `OMNI_AGENT_EXTENSION_FILES` are sandboxed.
@@ -89,11 +96,12 @@ Local ESM extensions are trusted local code. Do not imply that
 
 ## Development Workflow
 
-Use Node.js 20 or newer and pnpm.
+Use Node.js 22.19.0 or newer and pnpm.
 
 ```bash
 pnpm install
 pnpm dev
+pnpm run format:check
 pnpm run typecheck
 pnpm run test
 pnpm run build
@@ -101,8 +109,8 @@ pnpm run build
 
 Before finishing a change:
 
-1. Run focused tests for the modified behavior.
-2. Run `pnpm run typecheck` and `pnpm run test`.
+1. Run `pnpm run format` and focused tests for the modified behavior.
+2. Run `pnpm run format:check`, `pnpm run typecheck`, and `pnpm run test`.
 3. Run `pnpm run build` when package exports, references, or dependencies change.
 4. Smoke-test `pnpm dev` when CLI startup, composition, configuration, sessions,
    commands, or TUI behavior changes.

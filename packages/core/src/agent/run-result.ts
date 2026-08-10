@@ -1,6 +1,7 @@
-import type { Message, TokenUsage } from "../types";
+import type { AgentMessage } from "../models/messages";
+import type { TokenUsage } from "../types";
 
 export interface AgentRunResult {
-  messages: Message[];
+  messages: AgentMessage[];
   usage?: TokenUsage;
 }

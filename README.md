@@ -19,7 +19,8 @@ Monorepo managed by pnpm workspace:
 
 ```
 packages/
-  core/   # Agent runtime, model/tool execution, events, compatibility APIs
+  core/   # Agent loop, tools, messages, and stable runtime ports
+  models/ # Model runtime, vendor catalog, provider plugins, and credentials
   app/    # Application facade, registries, extensions, sessions, config
   tools/  # Domain-neutral filesystem, shell, search, and web tools
   cli/    # Process entry, TUI, chat mode, and onboarding
@@ -29,19 +30,38 @@ agents/
   financial-analysis/ # Optional read-only financial analysis extension
 ```
 
-Dependency direction is `core <- app <- agents/* <- cli`, with `tools -> core` and
-`agents/* -> tools`. Concrete agents are never registered implicitly by core or app.
+The models package depends on core; app composes both. Concrete agents are never
+registered implicitly by core or app.
+
+## Provider credentials
+
+Providers are presented vendor-first, then by connection and model. Credentials
+use runtime precedence: an explicit request value, the OS credential store
+(keytar), then process/project environment variables. Copy `.env.example` to
+`.env` when file-based local credentials are preferred; the CLI reads but never
+writes `.env`.
+
+Historical local model presets are migrated one-way into vendor Provider
+definitions. Only `.omni-agent.local/providers.json` participates in the current
+runtime.
+
+Provider plugins compose connection-level Factory strategies rather than building
+adapters in Core. Agent-facing connection settings use a constrained JSON Schema
+contract compiled once with Ajv; local Provider definitions are validated and
+persisted through a single atomic repository.
 
 ## Development
 
 ```bash
 pnpm dev              # Start dev (runs directly via tsx)
+pnpm run format       # Format source, tests, config, and docs
+pnpm run format:check # Verify formatting without changing files
 pnpm run typecheck    # Type checking
 pnpm run test         # Run tests
 pnpm run test:watch   # Test watch mode
 ```
 
-Pre-commit hook (husky) automatically runs `typecheck + test` to ensure commit quality.
+Pre-commit hook (husky) automatically runs `format:check + typecheck + test` to ensure commit quality.
 
 ## Slash Command System
 
@@ -66,8 +86,8 @@ interface Command {
 
 ## Tech Stack
 
-- TypeScript, Node.js ≥ 20
-- [pi-ai](https://github.com/nicepkg/pi-ai) — Unified LLM calls
+- TypeScript, Node.js ≥ 22.19
+- [@earendil-works/pi-ai 0.84](https://github.com/earendil-works/pi) — Provider-based model runtime
 - [pi-tui](https://github.com/nicepkg/pi-tui) — Terminal UI
 - Vitest — Testing
 - Husky — Git hooks

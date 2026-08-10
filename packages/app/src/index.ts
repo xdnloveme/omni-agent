@@ -1,6 +1,7 @@
 export { AgentApplication } from "./application/agent-application";
+export type { AgentApplicationDependencies } from "./application/agent-application";
 export { createAgentApp } from "./application/create-agent-app";
-export type { AgentRuntimeSettings, CreateAgentAppOptions } from "./application/create-agent-app";
+export type { CreateAgentAppOptions } from "./application/create-agent-app";
 export { AgentRegistry } from "./registry/agent-registry";
 export { ToolRegistry } from "./registry/tool-registry";
 export { CommandRegistry } from "./registry/command-registry";
@@ -17,4 +18,17 @@ export type {
 } from "./extensions/types";
 export { SessionService } from "./sessions/session-service";
 export { ConfigService } from "./config/config-service";
-export { CredentialService } from "./config/credential-service";
+export type { ConfigDiagnostic, OmniConfigV2 } from "./config/types";
+export { ModelService, createModelService } from "./models/model-service";
+export type { ModelServiceDiagnostic } from "./models/model-service";
+export type {
+  ModelAuthEvent,
+  ModelAuthInteraction,
+  ModelAuthMethod,
+  ModelAuthPrompt,
+  ModelAuthType,
+  ModelSelection,
+  ModelServiceOptions,
+  VendorSettingsSchema,
+} from "./models/model-service";
+export { LocalProviderRegistrationCoordinator } from "./models/local-provider-registration-coordinator";

@@ -1,14 +1,29 @@
 import { runAgentLoop, type AgentLoopOptions } from "../agent-loop";
-import type { AgentConfig, AgentEvent, Message } from "../types";
+import type { AgentMessage } from "../models/messages";
+import type { AgentConfig, AgentEvent } from "../types";
+import type { ModelRuntimePort } from "../models/runtime";
+import { ToolExecutor } from "../tools/executor";
 
-/** Stable object-oriented entry point for hosts; runAgentLoop remains compatible. */
+/** Host-facing runner with explicit runtime and tool-execution dependencies. */
 export class AgentRunner {
+  constructor(
+    private readonly modelRuntime: ModelRuntimePort,
+    private readonly toolExecutor = new ToolExecutor(),
+  ) {}
+
   run(
     config: AgentConfig,
-    messages: Message[],
+    messages: readonly AgentMessage[],
     signal?: AbortSignal,
     options?: AgentLoopOptions,
   ): AsyncGenerator<AgentEvent> {
-    return runAgentLoop(config, messages, signal, options);
+    return runAgentLoop({
+      config,
+      messages,
+      modelRuntime: this.modelRuntime,
+      toolExecutor: this.toolExecutor,
+      signal,
+      options,
+    });
   }
 }

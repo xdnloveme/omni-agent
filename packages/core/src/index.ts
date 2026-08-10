@@ -1,20 +1,10 @@
 export { runAgentLoop } from "./agent-loop";
 export type { AgentLoopOptions } from "./agent-loop";
 export { AgentRunner, defineAgent } from "./agent/index";
-export type {
-  AgentDefinition,
-  AgentModelSettings,
-  AgentRunContext,
-  AgentRunResult,
-} from "./agent/index";
-export {
-  ToolExecutor,
-  toLegacyAgentTool,
-} from "./tools/index";
+export type { AgentDefinition, AgentRunContext, AgentRunResult } from "./agent/index";
+export { ToolExecutor } from "./tools/index";
 export type {
   ToolApproval,
-  ToolContext,
-  ToolDefinition,
   ToolExecutionResult,
   ToolExecutorOptions,
   ToolGuardrail,
@@ -22,29 +12,32 @@ export type {
   ToolRisk,
 } from "./tools/index";
 export type { RunMiddleware, RuntimeMiddleware, ToolMiddleware } from "./middleware/index";
-export {
-  collectLifecycleEndEvents,
-  collectLifecycleStartEvents,
-} from "./tool-lifecycle";
+export { collectLifecycleEndEvents, collectLifecycleStartEvents } from "./tool-lifecycle";
 export type {
   ToolLifecycleAdapter,
   ToolLifecycleEndInput,
   ToolLifecycleStartInput,
 } from "./tool-lifecycle";
 export { toContextMessages } from "./llm-context";
-export { loadConfig, saveConfig, getConfigDir, getConfigPath, type OmniConfig } from "./config";
-export { getApiKey, saveApiKey, deleteApiKey } from "./credential";
-export type { AgentConfig, AgentTool, AgentEvent, ToolResult, Message, TokenUsage } from "./types";
+export type {
+  AgentConfig,
+  AgentEvent,
+  AgentLoopInput,
+  AgentTool,
+  TokenUsage,
+  ToolResult,
+} from "./types";
 export type { ExtensionEvent } from "./extension-events";
-export { buildModel, getDefaultContextWindow } from "./llm";
-export {
-  MODEL_PRESETS,
-  getDefaultPresetForProvider,
-  getModelPresetById,
-  isProviderId,
-  loadLocalModelExtensions,
+export type {
+  AgentMessage,
+  AssistantAgentMessage,
+  JsonValue,
+  ModelEvent,
+  ModelRequest,
+  ModelRequestOptions,
+  ModelRuntimePort,
+  RuntimeModelSelection,
 } from "./models";
-export type { ModelPreset, ProviderId } from "./models";
 export { CommandRegistry } from "./commands/index";
 export type { Command, CommandContext, CommandTui } from "./commands/index";
 export { buildSystemPrompt, composeSystemPrompt, BASE_SYSTEM_PROMPT } from "./system-prompt/index";

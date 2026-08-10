@@ -1,15 +1,11 @@
-import type {
-  Message,
-  AssistantMessage,
-} from "@mariozechner/pi-ai";
-
+import type { AgentMessage, AssistantAgentMessage } from "../models/messages";
 import type { SessionMessage } from "./types";
 
 /**
- * Create a user message in the LLM-compatible format.
+ * Create a user message in the stable agent message format.
  */
 export function createUserMessage(content: string): SessionMessage {
-  const msg: Message = {
+  const msg: AgentMessage = {
     role: "user",
     content,
     timestamp: Date.now(),
@@ -18,10 +14,9 @@ export function createUserMessage(content: string): SessionMessage {
 }
 
 /**
- * Create an assistant message by wrapping the raw AssistantMessage from the LLM.
- * The AssistantMessage already conforms to the Message union — pass it through.
+ * Store a normalized assistant message without changing its wire representation.
  */
-export function createAssistantMessage(assistantMessage: AssistantMessage): SessionMessage {
+export function createAssistantMessage(assistantMessage: AssistantAgentMessage): SessionMessage {
   return assistantMessage;
 }
 
@@ -34,7 +29,7 @@ export function createToolResultMessage(
   content: Array<{ type: "text"; text: string }>,
   isError: boolean,
 ): SessionMessage {
-  const msg: Message = {
+  const msg: AgentMessage = {
     role: "toolResult",
     toolCallId,
     toolName,
