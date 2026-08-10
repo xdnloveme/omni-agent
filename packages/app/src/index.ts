@@ -7,6 +7,7 @@ export { ToolRegistry } from "./registry/tool-registry";
 export { CommandRegistry } from "./registry/command-registry";
 export { ExtensionManager } from "./extensions/extension-manager";
 export { loadAgentExtensions } from "./extensions/agent-extension-loader";
+export type { AgentFactory, AgentFactoryContext } from "./extensions/agent-factory";
 export type {
   AgentExtensionLoaderOptions,
   AgentExtensionLoadResult,

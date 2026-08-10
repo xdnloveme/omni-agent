@@ -18,7 +18,7 @@ tools -> core
 models -> core
 app -> core, models
 agents/* -> app, core, tools
-cli -> app, core, tools, agent-coding
+cli -> app, core, tools, agents/*
 ```
 
 Core and app must not import a concrete agent. Agent packages must not import the
@@ -148,6 +148,13 @@ App and converts historical config one-way into `OmniConfigV2` and the current
 Provider definition format; historical formats never participate in model
 execution. The default CLI preserves the existing session, command, tool, event,
 and TUI behavior.
+
+Agent packages expose an `agentFactory` from their package root. The CLI resolves
+`@omni-agent/agent-<id>` dynamically and asks that factory for the extension and
+optional runtime capabilities. Agent IDs are therefore not maintained in a CLI
+allowlist or switch statement. `pnpm dev` selects `coding` by default, while
+`pnpm run dev -- <id>` selects any installed Agent package through the same chat
+runtime.
 
 Keytar is the credential source of truth. Its non-secret credential index is
 derived state; writes use provider-scoped serialization and compensation, while a

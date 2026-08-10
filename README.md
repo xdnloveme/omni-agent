@@ -8,7 +8,7 @@ Repository: [github.com/xdnloveme/omni-agent](https://github.com/xdnloveme/omni-
 
 ```bash
 pnpm install
-pnpm dev
+pnpm dev # Start the default coding agent
 ```
 
 On first launch, you'll be guided to configure a provider and API key.
@@ -32,6 +32,9 @@ agents/
 
 The models package depends on core; app composes both. Concrete agents are never
 registered implicitly by core or app.
+Each Agent package exports an `agentFactory`; the CLI loads
+`@omni-agent/agent-<id>` by convention, so adding an installed Agent does not
+require another CLI branch.
 
 ## Provider credentials
 
@@ -58,7 +61,10 @@ persisted through a single atomic repository.
 ## Development
 
 ```bash
-pnpm dev              # Start dev (runs directly via tsx)
+pnpm dev                          # Start the default coding agent
+pnpm run dev -- <agent-id>        # Start an installed agent package dynamically
+pnpm run dev:coding               # Start the coding agent explicitly
+pnpm run dev:financial-analysis   # Start the read-only financial analysis agent
 pnpm run format       # Format source, tests, config, and docs
 pnpm run format:check # Verify formatting without changing files
 pnpm run typecheck    # Type checking

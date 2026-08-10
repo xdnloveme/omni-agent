@@ -29,7 +29,7 @@ tools -> core
 models -> core
 app -> core, models
 agents/* -> app, core, tools
-cli -> app, core, tools, agent-coding
+cli -> app, core, tools, agents/*
 ```
 
 Do not introduce reverse dependencies. `core` and `app` must never import a

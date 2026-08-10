@@ -4,7 +4,9 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "tsx packages/cli/src/index.ts",
+    "dev": "tsx packages/cli/src/index.ts chat",
+    "dev:coding": "pnpm run dev -- coding",
+    "dev:financial-analysis": "pnpm run dev -- financial-analysis",
     "build": "pnpm -r run build",
     "typecheck": "tsc -b packages/core packages/tools packages/models packages/app agents/coding agents/financial-analysis packages/cli",
     "test": "vitest run",

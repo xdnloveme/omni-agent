@@ -9,7 +9,8 @@
     { "path": "../core" },
     { "path": "../app" },
     { "path": "../tools" },
-    { "path": "../../agents/coding" }
+    { "path": "../../agents/coding" },
+    { "path": "../../agents/financial-analysis" }
   ],
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]

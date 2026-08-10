@@ -3,7 +3,7 @@ import { runChatMode } from "./modes/chat";
 
 async function main(): Promise<void> {
   const args = parseCliArgs(process.argv.slice(2));
-  if (args.mode === "chat") await runChatMode();
+  if (args.mode === "chat") await runChatMode(args.agentId);
 }
 
 void main().catch((error) => {

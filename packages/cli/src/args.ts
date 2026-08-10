@@ -1,9 +1,20 @@
 export interface CliArgs {
   mode: "chat";
+  agentId: string;
 }
 
 export function parseCliArgs(args: string[]): CliArgs {
-  const mode = args[0] ?? "chat";
+  const positionalArgs = args.filter((argument) => argument !== "--");
+  const mode = positionalArgs[0] ?? "chat";
   if (mode !== "chat") throw new Error(`Unknown mode: ${mode}`);
-  return { mode };
+  const agentId = positionalArgs[1] ?? "coding";
+  if (!isAgentId(agentId)) throw new Error(`Invalid agent id: ${agentId}`);
+  if (positionalArgs.length > 2) {
+    throw new Error(`Unexpected argument: ${positionalArgs[2]}`);
+  }
+  return { mode, agentId };
+}
+
+function isAgentId(value: string): boolean {
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
 }

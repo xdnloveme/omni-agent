@@ -86,6 +86,9 @@ importers:
       '@omni-agent/agent-coding':
         specifier: workspace:*
         version: link:../../agents/coding
+      '@omni-agent/agent-financial-analysis':
+        specifier: workspace:*
+        version: link:../../agents/financial-analysis
       '@omni-agent/app':
         specifier: workspace:*
         version: link:../app

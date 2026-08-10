@@ -1,14 +1,14 @@
 import chalk from "chalk";
 
-import { SkillRuntime, type StreamCallbacks, type TokenUsage } from "@omni-agent/core";
+import type { StreamCallbacks, TokenUsage } from "@omni-agent/core";
 import { ConfigService, createAgentApp, createModelService } from "@omni-agent/app";
-import { createCodingExtension } from "@omni-agent/agent-coding";
+import { createAgentComposition } from "../agents/agent-composition";
 import { createOmniTui } from "../interaction/tui/tui";
 import { runOnboarding } from "../onboarding";
 import { createCommandRegistry } from "../commands/index";
 import { SkillCliController } from "../skills";
 
-export async function runChatMode(): Promise<void> {
+export async function runChatMode(agentId: string): Promise<void> {
   const configService = new ConfigService();
   let config = await configService.load();
   for (const diagnostic of configService.diagnostics) {
@@ -29,18 +29,18 @@ export async function runChatMode(): Promise<void> {
     config = result.config;
   }
 
-  const skillRuntime = new SkillRuntime({ cwd: process.cwd() });
-  await skillRuntime.initialize();
-  const coding = createCodingExtension(skillRuntime);
+  const composition = await createAgentComposition(agentId);
   const app = await createAgentApp({
     modelSelection: config.model,
     modelService,
     persistModelSelection: (selection) => configService.save({ version: 2, model: selection }),
-    extensions: [coding.extension],
-    defaultAgentId: "coding",
+    extensions: [composition.extension],
+    defaultAgentId: composition.agentId,
   });
   const agentConfig = app.agentConfig;
-  agentConfig.toolLifecycleAdapters = skillRuntime.lifecycleAdapters();
+  if (composition.skills) {
+    agentConfig.toolLifecycleAdapters = composition.skills.runtime.lifecycleAdapters();
+  }
   const sessionManager = app.sessions.manager;
 
   const tui = createOmniTui();
@@ -86,17 +86,28 @@ export async function runChatMode(): Promise<void> {
     },
   });
 
-  const skillController = new SkillCliController({
-    skillRuntime,
-    commandRegistry: registry,
-    tui,
-    agentConfig,
-    buildSystemPrompt: coding.buildSystemPrompt,
-  });
-  skillController.registerCommands();
+  const skillController = composition.skills
+    ? new SkillCliController({
+        skillRuntime: composition.skills.runtime,
+        commandRegistry: registry,
+        tui,
+        agentConfig,
+        buildSystemPrompt: composition.skills.buildSystemPrompt,
+      })
+    : undefined;
+  skillController?.registerCommands();
 
   // Provide command list to TUI for Tab completion
-  skillController.refreshAutocomplete();
+  if (skillController) {
+    skillController.refreshAutocomplete();
+  } else {
+    tui.setCommands(
+      registry.list().map((command) => ({
+        name: command.name,
+        description: command.description,
+      })),
+    );
+  }
 
   tui.onInterrupt = () => {
     if (!running || !activeAbort) return false;
@@ -125,7 +136,14 @@ export async function runChatMode(): Promise<void> {
         return;
       }
 
-      let explicitSkillPreload: Awaited<ReturnType<typeof skillController.resolveSlashPreload>> =
+      if (!skillController) {
+        tui.appendUserMessage(input);
+        tui.sink.line(chalk.yellow("Unknown command. Type /help for available commands."));
+        tui.sink.spacer();
+        return;
+      }
+
+      let explicitSkillPreload: Awaited<ReturnType<SkillCliController["resolveSlashPreload"]>> =
         null;
       try {
         explicitSkillPreload = await skillController.resolveSlashPreload(input);
@@ -164,7 +182,7 @@ export async function runChatMode(): Promise<void> {
         tui.sink.writeMarkdown(delta);
       },
       onToolStart(toolName, _toolCallId, toolInput) {
-        if (skillController.shouldSuppressToolPreview(toolName)) return;
+        if (skillController?.shouldSuppressToolPreview(toolName)) return;
         tui.sink.line();
         tui.sink.line(
           `${chalk.cyan("▶")} ${chalk.bold(toolName)} ${chalk.dim(JSON.stringify(toolInput))}`,
@@ -172,7 +190,7 @@ export async function runChatMode(): Promise<void> {
         tui.setStatus(chalk.cyan(`running: ${toolName}...`));
       },
       onToolEnd(_toolName, _toolCallId, result, durationMs) {
-        if (skillController.shouldSuppressToolPreview(_toolName)) return;
+        if (skillController?.shouldSuppressToolPreview(_toolName)) return;
         if (result.isError) {
           tui.sink.line(`  ${chalk.red("✗ error")} ${chalk.dim(`(${durationMs}ms)`)}`);
         } else {
@@ -205,7 +223,7 @@ export async function runChatMode(): Promise<void> {
         tui.sink.line(chalk.red(`Error: ${error}`));
         tui.sink.spacer();
       },
-      ...skillController.streamCallbacks(),
+      ...skillController?.streamCallbacks(),
     };
 
     try {
@@ -223,7 +241,7 @@ export async function runChatMode(): Promise<void> {
   }
 
   // Welcome message
-  tui.sink.line(chalk.bold("omni-agent"));
+  tui.sink.line(chalk.bold(`omni-agent · ${composition.agentId}`));
   tui.sink.line(
     chalk.dim("Type your request below. Session history is preserved across restarts."),
   );
