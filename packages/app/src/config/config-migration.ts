@@ -1,7 +1,10 @@
-import { LocalProviderRepository, type LocalProviderDefinition } from "@omni-agent/models";
+import {
+  ProviderRepository,
+  type ConfigurationScope,
+  type ProviderDefinition,
+} from "@omni-agent/models";
 import type { ModelSelection } from "../models/model-service";
 import { normalizeEndpoint } from "./endpoint";
-import { migrateLegacyLocalPreset } from "./legacy-preset-migration";
 
 export interface OmniConfigV1 {
   provider: string;
@@ -10,6 +13,13 @@ export interface OmniConfigV1 {
   maxTokens?: number;
   contextWindow?: number;
   apiKeyEnvVar?: string;
+}
+
+export interface ConfigMigrationOptions {
+  readonly cwd?: string;
+  readonly globalDirectory?: string;
+  readonly scope?: ConfigurationScope;
+  readonly repository?: ProviderRepository;
 }
 
 const PROVIDER_MAP: Record<
@@ -58,10 +68,9 @@ const PROVIDER_MAP: Record<
 
 export async function migrateLegacyConfig(
   config: OmniConfigV1,
-  cwd = process.cwd(),
-  repository = new LocalProviderRepository(cwd),
+  options: ConfigMigrationOptions = {},
 ): Promise<ModelSelection> {
-  if (config.provider === "custom") return migrateCustom(config, repository);
+  if (config.provider === "custom") return migrateCustom(config, options);
   const mapped = PROVIDER_MAP[config.provider];
   const endpoint = normalizeEndpoint(config.endpoint);
   if (
@@ -71,39 +80,46 @@ export async function migrateLegacyConfig(
   ) {
     return { vendorId: mapped.vendorId, connectionId: mapped.connectionId, modelId: config.model };
   }
-  const local = await migrateLegacyLocalPreset(
-    config,
-    cwd,
-    new Set(Object.values(PROVIDER_MAP).map((entry) => entry.vendorId)),
-    repository,
-  );
-  if (local) return local;
-  if (mapped)
+  if (mapped) {
     throw new Error(
       `Cannot safely migrate a non-standard endpoint for provider: ${config.provider}`,
     );
+  }
   throw new Error(`Cannot migrate unknown provider: ${config.provider}`);
 }
 
 async function migrateCustom(
   config: OmniConfigV1,
-  repository: LocalProviderRepository,
+  options: ConfigMigrationOptions,
 ): Promise<ModelSelection> {
-  const migrated: LocalProviderDefinition = {
+  const repository =
+    options.repository ??
+    new ProviderRepository({
+      cwd: options.cwd,
+      globalDirectory: options.globalDirectory,
+    });
+  const definition: ProviderDefinition = {
     id: "custom",
     displayName: "Custom OpenAI-compatible",
-    baseUrl: config.endpoint,
-    envVars: [config.apiKeyEnvVar ?? "OMNI_CUSTOM_API_KEY"],
-    protocol: "openai-completions",
-    models: [
+    connections: [
       {
-        id: config.model,
-        name: config.model,
-        contextWindow: config.contextWindow ?? 128_000,
-        maxTokens: config.maxTokens ?? 4_096,
+        id: "default",
+        displayName: "Default",
+        providerId: "custom",
+        baseUrl: config.endpoint,
+        envVars: [config.apiKeyEnvVar ?? "OMNI_CUSTOM_API_KEY"],
+        protocol: "openai-completions",
+        models: [
+          {
+            id: config.model,
+            name: config.model,
+            contextWindow: config.contextWindow ?? 128_000,
+            maxTokens: config.maxTokens ?? 4_096,
+          },
+        ],
       },
     ],
   };
-  await repository.upsert(migrated);
+  await repository.upsert(definition, { scope: options.scope });
   return { vendorId: "custom", connectionId: "default", modelId: config.model };
 }

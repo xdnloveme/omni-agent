@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { migrateLegacyConfig } from "../config/config-migration";
 import { ConfigService } from "../config/config-service";
-import { LocalProviderRepository, loadLocalVendorPlugins } from "@omni-agent/models";
 
 const dirs: string[] = [];
 afterEach(() => {
@@ -50,14 +49,14 @@ describe("config migration", () => {
         model: "custom-model",
         contextWindow: 32_000,
       },
-      cwd,
+      { cwd },
     );
     expect(selection).toEqual({
       vendorId: "custom",
       connectionId: "default",
       modelId: "custom-model",
     });
-    const stored = readFileSync(join(cwd, ".omni-agent.local/providers.json"), "utf-8");
+    const stored = readFileSync(join(cwd, ".omni-agent/providers.json"), "utf-8");
     expect(stored).toContain("https://example.test/v1");
     expect(stored).not.toMatch(/api[_-]?key\s*[:=]\s*["']?sk-/i);
   });
@@ -75,19 +74,27 @@ describe("config migration", () => {
   it("upserts the migrated custom provider without deleting existing entries", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "omni-custom-provider-merge-"));
     dirs.push(cwd);
-    const directory = join(cwd, ".omni-agent.local");
+    const directory = join(cwd, ".omni-agent");
     mkdirSync(directory, { recursive: true });
     writeFileSync(
       join(directory, "providers.json"),
       JSON.stringify({
-        providers: [
+        version: 1,
+        vendors: [
           {
             id: "existing",
             displayName: "Existing",
-            baseUrl: "https://existing.example.test/v1",
-            envVars: ["EXISTING_API_KEY"],
-            protocol: "openai-completions",
-            models: [{ id: "existing-model", contextWindow: 32_000, maxTokens: 4_096 }],
+            connections: [
+              {
+                id: "default",
+                displayName: "Default",
+                providerId: "existing",
+                baseUrl: "https://existing.example.test/v1",
+                envVars: ["EXISTING_API_KEY"],
+                protocol: "openai-completions",
+                models: [{ id: "existing-model", contextWindow: 32_000, maxTokens: 4_096 }],
+              },
+            ],
           },
         ],
       }),
@@ -99,13 +106,13 @@ describe("config migration", () => {
         endpoint: "https://custom.example.test/v1",
         model: "custom-model",
       },
-      cwd,
+      { cwd },
     );
 
     const stored = JSON.parse(readFileSync(join(directory, "providers.json"), "utf-8")) as {
-      providers: Array<{ id: string }>;
+      vendors: Array<{ id: string }>;
     };
-    expect(stored.providers.map((provider) => provider.id)).toEqual(["existing", "custom"]);
+    expect(stored.vendors.map((provider) => provider.id)).toEqual(["existing", "custom"]);
   });
 
   it("atomically persists a safely migrated v2 config and keeps a v1 backup", async () => {
@@ -122,7 +129,10 @@ describe("config migration", () => {
       }),
     );
 
-    const service = new ConfigService(cwd, configDirectory);
+    const service = new ConfigService({
+      cwd,
+      globalDirectory: configDirectory,
+    });
     await expect(service.load()).resolves.toEqual({
       version: 2,
       model: { vendorId: "openai", connectionId: "default", modelId: "gpt-test" },
@@ -150,7 +160,10 @@ describe("config migration", () => {
       }),
     );
 
-    const service = new ConfigService(cwd, configDirectory);
+    const service = new ConfigService({
+      cwd,
+      globalDirectory: configDirectory,
+    });
     await expect(service.load()).resolves.toBeNull();
     expect(service.diagnostics).toEqual([
       expect.objectContaining({
@@ -160,56 +173,93 @@ describe("config migration", () => {
     ]);
   });
 
-  it("migrates a legacy local preset into the current provider format", async () => {
-    const cwd = mkdtempSync(join(tmpdir(), "omni-local-preset-"));
-    dirs.push(cwd);
-    const directory = join(cwd, ".omni-agent.local");
-    mkdirSync(directory, { recursive: true });
+  it("uses global config when the project has no override", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "omni-config-project-"));
+    const globalDirectory = mkdtempSync(join(tmpdir(), "omni-config-global-"));
+    dirs.push(cwd, globalDirectory);
     writeFileSync(
-      join(directory, "models.json"),
+      join(globalDirectory, "config.json"),
       JSON.stringify({
-        presets: [
-          {
-            id: "team-model",
-            name: "Team Model",
-            provider: "team-gateway",
-            api: "anthropic-messages",
-            endpoint: "https://models.example.test",
-            model: "team-claude",
-            maxTokens: 8_192,
-            contextWindow: 200_000,
-            apiKeyEnvVar: "TEAM_GATEWAY_API_KEY",
-            keychainAccount: "team-keychain-account",
-          },
-        ],
+        version: 2,
+        model: { vendorId: "openai", connectionId: "default", modelId: "global-model" },
       }),
     );
 
-    await expect(
-      migrateLegacyConfig(
-        {
-          provider: "team-gateway",
-          endpoint: "https://models.example.test/",
-          model: "team-claude",
-        },
-        cwd,
-      ),
-    ).resolves.toEqual({
-      vendorId: "team-gateway",
-      connectionId: "default",
-      modelId: "team-claude",
+    await expect(new ConfigService({ cwd, globalDirectory }).load()).resolves.toEqual({
+      version: 2,
+      model: { vendorId: "openai", connectionId: "default", modelId: "global-model" },
     });
-    const stored = JSON.parse(readFileSync(join(directory, "providers.json"), "utf-8")) as {
-      providers: Array<Record<string, unknown>>;
-    };
-    expect(stored.providers).toContainEqual(
-      expect.objectContaining({
-        id: "team-gateway",
-        protocol: "anthropic-messages",
-        credentialAliases: ["team-gateway", "team-keychain-account"],
+  });
+
+  it("treats the project model selection as an atomic override", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "omni-config-project-override-"));
+    const globalDirectory = mkdtempSync(join(tmpdir(), "omni-config-global-override-"));
+    dirs.push(cwd, globalDirectory);
+    mkdirSync(join(cwd, ".omni-agent"), { recursive: true });
+    writeFileSync(
+      join(globalDirectory, "config.json"),
+      JSON.stringify({
+        version: 2,
+        model: { vendorId: "openai", connectionId: "default", modelId: "global-model" },
       }),
     );
-    const [plugin] = await loadLocalVendorPlugins(new LocalProviderRepository(cwd));
-    expect(plugin.vendor.id).toBe("team-gateway");
+    writeFileSync(
+      join(cwd, ".omni-agent/config.json"),
+      JSON.stringify({
+        version: 2,
+        model: { vendorId: "anthropic", connectionId: "default", modelId: "project-model" },
+      }),
+    );
+
+    await expect(new ConfigService({ cwd, globalDirectory }).load()).resolves.toEqual({
+      version: 2,
+      model: { vendorId: "anthropic", connectionId: "default", modelId: "project-model" },
+    });
+  });
+
+  it("does not fall back to global config when the project override is invalid", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "omni-config-invalid-project-"));
+    const globalDirectory = mkdtempSync(join(tmpdir(), "omni-config-valid-global-"));
+    dirs.push(cwd, globalDirectory);
+    mkdirSync(join(cwd, ".omni-agent"), { recursive: true });
+    writeFileSync(
+      join(globalDirectory, "config.json"),
+      JSON.stringify({
+        version: 2,
+        model: { vendorId: "openai", connectionId: "default", modelId: "global-model" },
+      }),
+    );
+    writeFileSync(join(cwd, ".omni-agent/config.json"), "not-json");
+    const service = new ConfigService({ cwd, globalDirectory });
+
+    await expect(service.load()).resolves.toBeNull();
+    expect(service.diagnostics).toEqual([
+      expect.objectContaining({ code: "invalid_config", source: "project" }),
+    ]);
+  });
+
+  it("writes project config by default and global config only when requested", async () => {
+    const cwd = mkdtempSync(join(tmpdir(), "omni-config-write-project-"));
+    const globalDirectory = mkdtempSync(join(tmpdir(), "omni-config-write-global-"));
+    dirs.push(cwd, globalDirectory);
+    const service = new ConfigService({ cwd, globalDirectory });
+    const projectConfig = {
+      version: 2 as const,
+      model: { vendorId: "openai", connectionId: "default", modelId: "project-model" },
+    };
+    const globalConfig = {
+      version: 2 as const,
+      model: { vendorId: "anthropic", connectionId: "default", modelId: "global-model" },
+    };
+
+    await service.save(projectConfig);
+    await service.save(globalConfig, { scope: "global" });
+
+    expect(JSON.parse(readFileSync(join(cwd, ".omni-agent/config.json"), "utf-8"))).toEqual(
+      projectConfig,
+    );
+    expect(JSON.parse(readFileSync(join(globalDirectory, "config.json"), "utf-8"))).toEqual(
+      globalConfig,
+    );
   });
 });

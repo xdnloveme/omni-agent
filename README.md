@@ -37,13 +37,17 @@ registered implicitly by core or app.
 
 Providers are presented vendor-first, then by connection and model. Credentials
 use runtime precedence: an explicit request value, the OS credential store
-(keytar), then process/project environment variables. Copy `.env.example` to
-`.env` when file-based local credentials are preferred; the CLI reads but never
-writes `.env`.
+(keytar), then process variables, the current project's `.env`, and finally the
+global `~/.omni-agent/.env`. Copy `.env.example` to `.env` when file-based
+project credentials are preferred; the CLI reads but never writes environment
+files.
 
-Historical local model presets are migrated one-way into vendor Provider
-definitions. Only `.omni-agent.local/providers.json` participates in the current
-runtime.
+Non-secret configuration is layered from `~/.omni-agent` and the current
+project's `.omni-agent` directory. `config.json` is an atomic project override;
+`providers.json` merges vendors by `id` and connections by `id`, with project
+connections replacing matching global connections. Invalid project files are
+reported instead of silently falling back to global configuration. The project
+directory is ignored by Git by default.
 
 Provider plugins compose connection-level Factory strategies rather than building
 adapters in Core. Agent-facing connection settings use a constrained JSON Schema

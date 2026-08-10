@@ -32,9 +32,9 @@ contracts. `packages/models` owns the application-scoped provider collection,
 provider construction, authentication persistence, and protocol conversion at the
 runtime boundary. The concrete backend library is an implementation detail.
 Interactive API keys and refreshed OAuth credentials are persisted through keytar.
-Process variables and project `.env` files are read-only fallback sources; model
-configuration and `.omni-agent.local/providers.json` must never contain plaintext
-keys, tokens, authorization headers, or passwords.
+Process variables, the project `.env`, and `~/.omni-agent/.env` are read-only
+fallback sources. Model configuration and Provider definitions must never contain
+plaintext keys, tokens, authorization headers, or passwords.
 
 The application classifies model access vendor-first:
 
@@ -76,7 +76,7 @@ packages/models/src/
   vendors/      vendor contracts, registry, selection resolver, and plugin transactions
   credentials/  credential contracts, keychain persistence, and environment lookup
   catalog/      provider model-catalog persistence
-  local/        sole repository and loader for local provider definitions
+  config/       layered Provider repository and definition-to-plugin loader
   schema/       agent-facing schema admission and compiled validation
   storage/      atomic JSON persistence owned by the models package
 ```
@@ -106,20 +106,39 @@ const app = await createAgentApp({
 });
 ```
 
-Optional local extensions can be exported from
-`.omni-agent.local/extensions.mjs` or paths listed in
-`OMNI_AGENT_EXTENSION_FILES`. Local extension code is trusted local code and is
-not sandboxed.
+Optional extensions can be exported from `~/.omni-agent/extensions.mjs` and the
+current project's `.omni-agent/extensions.mjs`. They merge by extension manifest
+ID, with the project definition replacing the matching global definition. Local
+extension code is trusted local code and is not sandboxed.
+
+## Layered configuration
+
+Global configuration under `~/.omni-agent` is the baseline. The current
+project's `.omni-agent` directory is the override layer:
+
+- `config.json`: the project model selection replaces the global selection as
+  one atomic value.
+- `providers.json`: vendors merge by vendor ID and connections merge by
+  connection ID; a matching project connection replaces the global connection
+  as one atomic value.
+- `extensions.mjs`: extensions merge by manifest ID.
+- `.env`: process variables win, then the project file, then the global file.
+
+Each layer is validated independently before merging. A present but invalid
+project file is an error and never triggers a silent global fallback. Secrets do
+not participate in configuration merging; keytar remains the credential source
+of truth. Runtime assembly consumes only the validated effective result and does
+not create a second execution path.
 
 ## Runtime invariants
 
 `AgentRunner` receives exactly one `ModelRuntimePort` through its constructor.
 There is no legacy execution branch, global runtime setter, static model
 registry, or API key in `AgentConfig`. Configuration migration is isolated in
-App and converts historical config and local model presets one-way into
-`OmniConfigV2` and `.omni-agent.local/providers.json`; historical formats never
-participate in model execution. The default CLI preserves the
-existing session, command, tool, event, and TUI behavior.
+App and converts historical config one-way into `OmniConfigV2` and the current
+Provider definition format; historical formats never participate in model
+execution. The default CLI preserves the existing session, command, tool, event,
+and TUI behavior.
 
 Keytar is the credential source of truth. Its non-secret credential index is
 derived state; writes use provider-scoped serialization and compensation, while a

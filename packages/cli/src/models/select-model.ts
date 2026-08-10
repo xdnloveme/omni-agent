@@ -1,6 +1,6 @@
 import { input, select } from "@inquirer/prompts";
 import {
-  LocalProviderRegistrationCoordinator,
+  ProviderRegistrationCoordinator,
   type ModelService,
   type ModelSelection,
 } from "@omni-agent/app";
@@ -124,13 +124,20 @@ async function selectCustomModel(
     validate: (value) =>
       /^[A-Za-z_][A-Za-z0-9_]*$/.test(value) || "Enter a valid environment variable name",
   });
-  await new LocalProviderRegistrationCoordinator(modelService).register({
+  await new ProviderRegistrationCoordinator(modelService).register({
     id,
     displayName: id,
-    baseUrl,
-    envVars: [envVar],
-    protocol: "openai-completions",
-    models: [{ id: modelId, contextWindow, maxTokens }],
+    connections: [
+      {
+        id: "default",
+        displayName: "Default",
+        providerId: id,
+        baseUrl,
+        envVars: [envVar],
+        protocol: "openai-completions",
+        models: [{ id: modelId, contextWindow, maxTokens }],
+      },
+    ],
   });
   await prepareProvider(id);
   return { vendorId: id, connectionId: "default", modelId };

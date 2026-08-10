@@ -79,8 +79,8 @@ setters, static model registries, or aliases for removed model-library types.
 Historical configuration and credentials may be handled only by isolated,
 one-way data migration into the current format.
 
-Local ESM extensions are trusted local code. Do not imply that
-`.omni-agent.local/extensions.mjs` or `OMNI_AGENT_EXTENSION_FILES` are sandboxed.
+Local ESM extensions are trusted local code. Do not imply that global or project
+`.omni-agent/extensions.mjs` files are sandboxed.
 
 ## Extension And Tool Rules
 

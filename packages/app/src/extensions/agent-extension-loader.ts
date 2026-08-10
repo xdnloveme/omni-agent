@@ -1,27 +1,29 @@
 import { existsSync } from "node:fs";
-import { delimiter, resolve } from "node:path";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import type { AgentExtension, ExtensionDiagnostic } from "./types";
 
-export interface LocalExtensionLoadResult {
+export interface AgentExtensionLoadResult {
   extensions: Array<{ extension: AgentExtension; source: string }>;
   diagnostics: ExtensionDiagnostic[];
 }
 
-export async function loadLocalAgentExtensions(
-  cwd = process.cwd(),
-): Promise<LocalExtensionLoadResult> {
-  const configured = (process.env.OMNI_AGENT_EXTENSION_FILES ?? "")
-    .split(delimiter)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
+export interface AgentExtensionLoaderOptions {
+  readonly cwd?: string;
+  readonly globalDirectory?: string;
+}
+
+export async function loadAgentExtensions(
+  options: AgentExtensionLoaderOptions = {},
+): Promise<AgentExtensionLoadResult> {
+  const cwd = options.cwd ?? process.cwd();
   const paths = [
-    ...new Set([
-      ...configured.map((entry) => resolve(cwd, entry)),
-      resolve(cwd, ".omni-agent.local/extensions.mjs"),
-    ]),
+    join(options.globalDirectory ?? join(homedir(), ".omni-agent"), "extensions.mjs"),
+    resolve(cwd, ".omni-agent/extensions.mjs"),
   ];
-  const result: LocalExtensionLoadResult = { extensions: [], diagnostics: [] };
+  const diagnostics: ExtensionDiagnostic[] = [];
+  const extensions = new Map<string, { extension: AgentExtension; source: string }>();
 
   for (const path of paths) {
     if (!existsSync(path)) continue;
@@ -29,19 +31,20 @@ export async function loadLocalAgentExtensions(
       const loaded = (await import(pathToFileURL(path).href)) as { default?: unknown };
       const values = Array.isArray(loaded.default) ? loaded.default : [loaded.default];
       for (const value of values) {
-        if (!isAgentExtension(value))
+        if (!isAgentExtension(value)) {
           throw new Error("Default export must be an AgentExtension or AgentExtension[]");
-        result.extensions.push({ extension: value, source: path });
+        }
+        extensions.set(value.manifest.id, { extension: value, source: path });
       }
     } catch (error) {
-      result.diagnostics.push({
+      diagnostics.push({
         extensionId: "unknown",
         source: path,
         message: error instanceof Error ? error.message : String(error),
       });
     }
   }
-  return result;
+  return { extensions: [...extensions.values()], diagnostics };
 }
 
 function isAgentExtension(value: unknown): value is AgentExtension {

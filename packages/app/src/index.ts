@@ -6,7 +6,11 @@ export { AgentRegistry } from "./registry/agent-registry";
 export { ToolRegistry } from "./registry/tool-registry";
 export { CommandRegistry } from "./registry/command-registry";
 export { ExtensionManager } from "./extensions/extension-manager";
-export { loadLocalAgentExtensions } from "./extensions/local-extension-loader";
+export { loadAgentExtensions } from "./extensions/agent-extension-loader";
+export type {
+  AgentExtensionLoaderOptions,
+  AgentExtensionLoadResult,
+} from "./extensions/agent-extension-loader";
 export type {
   AgentContribution,
   AgentExtension,
@@ -18,6 +22,7 @@ export type {
 } from "./extensions/types";
 export { SessionService } from "./sessions/session-service";
 export { ConfigService } from "./config/config-service";
+export type { ConfigServiceOptions } from "./config/config-service";
 export type { ConfigDiagnostic, OmniConfigV2 } from "./config/types";
 export { ModelService, createModelService } from "./models/model-service";
 export type { ModelServiceDiagnostic } from "./models/model-service";
@@ -31,4 +36,4 @@ export type {
   ModelServiceOptions,
   VendorSettingsSchema,
 } from "./models/model-service";
-export { LocalProviderRegistrationCoordinator } from "./models/local-provider-registration-coordinator";
+export { ProviderRegistrationCoordinator } from "./models/provider-registration-coordinator";

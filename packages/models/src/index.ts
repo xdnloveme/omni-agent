@@ -64,7 +64,13 @@ export type {
   ModelCatalogRefreshContext,
 } from "./providers/custom/types";
 
-export { loadLocalVendorPlugins, toLocalVendorPlugin } from "./local/provider-loader";
-export { LocalProviderRepository } from "./local/provider-repository";
-export type { LocalProviderDefinition, LocalProviderSnapshot } from "./local/provider-repository";
+export { loadVendorPlugins, toVendorPlugin } from "./config/provider-loader";
+export { ProviderRepository } from "./config/provider-repository";
+export type {
+  ConfigurationScope,
+  ProviderConnectionDefinition,
+  ProviderDefinition,
+  ProviderRepositoryOptions,
+  ProviderSnapshot,
+} from "./config/provider-repository";
 export { containsSecretField } from "./schema/vendor-settings";

@@ -7,7 +7,7 @@ yarn-error.log*
 lerna-debug.log*
 
 .verdent/
-.omni-agent.local/
+.omni-agent/
 
 # database
 *.sqlite

@@ -1,12 +1,12 @@
 import type { RuntimeModelSelection } from "@omni-agent/core";
 import {
   KeytarCredentialStore,
-  LocalProviderRepository,
+  ProviderRepository,
   ModelRuntime,
   VendorPluginManager,
   VendorRegistry,
   builtinVendorPlugins,
-  loadLocalVendorPlugins,
+  loadVendorPlugins,
   type ModelSelection,
   type AvailableModel,
   type CredentialStatus,
@@ -23,7 +23,8 @@ import {
 export interface ModelServiceOptions {
   cwd?: string;
   plugins?: VendorPlugin[];
-  loadLocalProviders?: boolean;
+  loadConfiguredProviders?: boolean;
+  globalDirectory?: string;
   credentials?: CredentialStore;
   credentialAliases?: CredentialAliasRegistry;
   credentialIndex?: CredentialIndexReconciler;
@@ -39,7 +40,7 @@ export class ModelService {
   constructor(
     readonly runtime: ModelRuntime,
     readonly providerPlugins: VendorPluginManager,
-    readonly localProviders: LocalProviderRepository,
+    readonly providers: ProviderRepository,
     readonly diagnostics: readonly ModelServiceDiagnostic[] = [],
   ) {}
 
@@ -86,29 +87,24 @@ export async function createModelService(options: ModelServiceOptions = {}): Pro
   const credentials = options.credentials ?? new KeytarCredentialStore();
   const runtime = new ModelRuntime({
     cwd,
+    globalDirectory: options.globalDirectory,
     credentials,
     credentialAliases: options.credentialAliases,
     credentialIndex: options.credentialIndex,
   });
   const vendors = new VendorRegistry();
   const plugins = runtime.createPluginManager(vendors, cwd);
-  const localProviders = new LocalProviderRepository(cwd);
+  const providers = new ProviderRepository({
+    cwd,
+    globalDirectory: options.globalDirectory,
+  });
   const diagnostics: ModelServiceDiagnostic[] = [];
   try {
-    for (const plugin of builtinVendorPlugins()) await plugins.register(plugin);
-    if (options.loadLocalProviders !== false) {
-      const source = ".omni-agent.local/providers.json";
-      try {
-        for (const plugin of await loadLocalVendorPlugins(localProviders)) {
-          await plugins.registerOptional(plugin, source);
-        }
-      } catch (error) {
-        plugins.diagnostics.push({
-          pluginId: "local.providers",
-          source,
-          message: error instanceof Error ? error.message : String(error),
-        });
-      }
+    if (options.loadConfiguredProviders !== false) {
+      for (const plugin of await loadVendorPlugins(providers)) await plugins.register(plugin);
+    }
+    for (const plugin of builtinVendorPlugins()) {
+      if (!vendors.get(plugin.vendor.id)) await plugins.register(plugin);
     }
     for (const plugin of options.plugins ?? []) await plugins.register(plugin);
     try {
@@ -131,7 +127,7 @@ export async function createModelService(options: ModelServiceOptions = {}): Pro
         message: error instanceof Error ? error.message : String(error),
       });
     }
-    return new ModelService(runtime, plugins, localProviders, diagnostics);
+    return new ModelService(runtime, plugins, providers, diagnostics);
   } catch (error) {
     await plugins.dispose();
     throw error;

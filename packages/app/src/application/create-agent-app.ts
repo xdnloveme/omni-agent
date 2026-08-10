@@ -1,7 +1,7 @@
 import type { AgentConfig } from "@omni-agent/core";
 import { AgentApplication } from "./agent-application";
 import { ExtensionManager } from "../extensions/extension-manager";
-import { loadLocalAgentExtensions } from "../extensions/local-extension-loader";
+import { loadAgentExtensions } from "../extensions/agent-extension-loader";
 import type { AgentExtension } from "../extensions/types";
 import { SessionService } from "../sessions/session-service";
 import {
@@ -17,22 +17,28 @@ export interface CreateAgentAppOptions {
   extensions: AgentExtension[];
   defaultAgentId: string;
   cwd?: string;
-  loadLocalExtensions?: boolean;
+  loadExtensions?: boolean;
+  globalDirectory?: string;
   sessions?: SessionService;
 }
 
 export async function createAgentApp(options: CreateAgentAppOptions): Promise<AgentApplication> {
   const cwd = options.cwd ?? process.cwd();
   const ownsModelService = !options.modelService;
-  const modelService = options.modelService ?? (await createModelService({ cwd }));
+  const modelService =
+    options.modelService ??
+    (await createModelService({ cwd, globalDirectory: options.globalDirectory }));
   const manager = new ExtensionManager({ cwd, modelProviders: modelService.providerPlugins });
   try {
     for (const extension of options.extensions) await manager.register(extension);
 
-    if (options.loadLocalExtensions !== false) {
-      const local = await loadLocalAgentExtensions(cwd);
-      manager.diagnostics.push(...local.diagnostics);
-      for (const entry of local.extensions) {
+    if (options.loadExtensions !== false) {
+      const loaded = await loadAgentExtensions({
+        cwd,
+        globalDirectory: options.globalDirectory,
+      });
+      manager.diagnostics.push(...loaded.diagnostics);
+      for (const entry of loaded.extensions) {
         await manager.registerOptional(entry.extension, entry.source);
       }
     }

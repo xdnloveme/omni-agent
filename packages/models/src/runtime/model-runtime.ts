@@ -27,6 +27,7 @@ import { fromBackendMessage, toBackendContext } from "./message-mapper";
 export interface ModelRuntimeOptions {
   cwd?: string;
   catalogDirectory?: string;
+  globalDirectory?: string;
   credentials?: CredentialStore;
   credentialAliases?: CredentialAliasRegistry;
   credentialIndex?: CredentialIndexReconciler;
@@ -58,7 +59,7 @@ export class ModelRuntime implements ModelRuntimePort {
     this.credentialIndex = options.credentialIndex ?? asIndexReconciler(this.credentials);
     this.models = createModels({
       credentials: this.credentials,
-      authContext: createNodeAuthContext(cwd),
+      authContext: createNodeAuthContext(cwd, options.globalDirectory),
       modelsStore: new FileModelsStore(options.catalogDirectory),
     });
   }

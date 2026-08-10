@@ -7,5 +7,6 @@ export interface OmniConfigV2 {
 
 export interface ConfigDiagnostic {
   code: "invalid_config" | "migration_failed";
+  source: "global" | "project";
   message: string;
 }
