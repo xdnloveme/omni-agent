@@ -1,128 +1,160 @@
-import fs from "node:fs/promises";
-import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
+import fs, { type FileHandle } from "node:fs/promises";
+import {
+  createAbortError,
+  isAbortError,
+  type AgentToolDefinition,
+  type ToolResult,
+} from "@omni-agent/core";
 import { fileMutex } from "./file-mutex";
+import { resolveCanonicalOperationPath } from "./io/canonical-operation-path";
+import { writeDirectFile } from "./io/direct-file-writer";
+import { FileToolError, fileToolErrorResult } from "./io/file-errors";
+import { createFileSnapshot, snapshotsEqual } from "./io/file-snapshot";
+import {
+  assertFileSize,
+  assertTextValue,
+  decodeTextFile,
+  encodeTextFile,
+} from "./io/text-file-validation";
 import { createFilePathPermission } from "./permission/create-file-path-permission";
-import { resolveToolPath } from "../security/path/normalize-path";
+
+const MAX_TEXT_BYTES = 8 * 1024 * 1024;
+const MAX_REPLACEMENT_LENGTH = 1024 * 1024;
 
 export const fileEditTool: AgentToolDefinition = {
   name: "file_edit",
   strict: true,
   authorization: createFilePathPermission({ parameter: "file_path", access: "write" }),
   execution: { kind: "host" },
+  timeout: { kind: "none" },
   description:
-    "Perform an exact, whitespace-sensitive string replacement in a file.\n\n" +
+    "Perform one exact, whitespace-sensitive replacement in a UTF-8 text file.\n\n" +
     "Usage:\n" +
-    "- Prefer file_edit over bash sed/awk for all file modifications — it's safer and more precise.\n" +
-    "- `old_string` is matched literally (not regex) and must appear exactly once in the file.\n" +
-    "- `new_string` replaces the matched text. Can be empty string to delete content.\n" +
-    "- Always read the file first to get the exact text for `old_string`.\n" +
-    "- Include enough surrounding context in `old_string` to ensure uniqueness.\n\n" +
-    "When to use:\n" +
-    "- Making targeted changes to existing files (fix bugs, update values, add code).\n" +
-    "- Replacing specific code blocks, function bodies, or configuration values.\n\n" +
-    "When NOT to use:\n" +
-    "- Creating new files (use file_write instead).\n" +
-    "- Rewriting an entire file (use file_write instead).\n" +
-    "- When old_string appears multiple times — include more context to make it unique.",
+    "- `old_string` must occur exactly once.\n" +
+    "- Read the relevant complete text before editing; partial long-line chunks are not valid old_string values.\n" +
+    "- The complete updated file is generated in memory before one direct write.\n" +
+    "- `new_string` may be empty to delete the matched text.\n" +
+    "- Use file_write for complete rewrites or new files.",
   schema: {
     type: "object",
     additionalProperties: false,
     properties: {
-      file_path: {
-        type: "string",
-        minLength: 1,
-        maxLength: 4096,
-        description: "Absolute path to the file to edit",
-      },
-      old_string: {
-        type: "string",
-        description: "The exact text to find and replace (must be unique)",
-      },
-      new_string: {
-        type: "string",
-        description: "The replacement text",
-      },
+      file_path: { type: "string", minLength: 1, maxLength: 4096 },
+      old_string: { type: "string", minLength: 1, maxLength: MAX_REPLACEMENT_LENGTH },
+      new_string: { type: "string", maxLength: MAX_REPLACEMENT_LENGTH },
     },
     required: ["file_path", "old_string", "new_string"],
   },
   execute: async (params, context): Promise<ToolResult> => {
-    const filePath = params.file_path as string;
-    const oldString = params.old_string as string;
-    const newString = params.new_string as string;
-
-    if (!filePath) {
-      return {
-        content: [{ type: "text", text: "Error: file_path is required" }],
-        isError: true,
-      };
-    }
-    if (oldString == null || oldString === "") {
-      return {
-        content: [{ type: "text", text: "Error: old_string is required and must be non-empty" }],
-        isError: true,
-      };
-    }
-    if (newString == null) {
-      return {
-        content: [{ type: "text", text: "Error: new_string is required" }],
-        isError: true,
-      };
-    }
-
-    const resolved = resolveToolPath(filePath, context.cwd);
-
     try {
-      const result = await fileMutex.withLock(resolved, async () => {
-        const content = await fs.readFile(resolved, "utf-8");
-
-        // Count occurrences
-        let count = 0;
-        let searchFrom = 0;
-        while (true) {
-          const idx = content.indexOf(oldString, searchFrom);
-          if (idx === -1) break;
-          count++;
-          searchFrom = idx + 1;
+      const oldString = params.old_string as string;
+      const newString = params.new_string as string;
+      assertTextValue(oldString, MAX_REPLACEMENT_LENGTH);
+      assertTextValue(newString, MAX_REPLACEMENT_LENGTH);
+      const path = await resolveCanonicalOperationPath(params.file_path as string, context.cwd);
+      const result = await fileMutex.withLock(path, context.signal, async () => {
+        const loaded = await loadStableText(path, context.signal);
+        if (oldString === newString) {
+          throw new FileToolError("no_change", "old_string and new_string are identical", false);
         }
-
-        if (count === 0) {
-          return { error: "old_string not found in file" };
+        const match = findUniqueNonOverlappingMatch(loaded.text, oldString);
+        if (match.kind === "none") {
+          throw new FileToolError("match_not_found", "old_string was not found", false);
         }
-        if (count > 1) {
-          return { error: `old_string is not unique (found ${count} occurrences)` };
+        if (match.kind === "multiple") {
+          throw new FileToolError("match_not_unique", "old_string is not unique", false);
         }
-
-        const updated = content.replace(oldString, newString);
-        await fs.writeFile(resolved, updated, "utf-8");
-
-        // Provide context around the change
-        const changeIdx = content.indexOf(oldString);
-        const linesBefore = content.slice(0, changeIdx).split("\n").length;
-        const linesChanged = newString.split("\n").length;
-
+        const index = match.index;
+        const updated =
+          loaded.text.slice(0, index) + newString + loaded.text.slice(index + oldString.length);
+        const bytes = encodeTextFile(updated, loaded.hasBom);
+        assertFileSize(BigInt(bytes.length), MAX_TEXT_BYTES);
+        await writeDirectFile({
+          path,
+          content: bytes,
+          expected: loaded.snapshot,
+          signal: context.signal,
+        });
+        const oldLines = countLines(oldString);
+        const newLines = countLines(newString);
         return {
-          success: true,
-          message: `Replaced at line ${linesBefore} (${linesChanged} line(s) in replacement)`,
+          line: lineNumberAt(loaded.text, index),
+          addedLines: Math.max(0, newLines - oldLines),
+          removedLines: Math.max(0, oldLines - newLines),
         };
       });
-
-      if ("error" in result) {
-        return {
-          content: [{ type: "text", text: `Error: ${result.error}` }],
-          isError: true,
-        };
-      }
-
       return {
-        content: [{ type: "text", text: result.message }],
+        content: [
+          {
+            type: "text",
+            text: `Updated line ${result.line} (${result.addedLines} added, ${result.removedLines} removed)`,
+          },
+        ],
         isError: false,
+        meta: result,
       };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return {
-        content: [{ type: "text", text: `Error editing file: ${msg}` }],
-        isError: true,
-      };
+    } catch (error) {
+      if (isAbortError(error, context.signal)) throw createAbortError(context.signal);
+      return fileToolErrorResult(
+        error instanceof FileToolError
+          ? error
+          : new FileToolError("read_failed", "Failed to edit file", true),
+      );
     }
   },
 };
+
+async function loadStableText(
+  path: string,
+  signal?: AbortSignal,
+): Promise<{
+  text: string;
+  hasBom: boolean;
+  snapshot: ReturnType<typeof createFileSnapshot>;
+}> {
+  let handle: FileHandle | undefined;
+  try {
+    handle = await fs.open(path, "r");
+    const beforeStats = await handle.stat({ bigint: true });
+    if (!beforeStats.isFile()) {
+      throw new FileToolError("unsupported_file", "Target is not a regular file", false);
+    }
+    assertFileSize(beforeStats.size, MAX_TEXT_BYTES);
+    const before = createFileSnapshot(beforeStats);
+    const content = await handle.readFile({ signal });
+    const after = createFileSnapshot(await handle.stat({ bigint: true }));
+    if (!snapshotsEqual(before, after)) {
+      throw new FileToolError("file_changed", "File changed while it was being read", true);
+    }
+    return { ...decodeTextFile(content), snapshot: before };
+  } catch (error) {
+    if (error instanceof FileToolError) throw error;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+      throw new FileToolError("read_failed", "File not found", true);
+    }
+    throw new FileToolError("read_failed", "Failed to read file for editing", true);
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+type UniqueMatch = { kind: "none" } | { kind: "unique"; index: number } | { kind: "multiple" };
+
+function findUniqueNonOverlappingMatch(text: string, search: string): UniqueMatch {
+  const first = text.indexOf(search);
+  if (first < 0) return { kind: "none" };
+  const second = text.indexOf(search, first + search.length);
+  return second < 0 ? { kind: "unique", index: first } : { kind: "multiple" };
+}
+
+function countLines(text: string): number {
+  return text.length === 0 ? 0 : text.split("\n").length;
+}
+
+function lineNumberAt(text: string, index: number): number {
+  let line = 1;
+  for (let position = 0; position < index; position += 1) {
+    if (text.charCodeAt(position) === 0x0a) line += 1;
+  }
+  return line;
+}

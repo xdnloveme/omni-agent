@@ -1,28 +1,34 @@
-import fs from "node:fs/promises";
-import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
+import {
+  createAbortError,
+  isAbortError,
+  type AgentToolDefinition,
+  type ToolResult,
+} from "@omni-agent/core";
 import { fileMutex } from "./file-mutex";
+import { resolveCanonicalOperationPath } from "./io/canonical-operation-path";
+import { FileToolError, fileToolErrorResult } from "./io/file-errors";
+import { readTextPage } from "./io/streaming-line-reader";
 import { createFilePathPermission } from "./permission/create-file-path-permission";
-import { resolveToolPath } from "../security/path/normalize-path";
+
+const DEFAULT_LIMIT = 200;
 
 export const fileReadTool: AgentToolDefinition = {
   name: "file_read",
   strict: true,
   authorization: createFilePathPermission({ parameter: "file_path", access: "read" }),
   execution: { kind: "host" },
+  timeout: { kind: "none" },
   description:
-    "Read a file and return its content with line numbers.\n\n" +
+    "Read a UTF-8 text file with bounded, version-consistent pagination.\n\n" +
     "Usage:\n" +
-    "- ALWAYS read a file before editing it to understand its current content.\n" +
-    "- Returns content prefixed with line numbers in the format `line_number|content`.\n" +
-    "- Use `offset` (1-based) and `limit` to read specific sections of large files.\n" +
-    "- For files under ~500 lines, prefer reading the whole file in one call.\n\n" +
-    "When to use:\n" +
-    "- Understanding file content before making edits.\n" +
-    "- Reviewing code structure, imports, or specific functions.\n" +
-    "- Checking configuration files or documentation.\n\n" +
+    "- Returns lines as `line_number|content`.\n" +
+    "- Defaults to 200 lines and never returns more than 64 KiB.\n" +
+    "- Use the exact continuation parameters returned in the footer.\n" +
+    "- Long lines are returned in byte-aligned chunks instead of failing.\n" +
+    "- Use grep to locate relevant line numbers in large files.\n\n" +
     "When NOT to use:\n" +
-    "- Searching for patterns across many files (use grep instead).\n" +
-    "- Finding files by name (use glob instead).",
+    "- Searching across files (use grep).\n" +
+    "- Finding files by name (use glob).",
   schema: {
     type: "object",
     additionalProperties: false,
@@ -31,54 +37,78 @@ export const fileReadTool: AgentToolDefinition = {
         type: "string",
         minLength: 1,
         maxLength: 4096,
-        description: "Absolute path to the file to read",
+        description: "Absolute or workspace-relative path to the file",
       },
       offset: {
         type: "integer",
         minimum: 1,
-        description: "Starting line number (1-based). Defaults to 1.",
+        maximum: Number.MAX_SAFE_INTEGER,
+        description: "Starting logical line number. Defaults to 1.",
       },
       limit: {
         type: "integer",
         minimum: 1,
-        description: "Maximum number of lines to return. Defaults to all.",
+        maximum: 1000,
+        description: "Maximum lines to return. Defaults to 200.",
+      },
+      line_byte_offset: {
+        type: "integer",
+        minimum: 1,
+        description: "UTF-8 byte offset within a long physical line",
+      },
+      file_version: {
+        type: "string",
+        minLength: 1,
+        maxLength: 128,
+        description: "Opaque version returned by the previous page",
       },
     },
     required: ["file_path"],
   },
   execute: async (params, context): Promise<ToolResult> => {
-    const filePath = params.file_path as string;
-    if (!filePath) {
-      return {
-        content: [{ type: "text", text: "Error: file_path is required" }],
-        isError: true,
-      };
+    const offset = (params.offset as number | undefined) ?? 1;
+    const limit = (params.limit as number | undefined) ?? DEFAULT_LIMIT;
+    const lineByteOffset = params.line_byte_offset as number | undefined;
+    const fileVersion = params.file_version as string | undefined;
+    if (
+      lineByteOffset !== undefined &&
+      (params.offset === undefined ||
+        fileVersion === undefined ||
+        (params.limit !== undefined && limit !== 1))
+    ) {
+      return fileToolErrorResult(
+        new FileToolError(
+          "invalid_pagination",
+          "line_byte_offset requires offset, file_version, and limit omitted or equal to 1",
+          false,
+        ),
+      );
     }
 
-    const resolved = resolveToolPath(filePath, context.cwd);
-
     try {
-      const text = await fileMutex.withLock(resolved, () => fs.readFile(resolved, "utf-8"));
-
-      const allLines = text.split("\n");
-      const offset = Math.max(1, Number(params.offset) || 1);
-      const limit = params.limit != null ? Number(params.limit) : allLines.length;
-
-      const startIdx = offset - 1;
-      const slice = allLines.slice(startIdx, startIdx + limit);
-
-      const numbered = slice.map((line, i) => `${offset + i}|${line}`);
-
+      const path = await resolveCanonicalOperationPath(params.file_path as string, context.cwd);
+      const result = await fileMutex.withLock(path, context.signal, () =>
+        readTextPage({
+          path,
+          offset,
+          limit: lineByteOffset === undefined ? limit : 1,
+          lineByteOffset,
+          fileVersion,
+          signal: context.signal,
+        }),
+      );
       return {
-        content: [{ type: "text", text: numbered.join("\n") }],
+        content: [{ type: "text", text: result.text }],
         isError: false,
+        meta: { pagination: result.pagination },
       };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return {
-        content: [{ type: "text", text: `Error reading file: ${msg}` }],
-        isError: true,
-      };
+    } catch (error) {
+      if (isAbortError(error, context.signal)) throw createAbortError(context.signal);
+      return fileToolErrorResult(
+        error instanceof FileToolError
+          ? error
+          : new FileToolError("read_failed", "Failed to read file", true),
+      );
     }
   },
 };

@@ -26,6 +26,13 @@ describe("bashTool", () => {
     expect(result.content[0].text).toContain("Exit code: 42");
   });
 
+  it("reports signal termination as an execution error", async () => {
+    const result = await invokeToolImplementation(bashTool, { command: "kill -TERM $$" });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("Terminated by signal: SIGTERM");
+  });
+
   it("should handle abort signal", async () => {
     const controller = new AbortController();
 

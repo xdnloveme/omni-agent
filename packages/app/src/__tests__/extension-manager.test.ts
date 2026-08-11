@@ -17,6 +17,7 @@ function extension(id: string, activate?: () => void): AgentExtension {
           name: `${id}_tool`,
           authorization: { kind: "static", risk: "read", reason: "test" },
           execution: { kind: "host" },
+          timeout: { kind: "none" },
           description: "test",
           schema: { type: "object" },
           async execute() {
@@ -121,6 +122,16 @@ describe("ExtensionManager", () => {
     await expect(manager.register(broken)).rejects.toThrow("Tool execution strategy is required");
     expect(manager.tools.has("broken-execution_tool")).toBe(false);
     expect(manager.agents.has("broken-execution_agent")).toBe(false);
+  });
+
+  it("rejects a tool without a timeout policy before registration", async () => {
+    const manager = new ExtensionManager({ cwd: process.cwd() });
+    const broken = extension("broken-timeout");
+    delete (broken.contributions.tools![0] as Partial<{ timeout: unknown }>).timeout;
+
+    await expect(manager.register(broken)).rejects.toThrow("Tool timeout policy is required");
+    expect(manager.tools.has("broken-timeout_tool")).toBe(false);
+    expect(manager.agents.has("broken-timeout_agent")).toBe(false);
   });
 
   it("isolates optional extension failures as diagnostics", async () => {

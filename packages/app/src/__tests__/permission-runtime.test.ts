@@ -81,6 +81,7 @@ describe("permission runtime composition", () => {
       schema: { type: "object", additionalProperties: false },
       authorization: { kind: "static", risk: "read", reason: "read" },
       execution: { kind: "host" },
+      timeout: { kind: "none" },
       originId: "test",
       toolIdentity: "test:read_test",
       async execute() {

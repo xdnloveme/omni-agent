@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { ToolInputValidator } from "../tool-calls/tool-input-validator";
+import { resolveToolTimeout } from "../execution";
+import { ToolDefinitionValidator, ToolInputValidator } from "../tool-calls";
+import type { AgentToolDefinition } from "../types";
 
 describe("ToolInputValidator", () => {
   it("validates required fields and rejects additional properties", () => {
@@ -20,5 +22,60 @@ describe("ToolInputValidator", () => {
   it("rejects an invalid schema during compilation", () => {
     const validator = new ToolInputValidator();
     expect(() => validator.assertValidSchema({ type: "not-a-json-type" })).toThrow();
+  });
+});
+
+describe("ToolDefinitionValidator timeout policy", () => {
+  const tool = (): AgentToolDefinition => ({
+    name: "test",
+    description: "test tool",
+    schema: {
+      type: "object",
+      additionalProperties: false,
+      properties: {
+        timeout_ms: { type: "integer", minimum: 1_000, maximum: 10_000 },
+      },
+    },
+    authorization: { kind: "static", risk: "read", reason: "test" },
+    execution: { kind: "host" },
+    timeout: {
+      kind: "input",
+      parameter: "timeout_ms",
+      defaultMs: 5_000,
+      minMs: 1_000,
+      maxMs: 10_000,
+    },
+    async execute() {
+      return { content: [{ type: "text", text: "ok" }], isError: false };
+    },
+  });
+
+  it("accepts an input timeout that exactly matches the schema", () => {
+    const definition = tool();
+    expect(() => new ToolDefinitionValidator().validate(definition)).not.toThrow();
+    expect(resolveToolTimeout(definition.timeout, {})).toBe(5_000);
+    expect(resolveToolTimeout(definition.timeout, { timeout_ms: 8_000 })).toBe(8_000);
+  });
+
+  it("rejects a timeout policy whose range differs from the schema", () => {
+    const invalid = tool();
+    invalid.timeout = {
+      kind: "input",
+      parameter: "timeout_ms",
+      defaultMs: 5_000,
+      minMs: 1_000,
+      maxMs: 20_000,
+    };
+    expect(() => new ToolDefinitionValidator().validate(invalid)).toThrow(
+      "Timeout policy does not match schema",
+    );
+  });
+
+  it("rejects fixed timeouts larger than the Node timer range", () => {
+    const invalid = tool();
+    invalid.timeout = { kind: "fixed", timeoutMs: 2_147_483_648 };
+    expect(() => new ToolDefinitionValidator().validate(invalid)).toThrow(
+      "Invalid fixed tool timeout",
+    );
   });
 });

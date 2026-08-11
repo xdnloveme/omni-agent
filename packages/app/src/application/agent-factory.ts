@@ -9,6 +9,7 @@ import {
   ToolInputValidator,
   type AgentConfig,
   type ApprovalBroker,
+  type LateToolSettlementEvent,
   type PermissionObserver,
   type SandboxRunnerPort,
   type SkillRuntime,
@@ -62,6 +63,7 @@ export interface AgentFactoryOptions {
   readonly approvalBroker?: ApprovalBroker;
   readonly permissionObserver?: PermissionObserver;
   readonly sandboxRunner?: SandboxRunnerPort;
+  readonly onLateToolSettlement?: (event: LateToolSettlementEvent) => void | Promise<void>;
 }
 
 export class AgentFactory {
@@ -129,7 +131,10 @@ export class AgentFactory {
       });
       const toolCallCoordinator = new ToolCallCoordinator({
         authorizer: new ToolAuthorizationRouter(permissions.permissionGate),
-        invocationRunner: new ToolInvocationRunner({ sandboxRunner: this.options.sandboxRunner }),
+        invocationRunner: new ToolInvocationRunner({
+          sandboxRunner: this.options.sandboxRunner,
+          onLateSettlement: this.options.onLateToolSettlement,
+        }),
         inputValidator: toolInputValidator,
       });
       const application = new AgentApplication({

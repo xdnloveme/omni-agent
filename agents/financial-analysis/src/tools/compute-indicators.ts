@@ -10,6 +10,7 @@ export const computeTechnicalIndicatorsTool: AgentToolDefinition = {
     reason: "Computes deterministic indicators from provided values",
   },
   execution: { kind: "host" },
+  timeout: { kind: "none" },
   description:
     "Compute deterministic SMA, EMA, RSI, MACD, and ATR values from timestamped OHLCV bars.",
   schema: {

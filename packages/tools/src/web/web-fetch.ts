@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
+import { createAbortError, type AgentToolDefinition, type ToolResult } from "@omni-agent/core";
 import { createWebReadPermission } from "./permission/web-permission";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
@@ -30,6 +30,7 @@ export const webFetchTool: AgentToolDefinition = {
     valueKind: "url",
   }),
   execution: { kind: "host" },
+  timeout: { kind: "none" },
   strict: true,
   description:
     "Fetch a URL and return its content as readable text.\n\n" +
@@ -76,12 +77,13 @@ export const webFetchTool: AgentToolDefinition = {
     }
 
     const timeoutMs = Number(params.timeout_ms) || DEFAULT_TIMEOUT_MS;
+    const requestTimeoutSignal = AbortSignal.timeout(timeoutMs);
 
     try {
       const response = await fetch(url, {
         signal: context.signal
-          ? AbortSignal.any([context.signal, AbortSignal.timeout(timeoutMs)])
-          : AbortSignal.timeout(timeoutMs),
+          ? AbortSignal.any([context.signal, requestTimeoutSignal])
+          : requestTimeoutSignal,
         headers: {
           "User-Agent": "Mozilla/5.0 (compatible; OmniAgent/1.0)",
           Accept: "text/html,application/json,text/plain;q=0.9,*/*;q=0.8",
@@ -118,9 +120,10 @@ export const webFetchTool: AgentToolDefinition = {
         isError: false,
       };
     } catch (err: unknown) {
+      if (context.signal?.aborted) throw createAbortError(context.signal);
       let msg: string;
       if (err instanceof Error) {
-        if (err.name === "TimeoutError" || err.name === "AbortError") {
+        if (requestTimeoutSignal.aborted) {
           msg = `Request timed out after ${timeoutMs}ms`;
         } else {
           msg = err.message;

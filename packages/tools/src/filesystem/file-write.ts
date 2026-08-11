@@ -1,9 +1,21 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
+import {
+  createAbortError,
+  isAbortError,
+  throwIfAborted,
+  type AgentToolDefinition,
+  type ToolResult,
+} from "@omni-agent/core";
 import { fileMutex } from "./file-mutex";
+import { resolveCanonicalOperationPath } from "./io/canonical-operation-path";
+import { writeDirectFile } from "./io/direct-file-writer";
+import { FileToolError, fileToolErrorResult } from "./io/file-errors";
+import { createFileSnapshot } from "./io/file-snapshot";
+import { assertFileSize, encodeTextFile } from "./io/text-file-validation";
 import { createFilePathPermission } from "./permission/create-file-path-permission";
-import { resolveToolPath } from "../security/path/normalize-path";
+
+const MAX_CONTENT_BYTES = 8 * 1024 * 1024;
 
 export const fileWriteTool: AgentToolDefinition = {
   name: "file_write",
@@ -13,71 +25,77 @@ export const fileWriteTool: AgentToolDefinition = {
     hiddenInputKeys: ["content"],
   },
   execution: { kind: "host" },
+  timeout: { kind: "none" },
   description:
-    "Create or overwrite a file with the given content.\n\n" +
+    "Create or completely overwrite a UTF-8 text file.\n\n" +
     "Usage:\n" +
-    "- Creates parent directories automatically if they don't exist.\n" +
-    "- Overwrites the file entirely if it already exists — use file_edit for partial changes.\n" +
-    "- Use absolute paths for reliability.\n\n" +
-    "When to use:\n" +
-    "- Creating new files (source code, configs, scripts).\n" +
-    "- Completely rewriting a file when most content changes.\n\n" +
-    "When NOT to use:\n" +
-    "- Making small, targeted edits to existing files (use file_edit instead — it's safer).\n" +
-    "- Appending to a file (read first with file_read, then write the combined content).",
+    "- Creates parent directories when necessary.\n" +
+    "- Generates the complete byte content before one direct write.\n" +
+    "- Use file_edit for targeted changes to existing files.\n" +
+    "- Maximum content size is 8 MiB.",
   schema: {
     type: "object",
     additionalProperties: false,
     properties: {
-      file_path: {
-        type: "string",
-        minLength: 1,
-        maxLength: 4096,
-        description: "Absolute path to the file to write",
-      },
-      content: {
-        type: "string",
-        description: "The content to write to the file",
-      },
+      file_path: { type: "string", minLength: 1, maxLength: 4096 },
+      content: { type: "string", maxLength: MAX_CONTENT_BYTES },
     },
     required: ["file_path", "content"],
   },
   execute: async (params, context): Promise<ToolResult> => {
-    const filePath = params.file_path as string;
-    const content = params.content as string;
-
-    if (!filePath) {
-      return {
-        content: [{ type: "text", text: "Error: file_path is required" }],
-        isError: true,
-      };
-    }
-    if (content == null) {
-      return {
-        content: [{ type: "text", text: "Error: content is required" }],
-        isError: true,
-      };
-    }
-
-    const resolved = resolveToolPath(filePath, context.cwd);
-
     try {
-      await fileMutex.withLock(resolved, async () => {
-        await fs.mkdir(path.dirname(resolved), { recursive: true });
-        await fs.writeFile(resolved, content, "utf-8");
+      const requested = params.file_path as string;
+      throwIfAborted(context.signal);
+      const bytes = encodeTextFile(params.content as string);
+      assertFileSize(BigInt(bytes.length), MAX_CONTENT_BYTES);
+      const unresolved = path.resolve(context.cwd, requested);
+      throwIfAborted(context.signal);
+      await fs.mkdir(path.dirname(unresolved), { recursive: true });
+      throwIfAborted(context.signal);
+      const canonical = await resolveCanonicalOperationPath(requested, context.cwd);
+      const result = await fileMutex.withLock(canonical, context.signal, async () => {
+        const expected = await captureExpectedTarget(canonical);
+        return writeDirectFile({
+          path: canonical,
+          content: bytes,
+          expected,
+          signal: context.signal,
+        });
       });
-
-      const bytes = Buffer.byteLength(content, "utf-8");
       return {
-        content: [{ type: "text", text: `Successfully wrote ${bytes} bytes to ${resolved}` }],
+        content: [
+          { type: "text", text: `Successfully wrote ${result.bytesWritten} bytes to ${canonical}` },
+        ],
         isError: false,
+        meta: { bytesWritten: result.bytesWritten, path: canonical },
       };
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : String(err);
-      return {
-        content: [{ type: "text", text: `Error writing file: ${msg}` }],
-        isError: true,
-      };
+    } catch (error) {
+      if (isAbortError(error, context.signal)) throw createAbortError(context.signal);
+      return fileToolErrorResult(
+        error instanceof FileToolError
+          ? error
+          : new FileToolError("write_failed", "Failed to write file", false, {
+              targetState: "unknown",
+            }),
+      );
     }
   },
 };
+
+async function captureExpectedTarget(
+  target: string,
+): Promise<ReturnType<typeof createFileSnapshot> | "missing"> {
+  try {
+    const stats = await fs.stat(target, { bigint: true });
+    if (!stats.isFile()) {
+      throw new FileToolError("unsupported_file", "Target is not a regular file", false);
+    }
+    return createFileSnapshot(stats);
+  } catch (error) {
+    if (error instanceof FileToolError) throw error;
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return "missing";
+    throw new FileToolError("write_failed", "Unable to inspect target file", false, {
+      targetState: "unknown",
+    });
+  }
+}

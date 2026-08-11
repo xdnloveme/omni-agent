@@ -20,7 +20,9 @@ export type {
 export {
   createAbortError,
   isAbortError,
+  resolveToolTimeout,
   throwIfAborted,
+  ToolTimeoutError,
   ToolInvocationRunner,
 } from "./execution/index";
 export type {
@@ -32,6 +34,8 @@ export type {
   ToolExecutionStrategy,
   ToolInvocationResult,
   ToolInvocationRunnerOptions,
+  ToolTimeoutPolicy,
+  LateToolSettlementEvent,
 } from "./execution/index";
 export {
   DenyApprovalBroker,

@@ -141,17 +141,42 @@ describe("webFetchTool", () => {
   });
 
   it("should handle timeout errors", async () => {
-    const err = new Error("The operation was aborted");
-    err.name = "TimeoutError";
-    mockFetch.mockRejectedValueOnce(err);
+    mockFetch.mockImplementationOnce(
+      async (_url: string, init: RequestInit) =>
+        await new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason), {
+            once: true,
+          });
+        }),
+    );
 
     const result = await invokeToolImplementation(webFetchTool, {
       url: "https://slow.example.com",
-      timeout_ms: 5000,
+      timeout_ms: 100,
     });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("timed out");
+  });
+
+  it("propagates user cancellation instead of reporting a request timeout", async () => {
+    mockFetch.mockImplementationOnce(
+      async (_url: string, init: RequestInit) =>
+        await new Promise((_resolve, reject) => {
+          init.signal?.addEventListener("abort", () => reject(init.signal?.reason), {
+            once: true,
+          });
+        }),
+    );
+    const controller = new AbortController();
+    const pending = invokeToolImplementation(
+      webFetchTool,
+      { url: "https://slow.example.com" },
+      { cwd: process.cwd(), signal: controller.signal },
+    );
+    controller.abort();
+
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   });
 });
 

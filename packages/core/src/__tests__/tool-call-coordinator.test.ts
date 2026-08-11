@@ -29,6 +29,7 @@ function fixture(options: { allow?: boolean } = {}) {
     },
     authorization: { kind: "static", risk: "read", reason: "read" },
     execution: { kind: "host" },
+    timeout: { kind: "none" },
     execute,
   };
   const gate = new PermissionGate({
@@ -172,6 +173,66 @@ describe("ToolCallCoordinator", () => {
     while (execute.mock.calls.length === 0) await new Promise(setImmediate);
     controller.abort();
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+  });
+
+  it("returns a structured timeout without running afterExecute", async () => {
+    const value = fixture();
+    value.tool.timeout = { kind: "fixed", timeoutMs: 5 };
+    value.tool.execute = vi.fn(
+      async () =>
+        await new Promise<ToolResult>((resolve) =>
+          setTimeout(
+            () => resolve({ content: [{ type: "text", text: "late" }], isError: false }),
+            30,
+          ),
+        ),
+    );
+    value.coordinator = new ToolCallCoordinator({
+      authorizer: value.authorizer,
+      invocationRunner: new ToolInvocationRunner({ cleanupGraceMs: 1 }),
+      inputValidator: new ToolInputValidator(),
+    });
+
+    const result = await events(value, { value: "ok" });
+
+    expect(value.order).toEqual(["before"]);
+    expect(result.at(-1)).toMatchObject({
+      type: "tool_end",
+      result: {
+        isError: true,
+        meta: { code: "tool_timeout", timeoutMs: 5, retryable: true },
+      },
+    });
+  });
+
+  it("observes late settlement without changing the timeout result", async () => {
+    const value = fixture();
+    const onLateSettlement = vi.fn();
+    value.tool.timeout = { kind: "fixed", timeoutMs: 5 };
+    value.tool.execute = vi.fn(
+      async () =>
+        await new Promise<ToolResult>((resolve) =>
+          setTimeout(
+            () => resolve({ content: [{ type: "text", text: "late" }], isError: false }),
+            30,
+          ),
+        ),
+    );
+    value.coordinator = new ToolCallCoordinator({
+      authorizer: value.authorizer,
+      invocationRunner: new ToolInvocationRunner({ cleanupGraceMs: 1, onLateSettlement }),
+      inputValidator: new ToolInputValidator(),
+    });
+
+    const result = await events(value, { value: "ok" });
+    await new Promise((resolve) => setTimeout(resolve, 40));
+
+    expect(result.at(-1)).toMatchObject({ result: { meta: { code: "tool_timeout" } } });
+    expect(onLateSettlement).toHaveBeenCalledWith({
+      toolName: "echo",
+      outcome: "fulfilled",
+    });
+    expect(value.order).toEqual(["before"]);
   });
 
   it("routes authorized execution through the configured sandbox port", async () => {

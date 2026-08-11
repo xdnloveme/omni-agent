@@ -1,6 +1,12 @@
 import type { ToolExecutionMiddleware } from "../middleware";
 import type { ToolResult } from "../types";
-import { createAbortError, isAbortError, throwIfAborted } from "./abort";
+import { isAbortError, throwIfAborted } from "./abort";
+import {
+  ExecutionDeadlineSupervisor,
+  type ExecutionDeadlineSupervisorOptions,
+} from "./execution-deadline-supervisor";
+import { resolveToolTimeout } from "./timeout-policy";
+import { ToolTimeoutError } from "./tool-timeout-error";
 import type {
   AuthorizedExecutionContext,
   AuthorizedToolCall,
@@ -8,12 +14,18 @@ import type {
   ToolInvocationResult,
 } from "./types";
 
-export interface ToolInvocationRunnerOptions {
+export type { LateToolSettlementEvent } from "./execution-deadline-supervisor";
+
+export interface ToolInvocationRunnerOptions extends ExecutionDeadlineSupervisorOptions {
   sandboxRunner?: SandboxRunnerPort;
 }
 
 export class ToolInvocationRunner {
-  constructor(private readonly options: ToolInvocationRunnerOptions = {}) {}
+  private readonly deadlineSupervisor: ExecutionDeadlineSupervisor;
+
+  constructor(private readonly options: ToolInvocationRunnerOptions = {}) {
+    this.deadlineSupervisor = new ExecutionDeadlineSupervisor(options);
+  }
 
   async invoke(
     call: AuthorizedToolCall,
@@ -29,7 +41,7 @@ export class ToolInvocationRunner {
       throwIfAborted(call.context.signal);
       for (const entry of middleware) await entry.beforeExecute?.(executionContext);
       throwIfAborted(call.context.signal);
-      const result = await executeWithTimeout(call, this.options.sandboxRunner);
+      const result = await this.executeAuthorized(call);
       throwIfAborted(call.context.signal);
       for (const entry of middleware) await entry.afterExecute?.(executionContext, result);
       throwIfAborted(call.context.signal);
@@ -37,59 +49,46 @@ export class ToolInvocationRunner {
     } catch (error) {
       if (isAbortError(error, call.context.signal)) throw error;
       return {
-        result: toolError(error instanceof Error ? error.message : String(error)),
+        result:
+          error instanceof ToolTimeoutError
+            ? timeoutResult(error)
+            : toolError(error instanceof Error ? error.message : String(error)),
         executionMs: Date.now() - executionStartedAt,
       };
     }
   }
-}
 
-async function executeWithTimeout(
-  call: AuthorizedToolCall,
-  sandboxRunner?: SandboxRunnerPort,
-): Promise<ToolResult> {
-  const controller = new AbortController();
-  const onAbort = () => controller.abort(call.context.signal?.reason);
-  let timeout: NodeJS.Timeout | undefined;
-  try {
-    const cancellationPromise = new Promise<never>((_, reject) => {
-      controller.signal.addEventListener(
-        "abort",
-        () => {
-          const reason = controller.signal.reason;
-          reject(reason instanceof Error ? reason : createAbortError());
-        },
-        { once: true },
-      );
+  private async executeAuthorized(call: AuthorizedToolCall): Promise<ToolResult> {
+    const timeoutMs = resolveToolTimeout(call.tool.timeout, call.input);
+    return this.deadlineSupervisor.run({
+      toolName: call.tool.name,
+      timeoutMs,
+      externalSignal: call.context.signal,
+      execute: (signal) => this.startExecution(call, signal),
     });
-    call.context.signal?.addEventListener("abort", onAbort, { once: true });
-    if (call.context.signal?.aborted) onAbort();
-    const executionRequest = {
+  }
+
+  private startExecution(call: AuthorizedToolCall, signal: AbortSignal): Promise<ToolResult> {
+    const request = {
       tool: call.tool,
       input: call.input,
-      context: { cwd: call.context.cwd, signal: controller.signal },
+      context: { cwd: call.context.cwd, signal },
     };
-    const execution =
-      call.tool.execution.kind === "sandbox_eligible" && sandboxRunner
-        ? sandboxRunner.run({ ...executionRequest, profile: call.tool.execution.profile })
-        : call.tool.execute(executionRequest.input, executionRequest.context);
-    const competingPromises: Promise<ToolResult>[] = [execution, cancellationPromise];
-    if (call.tool.timeoutMs) {
-      competingPromises.push(
-        new Promise<never>((_, reject) => {
-          timeout = setTimeout(() => {
-            const error = new Error(`Tool timed out after ${call.tool.timeoutMs}ms`);
-            controller.abort(error);
-            reject(error);
-          }, call.tool.timeoutMs);
-        }),
-      );
-    }
-    return await Promise.race(competingPromises);
-  } finally {
-    if (timeout) clearTimeout(timeout);
-    call.context.signal?.removeEventListener("abort", onAbort);
+    return call.tool.execution.kind === "sandbox_eligible" && this.options.sandboxRunner
+      ? this.options.sandboxRunner.run({
+          ...request,
+          profile: call.tool.execution.profile,
+        })
+      : call.tool.execute(request.input, request.context);
   }
+}
+
+function timeoutResult(error: ToolTimeoutError): ToolResult {
+  return {
+    content: [{ type: "text", text: error.message }],
+    isError: true,
+    meta: { code: error.code, timeoutMs: error.timeoutMs, retryable: true },
+  };
 }
 
 function toolError(message: string): ToolResult {

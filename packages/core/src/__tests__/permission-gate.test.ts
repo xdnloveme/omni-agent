@@ -11,6 +11,7 @@ function tool(authorization: ToolPermissionDescriptor): PermissionControlledTool
     schema: { type: "object" },
     authorization,
     execution: { kind: "host" },
+    timeout: { kind: "none" },
     async execute() {
       return { content: [{ type: "text", text: "ok" }], isError: false };
     },

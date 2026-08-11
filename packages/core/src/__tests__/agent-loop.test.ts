@@ -24,6 +24,7 @@ function makeTool(name = "test_tool"): RegisteredAgentTool {
     toolIdentity: `test:${name}`,
     authorization: { kind: "static", risk: "read", reason: "test" },
     execution: { kind: "host" },
+    timeout: { kind: "none" },
     description: "A test tool",
     schema: { type: "object", properties: { input: { type: "string" } } },
     execute: vi.fn().mockResolvedValue({

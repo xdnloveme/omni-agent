@@ -10,6 +10,7 @@ export function createSkillReadTool(registry: SkillRegistry): AgentToolDefinitio
       reason: "Reads instructions from the trusted skill registry",
     },
     execution: { kind: "host" },
+    timeout: { kind: "none" },
     description:
       "Read the full instructions for a named skill. Use this when the user's task matches an available skill. The result is added to context for the next step.",
     schema: {

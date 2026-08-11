@@ -1,5 +1,5 @@
 import * as cheerio from "cheerio";
-import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
+import { createAbortError, type AgentToolDefinition, type ToolResult } from "@omni-agent/core";
 import { createWebReadPermission } from "./permission/web-permission";
 
 const DEFAULT_MAX_RESULTS = 5;
@@ -52,6 +52,7 @@ export const webSearchTool: AgentToolDefinition = {
     valueKind: "text",
   }),
   execution: { kind: "host" },
+  timeout: { kind: "none" },
   strict: true,
   description:
     "Search the web for current information using DuckDuckGo.\n\n" +
@@ -97,12 +98,13 @@ export const webSearchTool: AgentToolDefinition = {
 
     const maxResults = Number(params.max_results) || DEFAULT_MAX_RESULTS;
     const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
+    const requestTimeoutSignal = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
 
     try {
       const response = await fetch(searchUrl, {
         signal: context.signal
-          ? AbortSignal.any([context.signal, AbortSignal.timeout(SEARCH_TIMEOUT_MS)])
-          : AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+          ? AbortSignal.any([context.signal, requestTimeoutSignal])
+          : requestTimeoutSignal,
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -138,9 +140,10 @@ export const webSearchTool: AgentToolDefinition = {
         isError: false,
       };
     } catch (err: unknown) {
+      if (context.signal?.aborted) throw createAbortError(context.signal);
       let msg: string;
       if (err instanceof Error) {
-        if (err.name === "TimeoutError" || err.name === "AbortError") {
+        if (requestTimeoutSignal.aborted) {
           msg = `Search request timed out`;
         } else {
           msg = err.message;

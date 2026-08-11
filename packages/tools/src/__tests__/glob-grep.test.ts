@@ -145,6 +145,19 @@ describe("grepTool", () => {
     expect(text).toContain("HELLO WORLD");
   });
 
+  it("accepts a single file as search_path", async () => {
+    const filePath = path.join(tmpDir, "single.txt");
+    await fs.writeFile(filePath, "needle\nother\n");
+
+    const result = await invokeToolImplementation(grepTool, {
+      regex: "needle",
+      search_path: filePath,
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("needle");
+  });
+
   it("should filter by glob pattern", async () => {
     await fs.writeFile(path.join(tmpDir, "match.ts"), "target line\n");
     await fs.writeFile(path.join(tmpDir, "skip.js"), "target line\n");
@@ -195,6 +208,16 @@ describe("grepTool", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("regex is required");
+  });
+
+  it("treats every ripgrep exit code other than zero or one as an error", async () => {
+    const result = await invokeToolImplementation(grepTool, {
+      regex: "[",
+      search_path: tmpDir,
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain("ripgrep error");
   });
 
   it("should propagate AbortError and terminate its subprocess", async () => {

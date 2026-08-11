@@ -1,58 +1,21 @@
-import { spawn } from "node:child_process";
 import path from "node:path";
-import { createAbortError, type AgentToolDefinition, type ToolResult } from "@omni-agent/core";
+import {
+  createAbortError,
+  isAbortError,
+  type AgentToolDefinition,
+  type ToolResult,
+} from "@omni-agent/core";
+import { runHostProcess } from "../process/host-process-runner";
 import { createSearchPathPermission } from "./permission/create-search-path-permission";
 
 const DEFAULT_MAX_RESULTS = 50;
 const MAX_OUTPUT_BYTES = 51_200; // 50KB
 
-function truncate(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen) + "\n... (output truncated)";
-}
-
-async function runRipgrep(
-  args: string[],
-  cwd: string,
-  signal?: AbortSignal,
-): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn("rg", args, {
-      cwd,
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-
-    let stdout = "";
-    let stderr = "";
-    const onAbort = () => proc.kill("SIGKILL");
-    signal?.addEventListener("abort", onAbort, { once: true });
-    if (signal?.aborted) onAbort();
-
-    proc.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-
-    proc.on("error", (err) => {
-      signal?.removeEventListener("abort", onAbort);
-      reject(err);
-    });
-
-    proc.on("close", (code) => {
-      signal?.removeEventListener("abort", onAbort);
-      if (signal?.aborted) reject(createAbortError(signal));
-      else resolve({ stdout, stderr, exitCode: code });
-    });
-  });
-}
-
 export const grepTool: AgentToolDefinition = {
   name: "grep",
   authorization: createSearchPathPermission("search_path"),
   execution: { kind: "host" },
+  timeout: { kind: "none" },
   description:
     "A powerful content search tool built on ripgrep for finding text patterns in files.\n\n" +
     "Usage:\n" +
@@ -137,7 +100,13 @@ export const grepTool: AgentToolDefinition = {
     }
 
     try {
-      const { stdout, stderr, exitCode } = await runRipgrep(args, searchPath, context.signal);
+      const { stdout, stderr, stdoutTruncated, exitCode, signal } = await runHostProcess({
+        command: "rg",
+        args,
+        cwd: context.cwd,
+        signal: context.signal,
+        maxOutputBytes: MAX_OUTPUT_BYTES,
+      });
 
       // rg exit code 1 means no matches (not an error)
       if (exitCode === 1 && !stderr) {
@@ -147,20 +116,21 @@ export const grepTool: AgentToolDefinition = {
         };
       }
 
-      if (exitCode !== 0 && exitCode !== 1 && stderr) {
+      if (signal || (exitCode !== 0 && exitCode !== 1)) {
+        const detail = stderr.trim() || `ripgrep exited with ${signal ?? `code ${exitCode}`}`;
         return {
-          content: [{ type: "text", text: `ripgrep error: ${stderr.trim()}` }],
+          content: [{ type: "text", text: `ripgrep error: ${detail}` }],
           isError: true,
         };
       }
 
-      const output = truncate(stdout.trimEnd(), MAX_OUTPUT_BYTES);
+      const output = stdout.trimEnd() + (stdoutTruncated ? "\n... (output truncated)" : "");
       return {
         content: [{ type: "text", text: output || "No matches found." }],
         isError: false,
       };
     } catch (err: unknown) {
-      if (err instanceof Error && err.name === "AbortError") throw err;
+      if (isAbortError(err, context.signal)) throw createAbortError(context.signal);
       if (
         err instanceof Error &&
         "code" in err &&

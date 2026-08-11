@@ -3,14 +3,14 @@ import type { ExtensionEvent } from "./extension-events";
 import type { AgentMessage } from "./models/messages";
 import type { ModelRuntimePort, RuntimeModelSelection } from "./models/runtime";
 import type { ToolAuthorizationDescriptor } from "./permissions";
-import type { ToolExecutionContext, ToolExecutionStrategy } from "./execution";
+import type { ToolExecutionContext, ToolExecutionStrategy, ToolTimeoutPolicy } from "./execution";
 
 export interface AgentToolDefinition {
   name: string;
   description: string;
   schema: Record<string, unknown>;
   strict?: boolean;
-  timeoutMs?: number;
+  timeout: ToolTimeoutPolicy;
   authorization: ToolAuthorizationDescriptor;
   execution: ToolExecutionStrategy;
   execute: (params: Record<string, unknown>, context: ToolExecutionContext) => Promise<ToolResult>;

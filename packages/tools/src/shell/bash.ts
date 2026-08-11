@@ -1,62 +1,24 @@
-import { spawn } from "node:child_process";
-import { createAbortError, type AgentToolDefinition, type ToolResult } from "@omni-agent/core";
+import {
+  createAbortError,
+  isAbortError,
+  type AgentToolDefinition,
+  type ToolResult,
+} from "@omni-agent/core";
+import { runHostProcess } from "../process/host-process-runner";
 import { assessBashPermission } from "./permission/bash-assessor";
 
 const MAX_OUTPUT_BYTES = 10_240;
 
-function truncate(text: string, maxLen: number): string {
-  if (text.length <= maxLen) return text;
-  return text.slice(0, maxLen) + `\n... (truncated, ${text.length} total chars)`;
-}
-
-async function executeBash(
-  command: string,
-  cwd: string,
-  signal?: AbortSignal,
-): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
-  return new Promise((resolve, reject) => {
-    const proc = spawn("bash", ["-c", command], {
-      stdio: ["ignore", "pipe", "pipe"],
-      env: process.env,
-      cwd,
-    });
-
-    let stdout = "";
-    let stderr = "";
-    const onAbort = () => {
-      proc.kill("SIGKILL");
-    };
-    signal?.addEventListener("abort", onAbort, { once: true });
-    if (signal?.aborted) onAbort();
-
-    proc.stdout.on("data", (chunk: Buffer) => {
-      stdout += chunk.toString();
-    });
-
-    proc.stderr.on("data", (chunk: Buffer) => {
-      stderr += chunk.toString();
-    });
-
-    proc.on("error", (err) => {
-      signal?.removeEventListener("abort", onAbort);
-      reject(err);
-    });
-
-    proc.on("close", (code) => {
-      signal?.removeEventListener("abort", onAbort);
-      if (signal?.aborted) {
-        reject(createAbortError(signal));
-      } else {
-        resolve({ stdout, stderr, exitCode: code });
-      }
-    });
-  });
-}
-
 export const bashTool: AgentToolDefinition = {
   name: "bash",
   strict: true,
-  timeoutMs: 30_000,
+  timeout: {
+    kind: "input",
+    parameter: "timeout_ms",
+    defaultMs: 120_000,
+    minMs: 1_000,
+    maxMs: 600_000,
+  },
   authorization: { kind: "dynamic", assess: assessBashPermission },
   execution: { kind: "sandbox_eligible", profile: "shell" },
   description:
@@ -64,7 +26,7 @@ export const bashTool: AgentToolDefinition = {
     "Usage:\n" +
     "- Use for running shell commands: git operations, package management (npm/pnpm), " +
     "running tests, building projects, installing dependencies, and other CLI tasks.\n" +
-    "- Commands run in bash with a 30-second timeout.\n" +
+    "- Commands default to a 120-second timeout; set `timeout_ms` for longer or shorter work.\n" +
     "- Output is truncated to 10KB — for verbose commands, pipe through `tail` or redirect to a file.\n\n" +
     "When to use:\n" +
     "- Running tests (`pnpm test`, `pytest`, etc.).\n" +
@@ -87,6 +49,12 @@ export const bashTool: AgentToolDefinition = {
         maxLength: 32_768,
         description: "The shell command to execute",
       },
+      timeout_ms: {
+        type: "integer",
+        minimum: 1_000,
+        maximum: 600_000,
+        description: "Execution timeout in milliseconds. Defaults to 120000.",
+      },
     },
     required: ["command"],
   },
@@ -100,22 +68,32 @@ export const bashTool: AgentToolDefinition = {
     }
 
     try {
-      const { stdout, stderr, exitCode } = await executeBash(command, context.cwd, context.signal);
+      const { stdout, stderr, stdoutTruncated, stderrTruncated, exitCode, signal } =
+        await runHostProcess({
+          command: "bash",
+          args: ["-c", command],
+          cwd: context.cwd,
+          env: process.env,
+          signal: context.signal,
+          maxOutputBytes: MAX_OUTPUT_BYTES,
+        });
       const parts: string[] = [];
-      if (stdout) parts.push(truncate(stdout, MAX_OUTPUT_BYTES));
-      if (stderr) parts.push(`STDERR:\n${truncate(stderr, MAX_OUTPUT_BYTES)}`);
+      if (stdout) parts.push(stdout + (stdoutTruncated ? "\n... (stdout truncated)" : ""));
+      if (stderr)
+        parts.push(`STDERR:\n${stderr}${stderrTruncated ? "\n... (stderr truncated)" : ""}`);
       if (exitCode !== null && exitCode !== 0) {
         parts.push(`Exit code: ${exitCode}`);
       }
+      if (signal) parts.push(`Terminated by signal: ${signal}`);
 
       const output = parts.length > 0 ? parts.join("\n") : "(no output)";
 
       return {
         content: [{ type: "text", text: output }],
-        isError: exitCode !== 0 && exitCode !== null,
+        isError: signal !== null || (exitCode !== 0 && exitCode !== null),
       };
     } catch (err) {
-      if (err instanceof Error && err.name === "AbortError") throw err;
+      if (isAbortError(err, context.signal)) throw createAbortError(context.signal);
       return {
         content: [
           {

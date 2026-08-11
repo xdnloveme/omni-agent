@@ -2,6 +2,7 @@ import type { AgentToolDefinition } from "../types";
 import { ToolInputValidator } from "./tool-input-validator";
 
 const TOOL_NAME = /^[a-z][a-z0-9_-]*$/;
+const MAX_TIMER_MS = 2_147_483_647;
 
 export class ToolDefinitionValidator {
   constructor(private readonly inputValidator = new ToolInputValidator()) {}
@@ -21,16 +22,60 @@ export class ToolDefinitionValidator {
     if (tool.strict !== undefined && typeof tool.strict !== "boolean") {
       throw new Error(`Invalid strict schema setting: ${tool.name}`);
     }
-    if (
-      tool.timeoutMs !== undefined &&
-      (!Number.isInteger(tool.timeoutMs) || tool.timeoutMs <= 0)
-    ) {
-      throw new Error(`Invalid tool timeout: ${tool.name}`);
-    }
+    validateTimeout(tool);
     validateAuthorization(tool);
     validateExecution(tool);
     if (typeof tool.execute !== "function")
       throw new Error(`Tool execute is required: ${tool.name}`);
+  }
+}
+
+function validateTimeout(tool: AgentToolDefinition): void {
+  const timeout = tool.timeout;
+  if (!timeout || typeof timeout !== "object") {
+    throw new Error(`Tool timeout policy is required: ${tool.name}`);
+  }
+  if (timeout.kind === "none") return;
+  if (timeout.kind === "fixed") {
+    if (
+      !Number.isInteger(timeout.timeoutMs) ||
+      timeout.timeoutMs <= 0 ||
+      timeout.timeoutMs > MAX_TIMER_MS
+    ) {
+      throw new Error(`Invalid fixed tool timeout: ${tool.name}`);
+    }
+    return;
+  }
+  if (timeout.kind !== "input") {
+    throw new Error(`Invalid tool timeout policy: ${tool.name}`);
+  }
+  if (
+    !timeout.parameter ||
+    !Number.isInteger(timeout.defaultMs) ||
+    !Number.isInteger(timeout.minMs) ||
+    !Number.isInteger(timeout.maxMs) ||
+    timeout.minMs <= 0 ||
+    timeout.minMs > timeout.defaultMs ||
+    timeout.defaultMs > timeout.maxMs ||
+    timeout.maxMs > MAX_TIMER_MS
+  ) {
+    throw new Error(`Invalid input tool timeout: ${tool.name}`);
+  }
+  const properties = tool.schema.properties;
+  const property =
+    properties && typeof properties === "object" && !Array.isArray(properties)
+      ? (properties as Record<string, unknown>)[timeout.parameter]
+      : undefined;
+  if (!property || typeof property !== "object" || Array.isArray(property)) {
+    throw new Error(`Timeout schema property is missing: ${tool.name}.${timeout.parameter}`);
+  }
+  const schema = property as Record<string, unknown>;
+  if (
+    schema.type !== "integer" ||
+    schema.minimum !== timeout.minMs ||
+    schema.maximum !== timeout.maxMs
+  ) {
+    throw new Error(`Timeout policy does not match schema: ${tool.name}.${timeout.parameter}`);
   }
 }
 
