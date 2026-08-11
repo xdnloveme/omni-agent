@@ -1,4 +1,5 @@
 import type { AgentBlueprint } from "@omni-agent/app";
+import { isAgentId } from "@omni-agent/core";
 
 interface AgentPackageModule {
   readonly agentBlueprint?: unknown;
@@ -32,7 +33,7 @@ function isAgentBlueprint(value: unknown): value is AgentBlueprint {
 }
 
 function assertAgentId(agentId: string): void {
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(agentId)) {
+  if (!isAgentId(agentId)) {
     throw new Error(`Invalid agent id: ${agentId}`);
   }
 }

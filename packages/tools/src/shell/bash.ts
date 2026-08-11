@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import type { AgentTool, ToolResult } from "@omni-agent/core";
+import { createAbortError, type AgentToolDefinition, type ToolResult } from "@omni-agent/core";
+import { assessBashPermission } from "./permission/bash-assessor";
 
-const TIMEOUT_MS = 30_000;
 const MAX_OUTPUT_BYTES = 10_240;
 
 function truncate(text: string, maxLen: number): string {
@@ -11,29 +11,23 @@ function truncate(text: string, maxLen: number): string {
 
 async function executeBash(
   command: string,
+  cwd: string,
   signal?: AbortSignal,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve, reject) => {
     const proc = spawn("bash", ["-c", command], {
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
+      cwd,
     });
 
     let stdout = "";
     let stderr = "";
-    let killed = false;
-
-    const timer = setTimeout(() => {
-      killed = true;
-      proc.kill("SIGKILL");
-    }, TIMEOUT_MS);
-
-    // Handle abort signal
     const onAbort = () => {
-      killed = true;
       proc.kill("SIGKILL");
     };
     signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
 
     proc.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
@@ -44,16 +38,14 @@ async function executeBash(
     });
 
     proc.on("error", (err) => {
-      clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
       reject(err);
     });
 
     proc.on("close", (code) => {
-      clearTimeout(timer);
       signal?.removeEventListener("abort", onAbort);
-      if (killed && !signal?.aborted) {
-        resolve({ stdout, stderr: stderr + "\n(process killed: timeout)", exitCode: null });
+      if (signal?.aborted) {
+        reject(createAbortError(signal));
       } else {
         resolve({ stdout, stderr, exitCode: code });
       }
@@ -61,10 +53,12 @@ async function executeBash(
   });
 }
 
-export const bashTool: AgentTool = {
+export const bashTool: AgentToolDefinition = {
   name: "bash",
-  risk: "execute",
-  approval: "policy",
+  strict: true,
+  timeoutMs: 30_000,
+  authorization: { kind: "dynamic", assess: assessBashPermission },
+  execution: { kind: "sandbox_eligible", profile: "shell" },
   description:
     "Execute a shell command and return its output (stdout/stderr).\n\n" +
     "Usage:\n" +
@@ -85,15 +79,18 @@ export const bashTool: AgentTool = {
     "- Editing files (use file_edit instead of `sed` or `awk`).",
   schema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       command: {
         type: "string",
+        minLength: 1,
+        maxLength: 32_768,
         description: "The shell command to execute",
       },
     },
     required: ["command"],
   },
-  execute: async (params: Record<string, unknown>, signal?: AbortSignal): Promise<ToolResult> => {
+  execute: async (params, context): Promise<ToolResult> => {
     const command = params.command as string;
     if (!command) {
       return {
@@ -103,7 +100,7 @@ export const bashTool: AgentTool = {
     }
 
     try {
-      const { stdout, stderr, exitCode } = await executeBash(command, signal);
+      const { stdout, stderr, exitCode } = await executeBash(command, context.cwd, context.signal);
       const parts: string[] = [];
       if (stdout) parts.push(truncate(stdout, MAX_OUTPUT_BYTES));
       if (stderr) parts.push(`STDERR:\n${truncate(stderr, MAX_OUTPUT_BYTES)}`);
@@ -118,6 +115,7 @@ export const bashTool: AgentTool = {
         isError: exitCode !== 0 && exitCode !== null,
       };
     } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") throw err;
       return {
         content: [
           {

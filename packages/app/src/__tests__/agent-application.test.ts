@@ -2,11 +2,20 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { AgentSessionRepository, type AgentConfig, type ModelRuntimePort } from "@omni-agent/core";
+import {
+  AgentSessionRepository,
+  ToolAuthorizationRouter,
+  ToolCallCoordinator,
+  ToolInputValidator,
+  ToolInvocationRunner,
+  type AgentConfig,
+  type ModelRuntimePort,
+} from "@omni-agent/core";
 import { AgentApplication } from "../application/agent-application";
 import type { ConfigService } from "../config/config-service";
 import type { ExtensionManager } from "../extensions/extension-manager";
 import type { ModelService } from "../models/model-service";
+import { createPermissionRuntime } from "../permissions/create-permission-runtime";
 
 const directories: string[] = [];
 
@@ -50,6 +59,9 @@ async function fixture() {
     systemPrompt: "test",
     tools: [],
   };
+  const permissions = createPermissionRuntime({
+    globalDirectory: root,
+  });
   return {
     app: new AgentApplication({
       extensions,
@@ -60,6 +72,12 @@ async function fixture() {
       modelService,
       modelSelection: selection,
       configService,
+      permissionService: permissions.service,
+      toolCallCoordinator: new ToolCallCoordinator({
+        authorizer: new ToolAuthorizationRouter(permissions.permissionGate),
+        invocationRunner: new ToolInvocationRunner(),
+        inputValidator: new ToolInputValidator(),
+      }),
     }),
     configService,
     dispose,

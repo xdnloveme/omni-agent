@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { webFetchTool } from "../web/web-fetch";
 import { webSearchTool } from "../web/web-search";
+import { createWebReadPermission } from "../web/permission/web-permission";
+import { invokeToolImplementation } from "./tool-test-helper";
 
 // Mock global fetch
 const mockFetch = vi.fn();
@@ -25,6 +27,27 @@ beforeEach(() => {
 // ─── web_fetch ───────────────────────────────────────────────────────────────
 
 describe("webFetchTool", () => {
+  it("classifies HTTP reads and hard-denies unsupported protocols", async () => {
+    const descriptor = createWebReadPermission({
+      parameter: "url",
+      title: "Fetch",
+      valueKind: "url",
+    });
+    if (descriptor.kind !== "dynamic") throw new Error("expected dynamic permission");
+    await expect(
+      Promise.resolve(descriptor.assess({ url: "https://example.com" }, permissionContext())),
+    ).resolves.toMatchObject({
+      risk: "external_read",
+      enforcement: "policy",
+    });
+    await expect(
+      Promise.resolve(descriptor.assess({ url: "file:///etc/passwd" }, permissionContext())),
+    ).resolves.toMatchObject({
+      enforcement: "hard_deny",
+      ruleIds: ["web.unsupported-protocol"],
+    });
+  });
+
   it("should extract text from HTML, stripping scripts and styles", async () => {
     const html = `
       <html>
@@ -39,7 +62,7 @@ describe("webFetchTool", () => {
     `;
     mockFetch.mockResolvedValueOnce(makeResponse(html, { contentType: "text/html" }));
 
-    const result = await webFetchTool.execute({ url: "https://example.com" });
+    const result = await invokeToolImplementation(webFetchTool, { url: "https://example.com" });
 
     expect(result.isError).toBe(false);
     const text = result.content[0].text;
@@ -54,7 +77,9 @@ describe("webFetchTool", () => {
     const json = JSON.stringify({ key: "value", num: 42 });
     mockFetch.mockResolvedValueOnce(makeResponse(json, { contentType: "application/json" }));
 
-    const result = await webFetchTool.execute({ url: "https://api.example.com/data" });
+    const result = await invokeToolImplementation(webFetchTool, {
+      url: "https://api.example.com/data",
+    });
 
     expect(result.isError).toBe(false);
     const text = result.content[0].text;
@@ -67,7 +92,9 @@ describe("webFetchTool", () => {
       makeResponse("plain text content", { contentType: "text/plain" }),
     );
 
-    const result = await webFetchTool.execute({ url: "https://example.com/file.txt" });
+    const result = await invokeToolImplementation(webFetchTool, {
+      url: "https://example.com/file.txt",
+    });
 
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toBe("plain text content");
@@ -76,14 +103,16 @@ describe("webFetchTool", () => {
   it("should return error for non-2xx status", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse("", { status: 404 }));
 
-    const result = await webFetchTool.execute({ url: "https://example.com/missing" });
+    const result = await invokeToolImplementation(webFetchTool, {
+      url: "https://example.com/missing",
+    });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("HTTP 404");
   });
 
   it("should return error when url is missing", async () => {
-    const result = await webFetchTool.execute({});
+    const result = await invokeToolImplementation(webFetchTool, {});
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("url is required");
@@ -93,7 +122,7 @@ describe("webFetchTool", () => {
     const longText = "x".repeat(25000);
     mockFetch.mockResolvedValueOnce(makeResponse(longText, { contentType: "text/plain" }));
 
-    const result = await webFetchTool.execute({ url: "https://example.com/big" });
+    const result = await invokeToolImplementation(webFetchTool, { url: "https://example.com/big" });
 
     expect(result.isError).toBe(false);
     expect(result.content[0].text.length).toBeLessThan(25000);
@@ -103,7 +132,9 @@ describe("webFetchTool", () => {
   it("should handle network errors gracefully", async () => {
     mockFetch.mockRejectedValueOnce(new Error("ECONNREFUSED"));
 
-    const result = await webFetchTool.execute({ url: "https://down.example.com" });
+    const result = await invokeToolImplementation(webFetchTool, {
+      url: "https://down.example.com",
+    });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("ECONNREFUSED");
@@ -114,7 +145,7 @@ describe("webFetchTool", () => {
     err.name = "TimeoutError";
     mockFetch.mockRejectedValueOnce(err);
 
-    const result = await webFetchTool.execute({
+    const result = await invokeToolImplementation(webFetchTool, {
       url: "https://slow.example.com",
       timeout_ms: 5000,
     });
@@ -123,6 +154,15 @@ describe("webFetchTool", () => {
     expect(result.content[0].text).toContain("timed out");
   });
 });
+
+function permissionContext() {
+  return {
+    cwd: process.cwd(),
+    agentId: "test",
+    toolIdentity: "test:web_fetch",
+    toolCallId: "call-1",
+  };
+}
 
 // ─── web_search ──────────────────────────────────────────────────────────────
 
@@ -149,7 +189,7 @@ describe("webSearchTool", () => {
   it("should parse DuckDuckGo results correctly", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(ddgHtml, { contentType: "text/html" }));
 
-    const result = await webSearchTool.execute({ query: "test query" });
+    const result = await invokeToolImplementation(webSearchTool, { query: "test query" });
 
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content[0].text);
@@ -166,7 +206,7 @@ describe("webSearchTool", () => {
   it("should respect max_results", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(ddgHtml, { contentType: "text/html" }));
 
-    const result = await webSearchTool.execute({ query: "test", max_results: 2 });
+    const result = await invokeToolImplementation(webSearchTool, { query: "test", max_results: 2 });
 
     expect(result.isError).toBe(false);
     const parsed = JSON.parse(result.content[0].text);
@@ -174,7 +214,7 @@ describe("webSearchTool", () => {
   });
 
   it("should return error when query is missing", async () => {
-    const result = await webSearchTool.execute({});
+    const result = await invokeToolImplementation(webSearchTool, {});
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("query is required");
@@ -183,7 +223,7 @@ describe("webSearchTool", () => {
   it("should handle fetch failure gracefully", async () => {
     mockFetch.mockRejectedValueOnce(new Error("Network error"));
 
-    const result = await webSearchTool.execute({ query: "test" });
+    const result = await invokeToolImplementation(webSearchTool, { query: "test" });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("Network error");
@@ -192,7 +232,7 @@ describe("webSearchTool", () => {
   it("should handle non-2xx response from DuckDuckGo", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse("", { status: 503 }));
 
-    const result = await webSearchTool.execute({ query: "test" });
+    const result = await invokeToolImplementation(webSearchTool, { query: "test" });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("HTTP 503");
@@ -202,7 +242,7 @@ describe("webSearchTool", () => {
     const emptyHtml = "<html><body><div class='no-results'>No results</div></body></html>";
     mockFetch.mockResolvedValueOnce(makeResponse(emptyHtml, { contentType: "text/html" }));
 
-    const result = await webSearchTool.execute({ query: "xyznonexistent" });
+    const result = await invokeToolImplementation(webSearchTool, { query: "xyznonexistent" });
 
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toContain("No results found");

@@ -25,21 +25,24 @@ export interface ToolLifecycleAdapter {
 
 export function collectLifecycleStartEvents(
   adapters: readonly ToolLifecycleAdapter[] | undefined,
-  input: ToolLifecycleStartInput,
+  input: Omit<ToolLifecycleStartInput, "input">,
+  createInput: () => Record<string, unknown>,
 ): ToolLifecycleEvent[] {
-  return collectLifecycleEvents(adapters, input, "start");
+  return collectLifecycleEvents(adapters, input, createInput, "start");
 }
 
 export function collectLifecycleEndEvents(
   adapters: readonly ToolLifecycleAdapter[] | undefined,
-  input: ToolLifecycleEndInput,
+  input: Omit<ToolLifecycleEndInput, "input">,
+  createInput: () => Record<string, unknown>,
 ): ToolLifecycleEvent[] {
-  return collectLifecycleEvents(adapters, input, "end");
+  return collectLifecycleEvents(adapters, input, createInput, "end");
 }
 
 function collectLifecycleEvents(
   adapters: readonly ToolLifecycleAdapter[] | undefined,
-  input: ToolLifecycleStartInput | ToolLifecycleEndInput,
+  input: Omit<ToolLifecycleStartInput, "input"> | Omit<ToolLifecycleEndInput, "input">,
+  createInput: () => Record<string, unknown>,
   phase: "start" | "end",
 ): ToolLifecycleEvent[] {
   const events: ToolLifecycleEvent[] = [];
@@ -48,8 +51,8 @@ function collectLifecycleEvents(
       if (!adapter.supports(input.toolName)) continue;
       events.push(
         ...(phase === "start"
-          ? adapter.onStart(input)
-          : adapter.onEnd(input as ToolLifecycleEndInput)),
+          ? adapter.onStart({ ...input, input: createInput() })
+          : adapter.onEnd({ ...input, input: createInput() } as ToolLifecycleEndInput)),
       );
     } catch (err) {
       events.push(createAdapterErrorEvent(input, phase, err));
@@ -59,7 +62,7 @@ function collectLifecycleEvents(
 }
 
 function createAdapterErrorEvent(
-  input: ToolLifecycleStartInput | ToolLifecycleEndInput,
+  input: Omit<ToolLifecycleStartInput, "input"> | Omit<ToolLifecycleEndInput, "input">,
   phase: "start" | "end",
   err: unknown,
 ): ToolLifecycleEvent {

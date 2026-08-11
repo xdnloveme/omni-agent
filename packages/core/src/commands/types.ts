@@ -7,11 +7,25 @@ import type { AgentConfig } from "../types";
 export interface CommandTui {
   pause(): void;
   resume(): void;
+  select?(options: CommandSelectionOptions, signal?: AbortSignal): Promise<CommandSelectionResult>;
   sink: {
     line(text?: string): void;
     spacer(): void;
   };
 }
+
+export interface CommandSelectionOptions {
+  title: string;
+  detail?: string;
+  message?: string;
+  items: Array<{ value: string; label: string; description?: string }>;
+}
+
+export type CommandSelectionResult =
+  | { kind: "selected"; value: string }
+  | { kind: "escape" }
+  | { kind: "abort"; error: Error }
+  | { kind: "shutdown"; error: Error };
 
 export interface CommandContext {
   args: string;

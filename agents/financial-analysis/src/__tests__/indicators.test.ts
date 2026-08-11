@@ -27,14 +27,22 @@ describe("technical indicators", () => {
   });
 
   it("returns structured tool metadata without trading actions", async () => {
-    const result = await computeTechnicalIndicatorsTool.execute({ bars: bars(40), period: 14 });
+    const result = await computeTechnicalIndicatorsTool.execute(
+      { bars: bars(40), period: 14 },
+      { cwd: process.cwd() },
+    );
+    expect(computeTechnicalIndicatorsTool.authorization).toMatchObject({ kind: "trusted" });
+    expect(computeTechnicalIndicatorsTool.execution).toEqual({ kind: "host" });
     expect(result.isError).toBe(false);
     expect(result.meta).toMatchObject({ kind: "technical_indicators" });
     expect(result.content[0].text).toContain('"rsi": 100');
   });
 
   it("rejects malformed OHLCV data", async () => {
-    const result = await computeTechnicalIndicatorsTool.execute({ bars: [{ close: 1 }] });
+    const result = await computeTechnicalIndicatorsTool.execute(
+      { bars: [{ close: 1 }] },
+      { cwd: process.cwd() },
+    );
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("timestamp must be a finite number");
   });

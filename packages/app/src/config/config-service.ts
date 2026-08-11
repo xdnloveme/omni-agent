@@ -1,5 +1,6 @@
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { isAgentId } from "@omni-agent/core";
 import { containsSecretField, type ConfigurationScope } from "@omni-agent/models";
 import { AtomicJsonFile } from "../persistence/atomic-json-file";
 import type { ModelSelection } from "../models/model-service";
@@ -227,10 +228,6 @@ function withoutAgentModel(config: OmniConfig, agentId: string): OmniConfig {
 
 function assertAgentId(agentId: string): void {
   if (!isAgentId(agentId)) throw new InvalidConfigError(`Invalid agent id: ${agentId}`);
-}
-
-function isAgentId(agentId: string): boolean {
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(agentId);
 }
 
 function isModelSelection(value: unknown): value is ModelSelection {

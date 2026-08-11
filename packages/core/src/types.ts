@@ -2,16 +2,23 @@ import type { ToolLifecycleAdapter } from "./tool-lifecycle";
 import type { ExtensionEvent } from "./extension-events";
 import type { AgentMessage } from "./models/messages";
 import type { ModelRuntimePort, RuntimeModelSelection } from "./models/runtime";
+import type { ToolAuthorizationDescriptor } from "./permissions";
+import type { ToolExecutionContext, ToolExecutionStrategy } from "./execution";
 
-export interface AgentTool {
+export interface AgentToolDefinition {
   name: string;
   description: string;
   schema: Record<string, unknown>;
   strict?: boolean;
-  risk?: "read" | "write" | "execute" | "network";
-  approval?: "never" | "always" | "policy";
   timeoutMs?: number;
-  execute: (params: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult>;
+  authorization: ToolAuthorizationDescriptor;
+  execution: ToolExecutionStrategy;
+  execute: (params: Record<string, unknown>, context: ToolExecutionContext) => Promise<ToolResult>;
+}
+
+export interface RegisteredAgentTool extends AgentToolDefinition {
+  readonly originId: string;
+  readonly toolIdentity: string;
 }
 
 export interface ToolResult {
@@ -32,7 +39,7 @@ export interface TokenUsage {
 export interface AgentConfig {
   model: RuntimeModelSelection;
   systemPrompt: string;
-  tools: AgentTool[];
+  tools: RegisteredAgentTool[];
   toolLifecycleAdapters?: ToolLifecycleAdapter[];
   middleware?: readonly import("./middleware/types").RuntimeMiddleware[];
   maxTurns?: number;
@@ -42,7 +49,9 @@ export interface AgentLoopInput {
   config: AgentConfig;
   messages: readonly AgentMessage[];
   modelRuntime: ModelRuntimePort;
-  toolExecutor?: import("./tools/executor").ToolExecutor;
+  agentId: string;
+  cwd: string;
+  toolCallCoordinator: import("./tool-calls/tool-call-coordinator").ToolCallCoordinator;
   signal?: AbortSignal;
   options?: import("./agent-loop").AgentLoopOptions;
 }
@@ -57,6 +66,7 @@ export type AgentEvent =
       toolCallId: string;
       result: ToolResult;
       durationMs: number;
+      metrics?: import("./tool-calls/types").ToolCallMetrics;
     }
   | ExtensionEvent
   | { type: "error"; error: string }

@@ -5,6 +5,7 @@ import os from "node:os";
 import { fileReadTool } from "../filesystem/file-read";
 import { fileEditTool } from "../filesystem/file-edit";
 import { fileWriteTool } from "../filesystem/file-write";
+import { invokeToolImplementation } from "./tool-test-helper";
 import { fileMutex } from "../filesystem/file-mutex";
 
 let tmpDir: string;
@@ -24,7 +25,7 @@ describe("fileReadTool", () => {
     const filePath = path.join(tmpDir, "test.txt");
     await fs.writeFile(filePath, "line1\nline2\nline3\n", "utf-8");
 
-    const result = await fileReadTool.execute({ file_path: filePath });
+    const result = await invokeToolImplementation(fileReadTool, { file_path: filePath });
 
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toContain("1|line1");
@@ -36,7 +37,7 @@ describe("fileReadTool", () => {
     const filePath = path.join(tmpDir, "test.txt");
     await fs.writeFile(filePath, "a\nb\nc\nd\ne\n", "utf-8");
 
-    const result = await fileReadTool.execute({
+    const result = await invokeToolImplementation(fileReadTool, {
       file_path: filePath,
       offset: 2,
       limit: 2,
@@ -51,7 +52,7 @@ describe("fileReadTool", () => {
   });
 
   it("should return error for non-existent file", async () => {
-    const result = await fileReadTool.execute({
+    const result = await invokeToolImplementation(fileReadTool, {
       file_path: path.join(tmpDir, "nope.txt"),
     });
 
@@ -60,7 +61,7 @@ describe("fileReadTool", () => {
   });
 
   it("should return error when file_path is missing", async () => {
-    const result = await fileReadTool.execute({});
+    const result = await invokeToolImplementation(fileReadTool, {});
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("file_path is required");
@@ -74,7 +75,7 @@ describe("fileEditTool", () => {
     const filePath = path.join(tmpDir, "edit.txt");
     await fs.writeFile(filePath, "hello world\nfoo bar\n", "utf-8");
 
-    const result = await fileEditTool.execute({
+    const result = await invokeToolImplementation(fileEditTool, {
       file_path: filePath,
       old_string: "foo bar",
       new_string: "baz qux",
@@ -89,7 +90,7 @@ describe("fileEditTool", () => {
     const filePath = path.join(tmpDir, "edit.txt");
     await fs.writeFile(filePath, "hello world\n", "utf-8");
 
-    const result = await fileEditTool.execute({
+    const result = await invokeToolImplementation(fileEditTool, {
       file_path: filePath,
       old_string: "not here",
       new_string: "replacement",
@@ -103,7 +104,7 @@ describe("fileEditTool", () => {
     const filePath = path.join(tmpDir, "edit.txt");
     await fs.writeFile(filePath, "aaa\naaa\n", "utf-8");
 
-    const result = await fileEditTool.execute({
+    const result = await invokeToolImplementation(fileEditTool, {
       file_path: filePath,
       old_string: "aaa",
       new_string: "bbb",
@@ -114,7 +115,7 @@ describe("fileEditTool", () => {
   });
 
   it("should error when file does not exist", async () => {
-    const result = await fileEditTool.execute({
+    const result = await invokeToolImplementation(fileEditTool, {
       file_path: path.join(tmpDir, "nope.txt"),
       old_string: "x",
       new_string: "y",
@@ -131,7 +132,7 @@ describe("fileWriteTool", () => {
   it("should create a file with content", async () => {
     const filePath = path.join(tmpDir, "write.txt");
 
-    const result = await fileWriteTool.execute({
+    const result = await invokeToolImplementation(fileWriteTool, {
       file_path: filePath,
       content: "hello\nworld\n",
     });
@@ -145,7 +146,7 @@ describe("fileWriteTool", () => {
   it("should create parent directories", async () => {
     const filePath = path.join(tmpDir, "a", "b", "c", "deep.txt");
 
-    const result = await fileWriteTool.execute({
+    const result = await invokeToolImplementation(fileWriteTool, {
       file_path: filePath,
       content: "deep content",
     });
@@ -159,7 +160,7 @@ describe("fileWriteTool", () => {
     const filePath = path.join(tmpDir, "overwrite.txt");
     await fs.writeFile(filePath, "old content", "utf-8");
 
-    const result = await fileWriteTool.execute({
+    const result = await invokeToolImplementation(fileWriteTool, {
       file_path: filePath,
       content: "new content",
     });
@@ -170,7 +171,7 @@ describe("fileWriteTool", () => {
   });
 
   it("should error when file_path is missing", async () => {
-    const result = await fileWriteTool.execute({ content: "x" });
+    const result = await invokeToolImplementation(fileWriteTool, { content: "x" });
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("file_path is required");

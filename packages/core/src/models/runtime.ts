@@ -1,4 +1,4 @@
-import type { AgentTool } from "../types";
+import type { RegisteredAgentTool } from "../types";
 import type { AgentMessage, AssistantAgentMessage } from "./messages";
 
 export type JsonValue =
@@ -20,7 +20,7 @@ export interface RuntimeModelSelection {
 export interface ModelRequest {
   systemPrompt: string;
   messages: AgentMessage[];
-  tools?: AgentTool[];
+  tools?: RegisteredAgentTool[];
 }
 
 export interface ModelRequestOptions {

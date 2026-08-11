@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
-import type { AgentTool, ToolResult } from "@omni-agent/core";
+import { createAbortError, type AgentToolDefinition, type ToolResult } from "@omni-agent/core";
+import { createSearchPathPermission } from "./permission/create-search-path-permission";
 
 const DEFAULT_MAX_RESULTS = 50;
 const MAX_OUTPUT_BYTES = 51_200; // 50KB
@@ -13,6 +14,7 @@ function truncate(text: string, maxLen: number): string {
 async function runRipgrep(
   args: string[],
   cwd: string,
+  signal?: AbortSignal,
 ): Promise<{ stdout: string; stderr: string; exitCode: number | null }> {
   return new Promise((resolve, reject) => {
     const proc = spawn("rg", args, {
@@ -22,6 +24,9 @@ async function runRipgrep(
 
     let stdout = "";
     let stderr = "";
+    const onAbort = () => proc.kill("SIGKILL");
+    signal?.addEventListener("abort", onAbort, { once: true });
+    if (signal?.aborted) onAbort();
 
     proc.stdout.on("data", (chunk: Buffer) => {
       stdout += chunk.toString();
@@ -32,19 +37,22 @@ async function runRipgrep(
     });
 
     proc.on("error", (err) => {
+      signal?.removeEventListener("abort", onAbort);
       reject(err);
     });
 
     proc.on("close", (code) => {
-      resolve({ stdout, stderr, exitCode: code });
+      signal?.removeEventListener("abort", onAbort);
+      if (signal?.aborted) reject(createAbortError(signal));
+      else resolve({ stdout, stderr, exitCode: code });
     });
   });
 }
 
-export const grepTool: AgentTool = {
+export const grepTool: AgentToolDefinition = {
   name: "grep",
-  risk: "read",
-  approval: "never",
+  authorization: createSearchPathPermission("search_path"),
+  execution: { kind: "host" },
   description:
     "A powerful content search tool built on ripgrep for finding text patterns in files.\n\n" +
     "Usage:\n" +
@@ -63,17 +71,24 @@ export const grepTool: AgentTool = {
     "- Reading a known file (use file_read instead).",
   schema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       regex: {
         type: "string",
+        minLength: 1,
+        maxLength: 4096,
         description: "Regular expression pattern to search for",
       },
       search_path: {
         type: "string",
+        minLength: 1,
+        maxLength: 4096,
         description: "File or directory to search in. Defaults to current working directory.",
       },
       glob: {
         type: "string",
+        minLength: 1,
+        maxLength: 4096,
         description: "Restrict search to files matching this glob (e.g. '*.ts', '**/*.py')",
       },
       ignore_case: {
@@ -81,13 +96,15 @@ export const grepTool: AgentTool = {
         description: "If true, perform a case-insensitive search",
       },
       max_results: {
-        type: "number",
+        type: "integer",
+        minimum: 1,
+        maximum: 1000,
         description: "Maximum number of matching lines to return. Default: 50",
       },
     },
     required: ["regex"],
   },
-  execute: async (params: Record<string, unknown>): Promise<ToolResult> => {
+  execute: async (params, context): Promise<ToolResult> => {
     const regex = params.regex as string;
     if (!regex) {
       return {
@@ -97,8 +114,8 @@ export const grepTool: AgentTool = {
     }
 
     const searchPath = params.search_path
-      ? path.resolve(params.search_path as string)
-      : process.cwd();
+      ? path.resolve(context.cwd, params.search_path as string)
+      : context.cwd;
 
     const maxResults = (params.max_results as number) || DEFAULT_MAX_RESULTS;
 
@@ -120,7 +137,7 @@ export const grepTool: AgentTool = {
     }
 
     try {
-      const { stdout, stderr, exitCode } = await runRipgrep(args, searchPath);
+      const { stdout, stderr, exitCode } = await runRipgrep(args, searchPath, context.signal);
 
       // rg exit code 1 means no matches (not an error)
       if (exitCode === 1 && !stderr) {
@@ -143,6 +160,7 @@ export const grepTool: AgentTool = {
         isError: false,
       };
     } catch (err: unknown) {
+      if (err instanceof Error && err.name === "AbortError") throw err;
       if (
         err instanceof Error &&
         "code" in err &&

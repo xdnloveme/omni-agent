@@ -2,16 +2,63 @@ export { runAgentLoop } from "./agent-loop";
 export type { AgentLoopOptions } from "./agent-loop";
 export { AgentRunner, defineAgent } from "./agent/index";
 export type { AgentDefinition, AgentRunContext, AgentRunResult } from "./agent/index";
-export { ToolExecutor } from "./tools/index";
+export {
+  ToolCallCoordinator,
+  ToolDefinitionValidator,
+  ToolInputValidator,
+  ToolAuthorizationRouter,
+} from "./tool-calls/index";
 export type {
-  ToolApproval,
-  ToolExecutionResult,
-  ToolExecutorOptions,
-  ToolGuardrail,
-  ToolPolicy,
-  ToolRisk,
-} from "./tools/index";
-export type { RunMiddleware, RuntimeMiddleware, ToolMiddleware } from "./middleware/index";
+  ToolCallEnvironment,
+  ToolCallEvent,
+  ToolCallMetrics,
+  ToolCallRequest,
+  ToolAuthorizationRequest,
+  ToolAuthorizationResult,
+  ToolAuthorizer,
+} from "./tool-calls/index";
+export {
+  createAbortError,
+  isAbortError,
+  throwIfAborted,
+  ToolInvocationRunner,
+} from "./execution/index";
+export type {
+  AuthorizedExecutionContext,
+  AuthorizedToolCall,
+  SandboxExecutionRequest,
+  SandboxRunnerPort,
+  ToolExecutionContext,
+  ToolExecutionStrategy,
+  ToolInvocationResult,
+  ToolInvocationRunnerOptions,
+} from "./execution/index";
+export {
+  DenyApprovalBroker,
+  formatSanitizedToolInput,
+  PermissionGate,
+  sanitizePermissionPresentation,
+  sanitizeSensitiveValue,
+} from "./permissions/index";
+export type {
+  ApprovalBroker,
+  ApprovalRequest,
+  ApprovalResponse,
+  PermissionAssessment,
+  PermissionControlledTool,
+  PermissionContext,
+  PermissionGrantStore,
+  PermissionMode,
+  PermissionObserver,
+  PermissionPolicy,
+  PermissionPolicyContext,
+  PermissionPolicyDecision,
+  PermissionPresentation,
+  PermissionRisk,
+  ToolAuthorizationDescriptor,
+  ToolPermissionDescriptor,
+} from "./permissions/index";
+export type { RunMiddleware, RuntimeMiddleware, ToolExecutionMiddleware } from "./middleware/index";
 export { collectLifecycleEndEvents, collectLifecycleStartEvents } from "./tool-lifecycle";
 export type {
   ToolLifecycleAdapter,
@@ -19,11 +66,13 @@ export type {
   ToolLifecycleStartInput,
 } from "./tool-lifecycle";
 export { toContextMessages } from "./llm-context";
+export { isAgentId, isToolOriginId } from "./identifiers";
 export type {
   AgentConfig,
   AgentEvent,
   AgentLoopInput,
-  AgentTool,
+  AgentToolDefinition,
+  RegisteredAgentTool,
   TokenUsage,
   ToolResult,
 } from "./types";
@@ -39,7 +88,13 @@ export type {
   RuntimeModelSelection,
 } from "./models";
 export { CommandRegistry } from "./commands/index";
-export type { Command, CommandContext, CommandTui } from "./commands/index";
+export type {
+  Command,
+  CommandContext,
+  CommandSelectionOptions,
+  CommandSelectionResult,
+  CommandTui,
+} from "./commands/index";
 export { createSkillsContributor, defaultContributors } from "./system-prompt/index";
 export type { SystemPromptContributor } from "./system-prompt/index";
 export {
@@ -73,6 +128,8 @@ export type {
   SkillRuntimeOptions,
 } from "./skills/index";
 export { StreamSession, createStreamSession } from "./stream/index";
+export { InterprocessFileLock } from "./persistence/index";
+export type { InterprocessFileLockOptions } from "./persistence/index";
 export type {
   StreamEvent,
   StreamCallbacks,

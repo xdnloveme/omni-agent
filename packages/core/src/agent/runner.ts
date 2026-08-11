@@ -2,13 +2,15 @@ import { runAgentLoop, type AgentLoopOptions } from "../agent-loop";
 import type { AgentMessage } from "../models/messages";
 import type { AgentConfig, AgentEvent } from "../types";
 import type { ModelRuntimePort } from "../models/runtime";
-import { ToolExecutor } from "../tools/executor";
+import type { ToolCallCoordinator } from "../tool-calls";
 
 /** Host-facing runner with explicit runtime and tool-execution dependencies. */
 export class AgentRunner {
   constructor(
     private readonly modelRuntime: ModelRuntimePort,
-    private readonly toolExecutor = new ToolExecutor(),
+    private readonly toolCallCoordinator: ToolCallCoordinator,
+    private readonly agentId: string,
+    private readonly cwd: string,
   ) {}
 
   run(
@@ -21,7 +23,9 @@ export class AgentRunner {
       config,
       messages,
       modelRuntime: this.modelRuntime,
-      toolExecutor: this.toolExecutor,
+      agentId: this.agentId,
+      cwd: this.cwd,
+      toolCallCoordinator: this.toolCallCoordinator,
       signal,
       options,
     });

@@ -118,8 +118,10 @@ describe("skills", () => {
     await registry.initialize();
     const tool = createSkillReadTool(registry);
 
-    const result = await tool.execute({ name: "frontend-design" });
+    const result = await tool.execute({ name: "frontend-design" }, { cwd: process.cwd() });
 
+    expect(tool.authorization).toMatchObject({ kind: "trusted" });
+    expect(tool.execution).toEqual({ kind: "host" });
     expect(result.isError).toBe(false);
     expect(result.meta).toMatchObject({
       kind: "skill_read",

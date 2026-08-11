@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
-import type { AgentTool, ToolResult } from "@omni-agent/core";
+import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
+import { createWebReadPermission } from "./permission/web-permission";
 
 const DEFAULT_MAX_RESULTS = 5;
 const SEARCH_TIMEOUT_MS = 15_000;
@@ -43,10 +44,15 @@ function parseDuckDuckGoResults(html: string, maxResults: number): SearchResult[
   return results;
 }
 
-export const webSearchTool: AgentTool = {
+export const webSearchTool: AgentToolDefinition = {
   name: "web_search",
-  risk: "network",
-  approval: "never",
+  authorization: createWebReadPermission({
+    parameter: "query",
+    title: "Search the web",
+    valueKind: "text",
+  }),
+  execution: { kind: "host" },
+  strict: true,
   description:
     "Search the web for current information using DuckDuckGo.\n\n" +
     "Usage:\n" +
@@ -63,19 +69,24 @@ export const webSearchTool: AgentTool = {
     "- Searching local file contents (use grep instead).",
   schema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       query: {
         type: "string",
+        minLength: 1,
+        maxLength: 4096,
         description: "The search query",
       },
       max_results: {
-        type: "number",
+        type: "integer",
+        minimum: 1,
+        maximum: 20,
         description: "Maximum number of results to return. Defaults to 5.",
       },
     },
     required: ["query"],
   },
-  execute: async (params: Record<string, unknown>): Promise<ToolResult> => {
+  execute: async (params, context): Promise<ToolResult> => {
     const query = params.query as string;
     if (!query) {
       return {
@@ -89,7 +100,9 @@ export const webSearchTool: AgentTool = {
 
     try {
       const response = await fetch(searchUrl, {
-        signal: AbortSignal.timeout(SEARCH_TIMEOUT_MS),
+        signal: context.signal
+          ? AbortSignal.any([context.signal, AbortSignal.timeout(SEARCH_TIMEOUT_MS)])
+          : AbortSignal.timeout(SEARCH_TIMEOUT_MS),
         headers: {
           "User-Agent":
             "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",

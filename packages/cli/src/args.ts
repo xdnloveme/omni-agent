@@ -15,6 +15,4 @@ export function parseCliArgs(args: string[]): CliArgs {
   return { mode, agentId };
 }
 
-function isAgentId(value: string): boolean {
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value);
-}
+import { isAgentId } from "@omni-agent/core";

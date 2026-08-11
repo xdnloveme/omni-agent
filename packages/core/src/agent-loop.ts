@@ -7,8 +7,7 @@ import type {
 } from "./models/messages";
 import type { AgentConfig, AgentEvent, AgentLoopInput, TokenUsage } from "./types";
 import type { StreamSession } from "./stream/index";
-import { collectLifecycleEndEvents, collectLifecycleStartEvents } from "./tool-lifecycle";
-import { ToolExecutor } from "./tools/executor";
+import { throwIfAborted } from "./execution";
 
 const DEFAULT_MAX_TURNS = 10;
 const APPROX_CHARS_PER_TOKEN = 4;
@@ -99,15 +98,10 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
   // Track the latest usage from the last LLM response
   let lastUsage: TokenUsage | undefined;
   const contextWindow = config.model.contextWindow;
-  const toolExecutor = input.toolExecutor ?? new ToolExecutor();
+  const toolCallCoordinator = input.toolCallCoordinator;
 
   for (let turn = 0; turn < maxTurns; turn++) {
-    if (signal?.aborted) {
-      const event: AgentEvent = { type: "error", error: "Aborted" };
-      session?.handle({ type: "error", error: "Aborted" });
-      yield event;
-      return;
-    }
+    throwIfAborted(signal);
 
     // Call LLM
     let assistantMessage: AssistantAgentMessage | null = null;
@@ -116,6 +110,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     for (const middleware of config.middleware ?? []) {
       await middleware.beforeModel?.(config, conversation);
     }
+    throwIfAborted(signal);
     const eventStream = modelRuntime.stream(
       config.model,
       {
@@ -127,6 +122,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     );
 
     for await (const event of eventStream) {
+      throwIfAborted(signal);
       if (event.type === "text_delta") {
         const agentEvent: AgentEvent = { type: "text_delta", delta: event.delta };
         session?.handle({ type: "text_delta", delta: event.delta });
@@ -142,6 +138,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         return;
       }
     }
+    throwIfAborted(signal);
 
     if (!assistantMessage) {
       session?.handle({ type: "error", error: "No response from LLM" });
@@ -155,6 +152,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     for (const middleware of config.middleware ?? []) {
       await middleware.afterModel?.(config, conversation);
     }
+    throwIfAborted(signal);
 
     // Extract usage from the assistant message. Context occupancy includes cached prompt
     // tokens; provider usage may report those separately from fresh input tokens.
@@ -173,69 +171,42 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     );
 
     for (const call of toolCalls) {
-      if (signal?.aborted) {
-        session?.handle({ type: "error", error: "Aborted" });
-        yield { type: "error", error: "Aborted" };
-        return;
-      }
+      throwIfAborted(signal);
 
-      session?.handle({
-        type: "tool_use_start",
-        toolName: call.name,
-        toolCallId: call.id,
-        input: call.arguments,
-      });
-      yield {
-        type: "tool_start",
-        toolName: call.name,
-        toolCallId: call.id,
-        input: call.arguments,
-      };
-
-      const lifecycleStartEvents = collectLifecycleStartEvents(config.toolLifecycleAdapters, {
-        toolName: call.name,
-        toolCallId: call.id,
-        input: call.arguments,
-      });
-      for (const event of lifecycleStartEvents) {
-        session?.handle(event);
+      let result: import("./types").ToolResult | undefined;
+      for await (const event of toolCallCoordinator.run(
+        config.tools,
+        { toolName: call.name, toolCallId: call.id, input: call.arguments, signal },
+        {
+          agentId: input.agentId,
+          cwd: input.cwd,
+          middleware: config.middleware ?? [],
+          lifecycleAdapters: config.toolLifecycleAdapters ?? [],
+        },
+      )) {
+        if (event.type === "tool_start") {
+          session?.handle({
+            type: "tool_use_start",
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+            input: event.input,
+          });
+        } else if (event.type === "tool_end") {
+          result = event.result;
+          session?.handle({
+            type: "tool_use_end",
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+            result: event.result,
+            durationMs: event.durationMs,
+          });
+        } else {
+          session?.handle(event);
+        }
         yield event;
       }
-
-      for (const middleware of config.middleware ?? []) {
-        await middleware.beforeTool?.(call.name, call.arguments);
-      }
-      const execution = await toolExecutor.execute(config.tools, call.name, call.arguments, signal);
-      const { result, durationMs } = execution;
-      for (const middleware of config.middleware ?? []) {
-        await middleware.afterTool?.(call.name, result);
-      }
-      session?.handle({
-        type: "tool_use_end",
-        toolName: call.name,
-        toolCallId: call.id,
-        result,
-        durationMs,
-      });
-      yield {
-        type: "tool_end",
-        toolName: call.name,
-        toolCallId: call.id,
-        result,
-        durationMs,
-      };
-
-      const lifecycleEndEvents = collectLifecycleEndEvents(config.toolLifecycleAdapters, {
-        toolName: call.name,
-        toolCallId: call.id,
-        input: call.arguments,
-        result,
-        durationMs,
-      });
-      for (const event of lifecycleEndEvents) {
-        session?.handle(event);
-        yield event;
-      }
+      throwIfAborted(signal);
+      if (!result) throw new Error(`Tool call completed without a result: ${call.name}`);
 
       // Push tool result message
       const toolResultMsg: AgentMessage = {

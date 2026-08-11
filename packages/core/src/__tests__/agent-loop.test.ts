@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { AgentMessage } from "../models/messages";
-import type { AgentConfig, AgentEvent, AgentTool } from "../types";
+import type { AgentConfig, AgentEvent, RegisteredAgentTool } from "../types";
 import type { ModelRuntimePort } from "../models";
 import { runAgentLoop } from "../agent-loop";
 import {
@@ -10,13 +10,20 @@ import {
   SkillReadStatus,
 } from "../skills";
 import type { ToolLifecycleAdapter } from "../tool-lifecycle";
+import { PermissionGate } from "../permissions";
+import { ToolAuthorizationRouter, ToolCallCoordinator, ToolInputValidator } from "../tool-calls";
+import { ToolInvocationRunner } from "../execution";
 
 const streamModel = vi.fn<ModelRuntimePort["stream"]>();
 const modelRuntime: ModelRuntimePort = { stream: streamModel };
 
-function makeTool(name = "test_tool"): AgentTool {
+function makeTool(name = "test_tool"): RegisteredAgentTool {
   return {
     name,
+    originId: "test",
+    toolIdentity: `test:${name}`,
+    authorization: { kind: "static", risk: "read", reason: "test" },
+    execution: { kind: "host" },
     description: "A test tool",
     schema: { type: "object", properties: { input: { type: "string" } } },
     execute: vi.fn().mockResolvedValue({
@@ -47,7 +54,40 @@ function makeMessages(userContent: string): AgentMessage[] {
 }
 
 function executeLoop(config: AgentConfig, messages: AgentMessage[], signal?: AbortSignal) {
-  return runAgentLoop({ config, messages, modelRuntime, signal });
+  return runAgentLoop({
+    config,
+    messages,
+    modelRuntime,
+    agentId: "test",
+    cwd: process.cwd(),
+    toolCallCoordinator: createCoordinator(),
+    signal,
+  });
+}
+
+function createCoordinator() {
+  const permissionGate = new PermissionGate({
+    policy: { evaluate: () => ({ outcome: "allow", reason: "test" }) },
+    grants: {
+      async getMode() {
+        return "standard";
+      },
+      async isToolAlwaysApproved() {
+        return false;
+      },
+      async approveTool() {},
+    },
+    broker: {
+      async request() {
+        return "deny";
+      },
+    },
+  });
+  return new ToolCallCoordinator({
+    authorizer: new ToolAuthorizationRouter(permissionGate),
+    invocationRunner: new ToolInvocationRunner(),
+    inputValidator: new ToolInputValidator(),
+  });
 }
 
 /**
@@ -194,7 +234,10 @@ describe("runAgentLoop", () => {
     // Verify the loop continued and yielded text + done
     const doneEvent = events[events.length - 1];
     expect(doneEvent.type).toBe("done");
-    expect(tool.execute).toHaveBeenCalledWith({ input: "test" }, undefined);
+    expect(tool.execute).toHaveBeenCalledWith(
+      { input: "test" },
+      { cwd: process.cwd(), signal: expect.any(AbortSignal) },
+    );
 
     // Verify produced messages include assistant + tool_result + assistant
     if (doneEvent.type === "done") {
@@ -222,10 +265,10 @@ describe("runAgentLoop", () => {
           afterModel: () => {
             order.push("after-model");
           },
-          beforeTool: () => {
+          beforeExecute: () => {
             order.push("before-tool");
           },
-          afterTool: () => {
+          afterExecute: () => {
             order.push("after-tool");
           },
         },
@@ -457,14 +500,14 @@ describe("runAgentLoop", () => {
     expect(lastEvent).toEqual({ type: "error", error: "Max turns reached" });
   });
 
-  it("should yield error immediately when signal is already aborted", async () => {
+  it("should throw AbortError immediately when signal is already aborted", async () => {
     const config = makeConfig();
     const controller = new AbortController();
     controller.abort();
 
-    const events = await collectEvents(executeLoop(config, makeMessages("Hi"), controller.signal));
-
-    expect(events).toEqual([{ type: "error", error: "Aborted" }]);
+    await expect(
+      collectEvents(executeLoop(config, makeMessages("Hi"), controller.signal)),
+    ).rejects.toMatchObject({ name: "AbortError" });
     expect(streamModel).not.toHaveBeenCalled();
   });
 

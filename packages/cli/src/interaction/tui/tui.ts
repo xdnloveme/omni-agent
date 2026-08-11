@@ -18,6 +18,8 @@ import {
   type SelectListTheme,
 } from "@mariozechner/pi-tui";
 import chalk from "chalk";
+import { createAbortError, type CommandSelectionResult } from "@omni-agent/core";
+import { ModalSelect, type ModalSelectOptions } from "./modal-select";
 
 const selectListTheme: SelectListTheme = {
   selectedPrefix: (text) => chalk.bold(chalk.blue(`> ${text}`)),
@@ -73,6 +75,7 @@ export interface OmniTui {
   setCommands(commands: SlashCommand[]): void;
   onSubmit: (input: string) => void | Promise<void>;
   onInterrupt: (() => boolean) | null;
+  select(options: ModalSelectOptions, signal?: AbortSignal): Promise<CommandSelectionResult>;
   pause(): void;
   resume(): void;
   shutdown(): void;
@@ -91,8 +94,12 @@ export function createOmniTui(): OmniTui {
 
   let closed = false;
   let resolveDone: (() => void) | null = null;
+  let sigtermListener: (() => void) | null = null;
   let onSubmitCallback: ((input: string) => void | Promise<void>) | null = null;
   let onInterruptCallback: (() => boolean) | null = null;
+  let activeModal: {
+    finish(result: CommandSelectionResult): void;
+  } | null = null;
 
   // Markdown streaming state
   let activeMarkdown: Markdown | null = null;
@@ -218,6 +225,12 @@ export function createOmniTui(): OmniTui {
     const isCtrlC = matchesKey(data, Key.ctrl("c"));
     if (!isCtrlC) return undefined;
 
+    if (activeModal) {
+      if (onInterruptCallback?.()) return { consume: true };
+      activeModal.finish({ kind: "abort", error: createAbortError() });
+      return { consume: true };
+    }
+
     // If editor has text, clear it
     const hasInput = editor.getText().length > 0;
     if (hasInput) {
@@ -251,7 +264,13 @@ export function createOmniTui(): OmniTui {
     const input = raw.trim();
     if (!input) return;
     if (onSubmitCallback) {
-      void Promise.resolve(onSubmitCallback(input));
+      void Promise.resolve(onSubmitCallback(input)).catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        sink.line(
+          chalk.red(`Input failed: ${error instanceof Error ? error.message : String(error)}`),
+        );
+        sink.spacer();
+      });
     }
   };
 
@@ -274,6 +293,12 @@ export function createOmniTui(): OmniTui {
     closed = true;
     if (exitTimer) clearTimeout(exitTimer);
     if (markdownTimer) clearTimeout(markdownTimer);
+    if (sigtermListener) {
+      process.removeListener("SIGTERM", sigtermListener);
+      sigtermListener = null;
+    }
+    onInterruptCallback?.();
+    activeModal?.finish({ kind: "shutdown", error: createAbortError() });
     ui.stop();
     resolveDone?.();
   }
@@ -283,8 +308,8 @@ export function createOmniTui(): OmniTui {
     ui.start();
     await new Promise<void>((resolve) => {
       resolveDone = resolve;
-      const onSigterm = () => shutdown();
-      process.once("SIGTERM", onSigterm);
+      sigtermListener = () => shutdown();
+      process.once("SIGTERM", sigtermListener);
     });
   }
 
@@ -297,12 +322,55 @@ export function createOmniTui(): OmniTui {
     ui.requestRender(true);
   }
 
+  function select(
+    options: ModalSelectOptions,
+    signal?: AbortSignal,
+  ): Promise<CommandSelectionResult> {
+    if (activeModal) return Promise.reject(new Error("A modal selection is already active"));
+    if (signal?.aborted) {
+      return Promise.resolve({ kind: "abort", error: createAbortError(signal) });
+    }
+    return new Promise<CommandSelectionResult>((resolve) => {
+      const modal = new ModalSelect(options, selectListTheme);
+      const overlay = ui.showOverlay(modal, {
+        width: "80%",
+        minWidth: 40,
+        maxHeight: "70%",
+        anchor: "center",
+        margin: 1,
+      });
+      let settled = false;
+      const onAbort = () => finish({ kind: "abort", error: createAbortError(signal) });
+      const finish = (result: CommandSelectionResult) => {
+        if (settled) return;
+        settled = true;
+        signal?.removeEventListener("abort", onAbort);
+        overlay.hide();
+        activeModal = null;
+        ui.setFocus(editor);
+        ui.requestRender(true);
+        resolve(result);
+      };
+      modal.onSelect = (value) => finish({ kind: "selected", value });
+      modal.onCancel = () => finish({ kind: "escape" });
+      activeModal = { finish };
+      signal?.addEventListener("abort", onAbort, { once: true });
+      if (signal?.aborted) {
+        onAbort();
+        return;
+      }
+      ui.setFocus(modal);
+      ui.requestRender(true);
+    });
+  }
+
   return {
     start,
     sink,
     appendUserMessage,
     setStatus,
     setCommands,
+    select,
     set onSubmit(handler: (input: string) => void | Promise<void>) {
       onSubmitCallback = handler;
     },

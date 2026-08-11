@@ -1,5 +1,6 @@
 import * as cheerio from "cheerio";
-import type { AgentTool, ToolResult } from "@omni-agent/core";
+import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
+import { createWebReadPermission } from "./permission/web-permission";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_OUTPUT_CHARS = 20_000;
@@ -21,10 +22,15 @@ function extractTextFromHtml(html: string): string {
     .trim();
 }
 
-export const webFetchTool: AgentTool = {
+export const webFetchTool: AgentToolDefinition = {
   name: "web_fetch",
-  risk: "network",
-  approval: "never",
+  authorization: createWebReadPermission({
+    parameter: "url",
+    title: "Fetch web content",
+    valueKind: "url",
+  }),
+  execution: { kind: "host" },
+  strict: true,
   description:
     "Fetch a URL and return its content as readable text.\n\n" +
     "Usage:\n" +
@@ -43,19 +49,24 @@ export const webFetchTool: AgentTool = {
     "- Downloading binary files (images, PDFs, archives).",
   schema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       url: {
         type: "string",
+        minLength: 1,
+        maxLength: 8192,
         description: "The URL to fetch",
       },
       timeout_ms: {
-        type: "number",
+        type: "integer",
+        minimum: 100,
+        maximum: 120_000,
         description: "Request timeout in milliseconds. Defaults to 10000.",
       },
     },
     required: ["url"],
   },
-  execute: async (params: Record<string, unknown>): Promise<ToolResult> => {
+  execute: async (params, context): Promise<ToolResult> => {
     const url = params.url as string;
     if (!url) {
       return {
@@ -68,7 +79,9 @@ export const webFetchTool: AgentTool = {
 
     try {
       const response = await fetch(url, {
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: context.signal
+          ? AbortSignal.any([context.signal, AbortSignal.timeout(timeoutMs)])
+          : AbortSignal.timeout(timeoutMs),
         headers: {
           "User-Agent": "Mozilla/5.0 (compatible; OmniAgent/1.0)",
           Accept: "text/html,application/json,text/plain;q=0.9,*/*;q=0.8",

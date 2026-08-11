@@ -5,11 +5,14 @@ import {
   type AgentConfig,
   type AgentEvent,
   type StreamCallbacks,
+  type ToolCallCoordinator,
+  type PermissionMode,
 } from "@omni-agent/core";
 import type { AgentSessionRepository } from "@omni-agent/core";
 import { ConfigService } from "../config/config-service";
 import { ExtensionManager } from "../extensions/extension-manager";
 import { ModelService, type ModelSelection } from "../models/model-service";
+import type { PermissionService } from "../permissions/permission-service";
 
 export class AgentApplication {
   readonly runner: AgentRunner;
@@ -19,6 +22,7 @@ export class AgentApplication {
   readonly agentId: string;
   readonly cwd: string;
   readonly modelService: ModelService;
+  readonly permissions: PermissionService;
   private activeSelection: ModelSelection;
   private readonly configService: ConfigService;
 
@@ -31,7 +35,13 @@ export class AgentApplication {
     this.modelService = dependencies.modelService;
     this.activeSelection = dependencies.modelSelection;
     this.configService = dependencies.configService;
-    this.runner = new AgentRunner(dependencies.modelService.runtime);
+    this.permissions = dependencies.permissionService;
+    this.runner = new AgentRunner(
+      dependencies.modelService.runtime,
+      dependencies.toolCallCoordinator,
+      dependencies.agentId,
+      dependencies.cwd,
+    );
   }
 
   async run(input: string, callbacks: StreamCallbacks, signal?: AbortSignal): Promise<void> {
@@ -102,6 +112,26 @@ export class AgentApplication {
     return this.activeSelection;
   }
 
+  getPermissionMode(): Promise<PermissionMode> {
+    return this.permissions.getMode(this.agentId);
+  }
+
+  setPermissionMode(mode: PermissionMode): Promise<void> {
+    return this.permissions.setMode(this.agentId, mode);
+  }
+
+  listAlwaysApprovedTools() {
+    return this.permissions.listAlwaysApprovedTools(this.agentId);
+  }
+
+  revokeAlwaysApprovedTool(toolIdentity: string): Promise<void> {
+    return this.permissions.revokeAlwaysApprovedTool(this.agentId, toolIdentity);
+  }
+
+  clearAlwaysApprovedTools(): Promise<void> {
+    return this.permissions.clearAlwaysApprovedTools(this.agentId);
+  }
+
   async dispose(): Promise<void> {
     await this.extensions.dispose();
   }
@@ -133,4 +163,6 @@ export interface AgentApplicationDependencies {
   readonly modelService: ModelService;
   readonly modelSelection: ModelSelection;
   readonly configService: ConfigService;
+  readonly permissionService: PermissionService;
+  readonly toolCallCoordinator: ToolCallCoordinator;
 }

@@ -1,4 +1,4 @@
-import { CommandRegistry } from "@omni-agent/core";
+import { CommandRegistry, isToolOriginId } from "@omni-agent/core";
 import { AgentRegistry } from "../registry/agent-registry";
 import { ToolRegistry } from "../registry/tool-registry";
 import type { AgentExtension, ExtensionDiagnostic } from "./types";
@@ -41,8 +41,8 @@ export class ExtensionManager {
     this.modelProviders = options.modelProviders;
   }
 
-  async register(extension: AgentExtension): Promise<void> {
-    this.validate(extension);
+  async register(extension: AgentExtension, originId = extension.manifest.id): Promise<void> {
+    this.validate(extension, originId);
     const registeredAgents: string[] = [];
     const registeredTools: string[] = [];
     const registeredCommands: string[] = [];
@@ -55,7 +55,7 @@ export class ExtensionManager {
         registeredProviders.push(provider.manifest.id);
       }
       for (const tool of extension.contributions.tools ?? []) {
-        this.tools.register(tool);
+        this.tools.register(tool, originId);
         registeredTools.push(tool.name);
       }
       for (const agent of extension.contributions.agents ?? []) {
@@ -122,15 +122,18 @@ export class ExtensionManager {
     for (const extensionId of [...this.active.keys()].reverse()) await this.unregister(extensionId);
   }
 
-  private validate(extension: AgentExtension): void {
+  private validate(extension: AgentExtension, originId: string): void {
     const { id, version, apiVersion } = extension.manifest;
-    if (!id.trim()) throw new Error("Extension id is required");
+    if (!isToolOriginId(id)) {
+      throw new Error(`Invalid extension id: ${id}`);
+    }
     if (!version.trim()) throw new Error(`Extension version is required: ${id}`);
     if (apiVersion !== 1) throw new Error(`Unsupported extension API version: ${apiVersion}`);
     if (this.active.has(id)) throw new Error(`Extension already registered: ${id}`);
 
     const toolNames = new Set<string>();
     for (const tool of extension.contributions.tools ?? []) {
+      this.tools.validate(tool, originId);
       if (toolNames.has(tool.name) || this.tools.has(tool.name)) {
         throw new Error(`Tool already registered: ${tool.name}`);
       }

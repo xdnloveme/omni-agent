@@ -1,12 +1,18 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AgentTool, ToolResult } from "@omni-agent/core";
+import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
 import { fileMutex } from "./file-mutex";
+import { createFilePathPermission } from "./permission/create-file-path-permission";
+import { resolveToolPath } from "../security/path/normalize-path";
 
-export const fileWriteTool: AgentTool = {
+export const fileWriteTool: AgentToolDefinition = {
   name: "file_write",
-  risk: "write",
-  approval: "policy",
+  strict: true,
+  authorization: {
+    ...createFilePathPermission({ parameter: "file_path", access: "write" }),
+    hiddenInputKeys: ["content"],
+  },
+  execution: { kind: "host" },
   description:
     "Create or overwrite a file with the given content.\n\n" +
     "Usage:\n" +
@@ -21,9 +27,12 @@ export const fileWriteTool: AgentTool = {
     "- Appending to a file (read first with file_read, then write the combined content).",
   schema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       file_path: {
         type: "string",
+        minLength: 1,
+        maxLength: 4096,
         description: "Absolute path to the file to write",
       },
       content: {
@@ -33,7 +42,7 @@ export const fileWriteTool: AgentTool = {
     },
     required: ["file_path", "content"],
   },
-  execute: async (params: Record<string, unknown>): Promise<ToolResult> => {
+  execute: async (params, context): Promise<ToolResult> => {
     const filePath = params.file_path as string;
     const content = params.content as string;
 
@@ -50,7 +59,7 @@ export const fileWriteTool: AgentTool = {
       };
     }
 
-    const resolved = path.resolve(filePath);
+    const resolved = resolveToolPath(filePath, context.cwd);
 
     try {
       await fileMutex.withLock(resolved, async () => {

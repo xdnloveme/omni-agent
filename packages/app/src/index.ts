@@ -29,6 +29,18 @@ export type {
   ToolExposure,
 } from "./extensions/types";
 export { ConfigService } from "./config/config-service";
+export {
+  createPermissionRuntime,
+  DefaultPermissionPolicy,
+  PermissionRepository,
+  PermissionService,
+} from "./permissions/index";
+export type {
+  PermissionDiagnostic,
+  PersistedAgentPermissions,
+  PersistedPermissions,
+  PersistedToolApproval,
+} from "./permissions/index";
 export type { ConfigServiceOptions } from "./config/config-service";
 export type {
   AgentModelConfig,

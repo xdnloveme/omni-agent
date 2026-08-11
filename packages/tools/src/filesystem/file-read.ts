@@ -1,12 +1,14 @@
 import fs from "node:fs/promises";
-import path from "node:path";
-import type { AgentTool, ToolResult } from "@omni-agent/core";
+import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
 import { fileMutex } from "./file-mutex";
+import { createFilePathPermission } from "./permission/create-file-path-permission";
+import { resolveToolPath } from "../security/path/normalize-path";
 
-export const fileReadTool: AgentTool = {
+export const fileReadTool: AgentToolDefinition = {
   name: "file_read",
-  risk: "read",
-  approval: "never",
+  strict: true,
+  authorization: createFilePathPermission({ parameter: "file_path", access: "read" }),
+  execution: { kind: "host" },
   description:
     "Read a file and return its content with line numbers.\n\n" +
     "Usage:\n" +
@@ -23,23 +25,28 @@ export const fileReadTool: AgentTool = {
     "- Finding files by name (use glob instead).",
   schema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       file_path: {
         type: "string",
+        minLength: 1,
+        maxLength: 4096,
         description: "Absolute path to the file to read",
       },
       offset: {
-        type: "number",
+        type: "integer",
+        minimum: 1,
         description: "Starting line number (1-based). Defaults to 1.",
       },
       limit: {
-        type: "number",
+        type: "integer",
+        minimum: 1,
         description: "Maximum number of lines to return. Defaults to all.",
       },
     },
     required: ["file_path"],
   },
-  execute: async (params: Record<string, unknown>): Promise<ToolResult> => {
+  execute: async (params, context): Promise<ToolResult> => {
     const filePath = params.file_path as string;
     if (!filePath) {
       return {
@@ -48,7 +55,7 @@ export const fileReadTool: AgentTool = {
       };
     }
 
-    const resolved = path.resolve(filePath);
+    const resolved = resolveToolPath(filePath, context.cwd);
 
     try {
       const text = await fileMutex.withLock(resolved, () => fs.readFile(resolved, "utf-8"));

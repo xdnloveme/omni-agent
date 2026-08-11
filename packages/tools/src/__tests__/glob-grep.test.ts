@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { globTool } from "../search/glob";
 import { grepTool } from "../search/grep";
+import { invokeToolImplementation } from "./tool-test-helper";
 
 let tmpDir: string;
 
@@ -23,7 +24,7 @@ describe("globTool", () => {
     await fs.writeFile(path.join(tmpDir, "b.ts"), "");
     await fs.writeFile(path.join(tmpDir, "c.js"), "");
 
-    const result = await globTool.execute({
+    const result = await invokeToolImplementation(globTool, {
       pattern: "*.ts",
       dir_path: tmpDir,
     });
@@ -40,7 +41,7 @@ describe("globTool", () => {
     await fs.writeFile(path.join(tmpDir, "sub", "deep.ts"), "");
     await fs.writeFile(path.join(tmpDir, "top.ts"), "");
 
-    const result = await globTool.execute({
+    const result = await invokeToolImplementation(globTool, {
       pattern: "**/*.ts",
       dir_path: tmpDir,
     });
@@ -55,7 +56,7 @@ describe("globTool", () => {
     await fs.writeFile(path.join(tmpDir, "keep.ts"), "");
     await fs.writeFile(path.join(tmpDir, "skip.test.ts"), "");
 
-    const result = await globTool.execute({
+    const result = await invokeToolImplementation(globTool, {
       pattern: "*.ts",
       dir_path: tmpDir,
       exclude: ["*.test.ts"],
@@ -75,7 +76,7 @@ describe("globTool", () => {
     }
     await Promise.all(promises);
 
-    const result = await globTool.execute({
+    const result = await invokeToolImplementation(globTool, {
       pattern: "*.txt",
       dir_path: tmpDir,
     });
@@ -89,7 +90,7 @@ describe("globTool", () => {
   });
 
   it("should return message when no files match", async () => {
-    const result = await globTool.execute({
+    const result = await invokeToolImplementation(globTool, {
       pattern: "*.xyz",
       dir_path: tmpDir,
     });
@@ -99,7 +100,7 @@ describe("globTool", () => {
   });
 
   it("should return error when pattern is missing", async () => {
-    const result = await globTool.execute({});
+    const result = await invokeToolImplementation(globTool, {});
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("pattern is required");
@@ -115,7 +116,7 @@ describe("grepTool", () => {
       "const foo = 1;\nconst bar = 2;\nconst foobar = 3;\n",
     );
 
-    const result = await grepTool.execute({
+    const result = await invokeToolImplementation(grepTool, {
       regex: "foo",
       search_path: tmpDir,
     });
@@ -131,7 +132,7 @@ describe("grepTool", () => {
   it("should support ignore_case", async () => {
     await fs.writeFile(path.join(tmpDir, "case.txt"), "Hello World\nhello world\nHELLO WORLD\n");
 
-    const result = await grepTool.execute({
+    const result = await invokeToolImplementation(grepTool, {
       regex: "hello",
       search_path: tmpDir,
       ignore_case: true,
@@ -148,7 +149,7 @@ describe("grepTool", () => {
     await fs.writeFile(path.join(tmpDir, "match.ts"), "target line\n");
     await fs.writeFile(path.join(tmpDir, "skip.js"), "target line\n");
 
-    const result = await grepTool.execute({
+    const result = await invokeToolImplementation(grepTool, {
       regex: "target",
       search_path: tmpDir,
       glob: "*.ts",
@@ -165,7 +166,7 @@ describe("grepTool", () => {
     const lines = Array.from({ length: 100 }, (_, i) => `match line ${i}`).join("\n");
     await fs.writeFile(path.join(tmpDir, "many.txt"), lines);
 
-    const result = await grepTool.execute({
+    const result = await invokeToolImplementation(grepTool, {
       regex: "match",
       search_path: tmpDir,
       max_results: 5,
@@ -180,7 +181,7 @@ describe("grepTool", () => {
   it("should return no matches message when nothing found", async () => {
     await fs.writeFile(path.join(tmpDir, "empty.txt"), "nothing here\n");
 
-    const result = await grepTool.execute({
+    const result = await invokeToolImplementation(grepTool, {
       regex: "zzzzz_not_found",
       search_path: tmpDir,
     });
@@ -190,9 +191,39 @@ describe("grepTool", () => {
   });
 
   it("should return error when regex is missing", async () => {
-    const result = await grepTool.execute({});
+    const result = await invokeToolImplementation(grepTool, {});
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("regex is required");
+  });
+
+  it("should propagate AbortError and terminate its subprocess", async () => {
+    const controller = new AbortController();
+    controller.abort();
+
+    await expect(
+      invokeToolImplementation(
+        grepTool,
+        { regex: "content", search_path: tmpDir },
+        { cwd: process.cwd(), signal: controller.signal },
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+  });
+});
+
+describe("search path permissions", () => {
+  it.each([
+    [globTool, { pattern: "*", dir_path: "../outside" }],
+    [grepTool, { regex: "secret", search_path: "../outside" }],
+  ])("assesses external search roots for %s", async (tool, input) => {
+    if (tool.authorization.kind !== "dynamic") throw new Error("expected dynamic authorization");
+    await expect(
+      tool.authorization.assess(input, {
+        cwd: tmpDir,
+        agentId: "test",
+        toolIdentity: `test:${tool.name}`,
+        toolCallId: "call-1",
+      }),
+    ).resolves.toMatchObject({ risk: "external" });
   });
 });

@@ -1,12 +1,26 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { AgentSessionRepository, type AgentConfig, type SkillRuntime } from "@omni-agent/core";
+import {
+  AgentSessionRepository,
+  isAgentId,
+  ToolAuthorizationRouter,
+  ToolCallCoordinator,
+  ToolInvocationRunner,
+  ToolInputValidator,
+  type AgentConfig,
+  type ApprovalBroker,
+  type PermissionObserver,
+  type SandboxRunnerPort,
+  type SkillRuntime,
+} from "@omni-agent/core";
 import { AgentApplication } from "./agent-application";
 import type { ConfigService } from "../config/config-service";
 import { loadAgentExtensions } from "../extensions/agent-extension-loader";
 import { ExtensionManager } from "../extensions/extension-manager";
 import type { AgentExtension } from "../extensions/types";
 import type { ModelService } from "../models/model-service";
+import { createPermissionRuntime } from "../permissions/create-permission-runtime";
+import { ToolRegistry } from "../registry/tool-registry";
 
 export interface SkillCapability {
   readonly runtime: SkillRuntime;
@@ -45,6 +59,9 @@ export interface AgentFactoryOptions {
   readonly configService: ConfigService;
   readonly modelService: ModelService;
   readonly loadExtensions?: boolean;
+  readonly approvalBroker?: ApprovalBroker;
+  readonly permissionObserver?: PermissionObserver;
+  readonly sandboxRunner?: SandboxRunnerPort;
 }
 
 export class AgentFactory {
@@ -67,13 +84,15 @@ export class AgentFactory {
 
     const module = await blueprint.build({ cwd: this.cwd });
     validateModule(blueprint.id, module);
+    const toolInputValidator = new ToolInputValidator();
     const manager = new ExtensionManager({
       cwd: this.cwd,
       modelProviders: this.options.modelService.providerPlugins,
+      tools: new ToolRegistry(toolInputValidator),
     });
 
     try {
-      await manager.register(module.extension);
+      await manager.register(module.extension, `builtin-${blueprint.id}`);
       if (this.options.loadExtensions !== false) {
         const loaded = await loadAgentExtensions({
           cwd: this.cwd,
@@ -103,6 +122,16 @@ export class AgentFactory {
         sessionsRoot: join(this.globalDirectory, "sessions"),
       });
       await sessions.restoreLatestOrCreate();
+      const permissions = createPermissionRuntime({
+        globalDirectory: this.globalDirectory,
+        approvalBroker: this.options.approvalBroker,
+        observer: this.options.permissionObserver,
+      });
+      const toolCallCoordinator = new ToolCallCoordinator({
+        authorizer: new ToolAuthorizationRouter(permissions.permissionGate),
+        invocationRunner: new ToolInvocationRunner({ sandboxRunner: this.options.sandboxRunner }),
+        inputValidator: toolInputValidator,
+      });
       const application = new AgentApplication({
         extensions: manager,
         sessions,
@@ -112,6 +141,8 @@ export class AgentFactory {
         modelService: this.options.modelService,
         modelSelection: selection,
         configService: this.options.configService,
+        permissionService: permissions.service,
+        toolCallCoordinator,
       });
       let disposed = false;
       return {
@@ -152,7 +183,7 @@ function validateModule(expectedId: string, module: AgentModule): void {
 }
 
 function assertAgentId(agentId: string): void {
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(agentId)) {
+  if (!isAgentId(agentId)) {
     throw new Error(`Invalid agent id: ${agentId}`);
   }
 }

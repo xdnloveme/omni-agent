@@ -1,12 +1,14 @@
 import fs from "node:fs/promises";
-import path from "node:path";
-import type { AgentTool, ToolResult } from "@omni-agent/core";
+import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
 import { fileMutex } from "./file-mutex";
+import { createFilePathPermission } from "./permission/create-file-path-permission";
+import { resolveToolPath } from "../security/path/normalize-path";
 
-export const fileEditTool: AgentTool = {
+export const fileEditTool: AgentToolDefinition = {
   name: "file_edit",
-  risk: "write",
-  approval: "policy",
+  strict: true,
+  authorization: createFilePathPermission({ parameter: "file_path", access: "write" }),
+  execution: { kind: "host" },
   description:
     "Perform an exact, whitespace-sensitive string replacement in a file.\n\n" +
     "Usage:\n" +
@@ -24,9 +26,12 @@ export const fileEditTool: AgentTool = {
     "- When old_string appears multiple times — include more context to make it unique.",
   schema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       file_path: {
         type: "string",
+        minLength: 1,
+        maxLength: 4096,
         description: "Absolute path to the file to edit",
       },
       old_string: {
@@ -40,7 +45,7 @@ export const fileEditTool: AgentTool = {
     },
     required: ["file_path", "old_string", "new_string"],
   },
-  execute: async (params: Record<string, unknown>): Promise<ToolResult> => {
+  execute: async (params, context): Promise<ToolResult> => {
     const filePath = params.file_path as string;
     const oldString = params.old_string as string;
     const newString = params.new_string as string;
@@ -64,7 +69,7 @@ export const fileEditTool: AgentTool = {
       };
     }
 
-    const resolved = path.resolve(filePath);
+    const resolved = resolveToolPath(filePath, context.cwd);
 
     try {
       const result = await fileMutex.withLock(resolved, async () => {

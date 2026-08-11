@@ -1,13 +1,14 @@
 import path from "node:path";
 import fg from "fast-glob";
-import type { AgentTool, ToolResult } from "@omni-agent/core";
+import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
+import { createSearchPathPermission } from "./permission/create-search-path-permission";
 
 const MAX_RESULTS = 200;
 
-export const globTool: AgentTool = {
+export const globTool: AgentToolDefinition = {
   name: "glob",
-  risk: "read",
-  approval: "never",
+  authorization: createSearchPathPermission("dir_path"),
+  execution: { kind: "host" },
   description:
     "Fast file pattern matching tool for discovering files by name or path pattern.\n\n" +
     "Usage:\n" +
@@ -28,24 +29,30 @@ export const globTool: AgentTool = {
     "- Reading a file you already know the path to (use file_read).",
   schema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       pattern: {
         type: "string",
+        minLength: 1,
+        maxLength: 4096,
         description: "Glob pattern to match files (e.g. '**/*.ts', 'src/**/*.{js,ts}')",
       },
       dir_path: {
         type: "string",
+        minLength: 1,
+        maxLength: 4096,
         description: "Directory to search in. Defaults to current working directory.",
       },
       exclude: {
         type: "array",
-        items: { type: "string" },
+        maxItems: 100,
+        items: { type: "string", minLength: 1, maxLength: 4096 },
         description: "Patterns to exclude (e.g. ['node_modules/**', '*.test.ts'])",
       },
     },
     required: ["pattern"],
   },
-  execute: async (params: Record<string, unknown>): Promise<ToolResult> => {
+  execute: async (params, context): Promise<ToolResult> => {
     const pattern = params.pattern as string;
     if (!pattern) {
       return {
@@ -54,7 +61,9 @@ export const globTool: AgentTool = {
       };
     }
 
-    const cwd = params.dir_path ? path.resolve(params.dir_path as string) : process.cwd();
+    const cwd = params.dir_path
+      ? path.resolve(context.cwd, params.dir_path as string)
+      : context.cwd;
 
     const exclude = (params.exclude as string[] | undefined) ?? [];
 

@@ -1,1 +1,1 @@
-export type { RunMiddleware, RuntimeMiddleware, ToolMiddleware } from "./types";
+export type { RunMiddleware, RuntimeMiddleware, ToolExecutionMiddleware } from "./types";

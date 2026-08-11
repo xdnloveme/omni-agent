@@ -1,22 +1,10 @@
 import { randomUUID } from "node:crypto";
-import {
-  appendFile,
-  mkdir,
-  open,
-  readFile,
-  rename,
-  stat,
-  unlink,
-  writeFile,
-  type FileHandle,
-} from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { InterprocessFileLock } from "../persistence";
+import { isAgentId } from "../identifiers";
 
 import type { SessionEntry, SessionIndex, SessionMessage } from "./types";
-
-const LOCK_RETRY_MS = 25;
-const LOCK_TIMEOUT_MS = 5_000;
-const STALE_LOCK_MS = 30_000;
 
 export interface AgentSession {
   readonly id: string;
@@ -32,6 +20,7 @@ export class AgentSessionRepository {
   private readonly directory: string;
   private readonly indexPath: string;
   private readonly lockPath: string;
+  private readonly lock: InterprocessFileLock;
   private activeId: string | null = null;
   private activeMessages: SessionMessage[] = [];
 
@@ -40,6 +29,7 @@ export class AgentSessionRepository {
     this.directory = join(options.sessionsRoot, options.agentId);
     this.indexPath = join(this.directory, "index.json");
     this.lockPath = join(this.directory, ".lock");
+    this.lock = new InterprocessFileLock(this.lockPath, { retryMs: 25, timeoutMs: 5_000 });
   }
 
   get currentId(): string | null {
@@ -172,75 +162,7 @@ export class AgentSessionRepository {
 
   private async exclusive<T>(operation: () => Promise<T>): Promise<T> {
     await mkdir(this.directory, { recursive: true });
-    const lock = await this.acquireLock();
-    let result: T | undefined;
-    let operationError: unknown;
-    try {
-      result = await operation();
-    } catch (error) {
-      operationError = error;
-    }
-
-    let cleanupError: unknown;
-    try {
-      await lock.close();
-      await unlink(this.lockPath).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
-      });
-    } catch (error) {
-      cleanupError = error;
-    }
-
-    if (operationError && cleanupError) {
-      throw new AggregateError(
-        [operationError, cleanupError],
-        `Session operation and lock cleanup failed: ${this.directory}`,
-      );
-    }
-    if (operationError) throw operationError;
-    if (cleanupError) throw cleanupError;
-    return result as T;
-  }
-
-  private async acquireLock(): Promise<FileHandle> {
-    const deadline = Date.now() + LOCK_TIMEOUT_MS;
-    while (true) {
-      try {
-        const handle = await open(this.lockPath, "wx", 0o600);
-        try {
-          await handle.writeFile(JSON.stringify({ pid: process.pid, createdAt: Date.now() }));
-          return handle;
-        } catch (error) {
-          await handle.close();
-          await unlink(this.lockPath).catch(() => undefined);
-          throw error;
-        }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        await this.removeStaleLock();
-        if (Date.now() >= deadline) throw new Error(`Session lock timeout: ${this.directory}`);
-        await delay(LOCK_RETRY_MS);
-      }
-    }
-  }
-
-  private async removeStaleLock(): Promise<void> {
-    let metadata: { pid?: unknown; createdAt?: unknown } = {};
-    try {
-      metadata = JSON.parse(await readFile(this.lockPath, "utf8")) as typeof metadata;
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
-    }
-    try {
-      const lockStat = await stat(this.lockPath);
-      const createdAt =
-        typeof metadata.createdAt === "number" ? metadata.createdAt : lockStat.mtimeMs;
-      if (Date.now() - createdAt < STALE_LOCK_MS) return;
-      if (typeof metadata.pid === "number" && isProcessAlive(metadata.pid)) return;
-      await unlink(this.lockPath);
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
-    }
+    return this.lock.runExclusive(operation);
   }
 
   private sessionPath(sessionId: string): string {
@@ -249,7 +171,7 @@ export class AgentSessionRepository {
 }
 
 function assertAgentId(agentId: string): void {
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(agentId)) {
+  if (!isAgentId(agentId)) {
     throw new Error(`Invalid agent id: ${agentId}`);
   }
 }
@@ -269,17 +191,4 @@ function assertSessionEntry(value: unknown): asserts value is SessionEntry {
     throw new Error("Session index entry is invalid");
   }
   assertSessionId(entry.id);
-}
-
-function isProcessAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === "EPERM";
-  }
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }

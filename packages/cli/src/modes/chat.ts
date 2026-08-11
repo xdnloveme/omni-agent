@@ -1,12 +1,13 @@
 import chalk from "chalk";
 
-import type { StreamCallbacks, TokenUsage } from "@omni-agent/core";
+import { formatSanitizedToolInput, type StreamCallbacks, type TokenUsage } from "@omni-agent/core";
 import { AgentFactory, ConfigService, createModelService } from "@omni-agent/app";
 import { loadAgentBlueprint } from "../agents/agent-blueprint-loader";
 import { createOmniTui } from "../interaction/tui/tui";
 import { persistOnboardingSelection, runOnboarding } from "../onboarding";
 import { createCommandRegistry } from "../commands/index";
 import { SkillCliController } from "../skills";
+import { TuiApprovalBroker } from "../permissions/tui-approval-broker";
 
 export async function runChatMode(agentId: string): Promise<void> {
   const configService = new ConfigService();
@@ -36,17 +37,18 @@ export async function runChatMode(agentId: string): Promise<void> {
       );
     }
 
+    const tui = createOmniTui();
     const blueprint = await loadAgentBlueprint(agentId);
     const instance = await new AgentFactory({
       cwd: process.cwd(),
       configService,
       modelService,
+      approvalBroker: new TuiApprovalBroker(tui),
     }).create(blueprint);
     const app = instance.application;
     const agentConfig = app.agentConfig;
     const skillCapability = instance.capabilities.skills;
 
-    const tui = createOmniTui();
     const registry = createCommandRegistry(app);
     let activeAbort: AbortController | null = null;
     let running = false;
@@ -135,7 +137,18 @@ export async function runChatMode(agentId: string): Promise<void> {
         const command = registry.get(cmdName || "help");
         if (command) {
           tui.appendUserMessage(input);
-          await command.execute({ args, agentConfig, tui });
+          try {
+            await command.execute({ args, agentConfig, tui });
+          } catch (error) {
+            if (!(error instanceof Error && error.name === "AbortError")) {
+              tui.sink.line(
+                chalk.red(
+                  `Command failed: ${error instanceof Error ? error.message : String(error)}`,
+                ),
+              );
+              tui.sink.spacer();
+            }
+          }
           return;
         }
 
@@ -188,7 +201,7 @@ export async function runChatMode(agentId: string): Promise<void> {
           if (skillController?.shouldSuppressToolPreview(toolName)) return;
           tui.sink.line();
           tui.sink.line(
-            `${chalk.cyan("▶")} ${chalk.bold(toolName)} ${chalk.dim(JSON.stringify(toolInput))}`,
+            `${chalk.cyan("▶")} ${chalk.bold(toolName)} ${chalk.dim(formatSanitizedToolInput(toolInput))}`,
           );
           tui.setStatus(chalk.cyan(`running: ${toolName}...`));
         },

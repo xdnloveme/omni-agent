@@ -1,2 +1,8 @@
-export type { Command, CommandContext, CommandTui } from "./types";
+export type {
+  Command,
+  CommandContext,
+  CommandSelectionOptions,
+  CommandSelectionResult,
+  CommandTui,
+} from "./types";
 export { CommandRegistry } from "./registry";

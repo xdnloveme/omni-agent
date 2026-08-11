@@ -1,4 +1,4 @@
-import type { AgentTool } from "../types";
+import type { AgentToolDefinition } from "../types";
 import { createSkillReadTool } from "./skill-read-tool";
 import { SkillReadLifecycleAdapter } from "./lifecycle-adapter";
 import { SkillRegistry } from "./registry";
@@ -10,7 +10,7 @@ export interface SkillRuntimeOptions {
 
 export class SkillRuntime {
   readonly registry: SkillRegistry;
-  private readonly skillReadTool: AgentTool;
+  private readonly skillReadTool: AgentToolDefinition;
   private readonly lifecycleAdapter: SkillReadLifecycleAdapter;
 
   constructor(options: SkillRuntimeOptions) {
@@ -23,7 +23,7 @@ export class SkillRuntime {
     await this.registry.initialize();
   }
 
-  tool(): AgentTool {
+  tool(): AgentToolDefinition {
     return this.skillReadTool;
   }
 

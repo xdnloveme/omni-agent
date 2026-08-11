@@ -15,6 +15,8 @@ function extension(id: string, activate?: () => void): AgentExtension {
       tools: [
         {
           name: `${id}_tool`,
+          authorization: { kind: "static", risk: "read", reason: "test" },
+          execution: { kind: "host" },
           description: "test",
           schema: { type: "object" },
           async execute() {
@@ -61,7 +63,7 @@ describe("ExtensionManager", () => {
     const broken = extension("broken", () => {
       throw new Error("activation failed");
     });
-    broken.contributions.middleware = [{ beforeTool() {} }];
+    broken.contributions.middleware = [{ beforeExecute() {} }];
     await expect(manager.register(broken)).rejects.toThrow("activation failed");
     expect(manager.agents.has("broken_agent")).toBe(false);
     expect(manager.tools.has("broken_tool")).toBe(false);
@@ -97,6 +99,28 @@ describe("ExtensionManager", () => {
     );
     expect(manager.agents.has("broken_agent")).toBe(false);
     expect(manager.tools.has("broken_tool")).toBe(false);
+  });
+
+  it("rejects a tool without an authorization descriptor before registration", async () => {
+    const manager = new ExtensionManager({ cwd: process.cwd() });
+    const broken = extension("broken-permission");
+    delete (broken.contributions.tools![0] as Partial<{ authorization: unknown }>).authorization;
+
+    await expect(manager.register(broken)).rejects.toThrow(
+      "Tool authorization descriptor is required",
+    );
+    expect(manager.tools.has("broken-permission_tool")).toBe(false);
+    expect(manager.agents.has("broken-permission_agent")).toBe(false);
+  });
+
+  it("rejects a tool without an execution strategy before registration", async () => {
+    const manager = new ExtensionManager({ cwd: process.cwd() });
+    const broken = extension("broken-execution");
+    delete (broken.contributions.tools![0] as Partial<{ execution: unknown }>).execution;
+
+    await expect(manager.register(broken)).rejects.toThrow("Tool execution strategy is required");
+    expect(manager.tools.has("broken-execution_tool")).toBe(false);
+    expect(manager.agents.has("broken-execution_agent")).toBe(false);
   });
 
   it("isolates optional extension failures as diagnostics", async () => {

@@ -1,20 +1,38 @@
-import type { AgentTool, ToolResult } from "@omni-agent/core";
+import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
 import type { OhlcvBar, TechnicalIndicatorSnapshot } from "../domain/types";
 import { atr, ema, macd, rsi, sma } from "../indicators/calculations";
 
-export const computeTechnicalIndicatorsTool: AgentTool = {
+export const computeTechnicalIndicatorsTool: AgentToolDefinition = {
   name: "financial_compute_technical_indicators",
   strict: true,
-  risk: "read",
-  approval: "never",
+  authorization: {
+    kind: "trusted",
+    reason: "Computes deterministic indicators from provided values",
+  },
+  execution: { kind: "host" },
   description:
     "Compute deterministic SMA, EMA, RSI, MACD, and ATR values from timestamped OHLCV bars.",
   schema: {
     type: "object",
+    additionalProperties: false,
     properties: {
       bars: {
         type: "array",
-        items: { type: "object" },
+        minItems: 1,
+        maxItems: 100_000,
+        items: {
+          type: "object",
+          additionalProperties: false,
+          properties: {
+            timestamp: { type: "number" },
+            open: { type: "number" },
+            high: { type: "number" },
+            low: { type: "number" },
+            close: { type: "number" },
+            volume: { type: "number" },
+          },
+          required: ["timestamp", "open", "high", "low", "close", "volume"],
+        },
         description: "OHLCV bars ordered oldest to newest",
       },
       period: { type: "integer", minimum: 1, default: 14 },
