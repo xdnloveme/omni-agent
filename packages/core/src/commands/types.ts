@@ -18,7 +18,13 @@ export interface CommandSelectionOptions {
   title: string;
   detail?: string;
   message?: string;
-  items: Array<{ value: string; label: string; description?: string }>;
+  tone?: "default" | "warning" | "danger";
+  items: Array<{
+    value: string;
+    label: string;
+    description?: string;
+    tone?: "default" | "positive" | "negative";
+  }>;
 }
 
 export type CommandSelectionResult =

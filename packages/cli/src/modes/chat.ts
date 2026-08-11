@@ -197,33 +197,14 @@ export async function runChatMode(agentId: string): Promise<void> {
         onTextChunk(delta) {
           tui.sink.writeMarkdown(delta);
         },
-        onToolStart(toolName, _toolCallId, toolInput) {
+        onToolStart(toolName, toolCallId, toolInput) {
           if (skillController?.shouldSuppressToolPreview(toolName)) return;
-          tui.sink.line();
-          tui.sink.line(
-            `${chalk.cyan("▶")} ${chalk.bold(toolName)} ${chalk.dim(formatSanitizedToolInput(toolInput))}`,
-          );
+          tui.sink.toolStart(toolName, toolCallId, formatSanitizedToolInput(toolInput));
           tui.setStatus(chalk.cyan(`running: ${toolName}...`));
         },
-        onToolEnd(_toolName, _toolCallId, result, durationMs) {
-          if (skillController?.shouldSuppressToolPreview(_toolName)) return;
-          if (result.isError) {
-            tui.sink.line(`  ${chalk.red("✗ error")} ${chalk.dim(`(${durationMs}ms)`)}`);
-          } else {
-            tui.sink.line(`  ${chalk.green("✓ done")} ${chalk.dim(`(${durationMs}ms)`)}`);
-          }
-          for (const block of result.content) {
-            if (block.type === "text" && block.text) {
-              const lines = block.text.split("\n").slice(0, 5);
-              for (const line of lines) {
-                tui.sink.line(`  ${chalk.dim(line)}`);
-              }
-              const total = block.text.split("\n").length;
-              if (total > 5) {
-                tui.sink.line(`  ${chalk.dim(`... ${total - 5} more lines`)}`);
-              }
-            }
-          }
+        onToolEnd(toolName, toolCallId, result, durationMs) {
+          if (skillController?.shouldSuppressToolPreview(toolName)) return;
+          tui.sink.toolEnd(toolCallId, result, durationMs);
           tui.sink.spacer();
           tui.setStatus(chalk.cyan("thinking..."));
         },

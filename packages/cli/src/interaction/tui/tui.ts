@@ -3,11 +3,12 @@ import {
   CombinedAutocompleteProvider,
   Container,
   Editor,
-  Markdown,
   ProcessTerminal,
+  ScrollView,
   Spacer,
   Text,
-  TUI,
+  TuiAltScreen,
+  VStack,
   matchesKey,
   Key,
   wrapTextWithAnsi,
@@ -16,10 +17,16 @@ import {
   type EditorTheme,
   type MarkdownTheme,
   type SelectListTheme,
-} from "@mariozechner/pi-tui";
+} from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { createAbortError, type CommandSelectionResult } from "@omni-agent/core";
-import { ModalSelect, type ModalSelectOptions } from "./modal-select";
+import {
+  createAbortError,
+  type CommandSelectionOptions,
+  type CommandSelectionResult,
+} from "@omni-agent/core";
+import { InlineSelect } from "./inline-select";
+import { MarkdownMessage } from "./markdown-message";
+import { ToolMessage, type ToolMessageResult } from "./tool-message";
 
 const selectListTheme: SelectListTheme = {
   selectedPrefix: (text) => chalk.bold(chalk.blue(`> ${text}`)),
@@ -53,6 +60,7 @@ const markdownTheme: MarkdownTheme = {
 };
 
 const MARKDOWN_THROTTLE_MS = 50;
+const TOOL_RESULT_PREVIEW_MS = 1200;
 
 export interface TuiSink {
   write(text: string): void;
@@ -60,6 +68,8 @@ export interface TuiSink {
   line(text?: string): void;
   spacer(): void;
   flush(): void;
+  toolStart(toolName: string, toolCallId: string, inputPreview: string): void;
+  toolEnd(toolCallId: string, result: ToolMessageResult, durationMs: number): void;
 }
 
 export interface SlashCommand {
@@ -75,21 +85,36 @@ export interface OmniTui {
   setCommands(commands: SlashCommand[]): void;
   onSubmit: (input: string) => void | Promise<void>;
   onInterrupt: (() => boolean) | null;
-  select(options: ModalSelectOptions, signal?: AbortSignal): Promise<CommandSelectionResult>;
+  select(options: CommandSelectionOptions, signal?: AbortSignal): Promise<CommandSelectionResult>;
   pause(): void;
   resume(): void;
   shutdown(): void;
 }
 
 export function createOmniTui(): OmniTui {
-  const ui = new TUI(new ProcessTerminal());
+  const internalLinks = new Map<string, () => void>();
+  const terminal = new ProcessTerminal();
+  const ui = new TuiAltScreen(terminal, true, undefined, {
+    openUrl(url) {
+      internalLinks.get(url)?.();
+    },
+  });
   const messageContainer = new Container();
   const statusLine = new Text("", 0, 0);
   const editor = new Editor(ui, editorTheme);
+  const transcript = new ScrollView(messageContainer, {
+    follow: "end",
+    primary: true,
+    scrollbar: "auto",
+  });
 
-  ui.addChild(messageContainer);
-  ui.addChild(editor);
-  ui.addChild(statusLine);
+  ui.setLayoutRoot(
+    new VStack([
+      { component: transcript, basis: 0, grow: 1, minSize: 1 },
+      { component: editor, basis: "auto", shrink: 0 },
+      { component: statusLine, basis: 1, shrink: 0 },
+    ]),
+  );
   ui.setFocus(editor);
 
   let closed = false;
@@ -97,16 +122,18 @@ export function createOmniTui(): OmniTui {
   let sigtermListener: (() => void) | null = null;
   let onSubmitCallback: ((input: string) => void | Promise<void>) | null = null;
   let onInterruptCallback: (() => boolean) | null = null;
-  let activeModal: {
+  let activeSelection: {
     finish(result: CommandSelectionResult): void;
   } | null = null;
 
   // Markdown streaming state
-  let activeMarkdown: Markdown | null = null;
+  let activeMarkdown: MarkdownMessage | null = null;
   let markdownBuffer = "";
   let markdownTimer: NodeJS.Timeout | null = null;
   let activeText: Text | null = null;
   let textBuffer = "";
+  const toolMessages = new Map<string, ToolMessage>();
+  const toolPreviewTimers = new Set<NodeJS.Timeout>();
 
   // Exit confirmation
   let exitPending = false;
@@ -118,7 +145,9 @@ export function createOmniTui(): OmniTui {
       name: cmd.name,
       description: cmd.description,
     }));
-    editor.setAutocompleteProvider(new CombinedAutocompleteProvider(providerCommands));
+    editor.setAutocompleteProvider(
+      new CombinedAutocompleteProvider(providerCommands, process.cwd()),
+    );
   }
 
   editor.setAutocompleteMaxVisible(10);
@@ -176,7 +205,7 @@ export function createOmniTui(): OmniTui {
     },
     writeMarkdown(text: string) {
       if (!activeMarkdown) {
-        activeMarkdown = new Markdown("", 0, 0, markdownTheme);
+        activeMarkdown = new MarkdownMessage("", markdownTheme);
         messageContainer.addChild(activeMarkdown);
       }
       markdownBuffer += text;
@@ -218,6 +247,30 @@ export function createOmniTui(): OmniTui {
     flush() {
       flushMarkdown();
     },
+    toolStart(toolName: string, toolCallId: string, inputPreview: string) {
+      sink.line();
+      const linkUrl = `omni-agent://tool/${encodeURIComponent(toolCallId)}`;
+      const message = new ToolMessage(toolName, inputPreview, false, linkUrl);
+      toolMessages.set(toolCallId, message);
+      internalLinks.set(linkUrl, () => {
+        message.toggleDetails();
+        ui.requestRender(true);
+      });
+      messageContainer.addChild(message);
+      ui.requestRender();
+    },
+    toolEnd(toolCallId: string, result: ToolMessageResult, durationMs: number) {
+      const message = toolMessages.get(toolCallId);
+      if (!message) return;
+      message.finish(result, durationMs, true, true);
+      ui.requestRender();
+      const timer = setTimeout(() => {
+        toolPreviewTimers.delete(timer);
+        message.collapsePreview();
+        ui.requestRender(true);
+      }, TOOL_RESULT_PREVIEW_MS);
+      toolPreviewTimers.add(timer);
+    },
   };
 
   // Global input handler
@@ -225,9 +278,9 @@ export function createOmniTui(): OmniTui {
     const isCtrlC = matchesKey(data, Key.ctrl("c"));
     if (!isCtrlC) return undefined;
 
-    if (activeModal) {
+    if (activeSelection) {
       if (onInterruptCallback?.()) return { consume: true };
-      activeModal.finish({ kind: "abort", error: createAbortError() });
+      activeSelection.finish({ kind: "abort", error: createAbortError() });
       return { consume: true };
     }
 
@@ -293,12 +346,15 @@ export function createOmniTui(): OmniTui {
     closed = true;
     if (exitTimer) clearTimeout(exitTimer);
     if (markdownTimer) clearTimeout(markdownTimer);
+    for (const timer of toolPreviewTimers) clearTimeout(timer);
+    toolPreviewTimers.clear();
+    internalLinks.clear();
     if (sigtermListener) {
       process.removeListener("SIGTERM", sigtermListener);
       sigtermListener = null;
     }
     onInterruptCallback?.();
-    activeModal?.finish({ kind: "shutdown", error: createAbortError() });
+    activeSelection?.finish({ kind: "shutdown", error: createAbortError() });
     ui.stop();
     resolveDone?.();
   }
@@ -323,43 +379,48 @@ export function createOmniTui(): OmniTui {
   }
 
   function select(
-    options: ModalSelectOptions,
+    options: CommandSelectionOptions,
     signal?: AbortSignal,
   ): Promise<CommandSelectionResult> {
-    if (activeModal) return Promise.reject(new Error("A modal selection is already active"));
+    if (activeSelection) return Promise.reject(new Error("A selection is already active"));
     if (signal?.aborted) {
       return Promise.resolve({ kind: "abort", error: createAbortError(signal) });
     }
     return new Promise<CommandSelectionResult>((resolve) => {
-      const modal = new ModalSelect(options, selectListTheme);
-      const overlay = ui.showOverlay(modal, {
-        width: "80%",
-        minWidth: 40,
-        maxHeight: "70%",
-        anchor: "center",
-        margin: 1,
-      });
+      sink.line();
+      const selectionId = crypto.randomUUID();
+      const linkForValue = (value: string) =>
+        `omni-agent://select/${selectionId}/${encodeURIComponent(value)}`;
+      const selection = new InlineSelect(options, linkForValue);
+      messageContainer.addChild(selection);
+      messageContainer.addChild(new Spacer(1));
       let settled = false;
       const onAbort = () => finish({ kind: "abort", error: createAbortError(signal) });
       const finish = (result: CommandSelectionResult) => {
         if (settled) return;
         settled = true;
         signal?.removeEventListener("abort", onAbort);
-        overlay.hide();
-        activeModal = null;
+        selection.resolve(result.kind === "selected" ? result.value : undefined);
+        activeSelection = null;
+        for (const item of options.items) internalLinks.delete(linkForValue(item.value));
         ui.setFocus(editor);
         ui.requestRender(true);
         resolve(result);
       };
-      modal.onSelect = (value) => finish({ kind: "selected", value });
-      modal.onCancel = () => finish({ kind: "escape" });
-      activeModal = { finish };
+      selection.onSelect = (value) => finish({ kind: "selected", value });
+      selection.onCancel = () => finish({ kind: "escape" });
+      activeSelection = { finish };
+      for (const item of options.items) {
+        internalLinks.set(linkForValue(item.value), () =>
+          finish({ kind: "selected", value: item.value }),
+        );
+      }
       signal?.addEventListener("abort", onAbort, { once: true });
       if (signal?.aborted) {
         onAbort();
         return;
       }
-      ui.setFocus(modal);
+      ui.setFocus(selection);
       ui.requestRender(true);
     });
   }

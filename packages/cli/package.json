@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@inquirer/prompts": "^8.0.0",
-    "@mariozechner/pi-tui": "^0.55.1",
+    "@earendil-works/pi-tui": "^0.84.1",
     "@omni-agent/agent-coding": "workspace:*",
     "@omni-agent/agent-financial-analysis": "workspace:*",
     "@omni-agent/app": "workspace:*",
