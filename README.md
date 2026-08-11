@@ -63,6 +63,28 @@ adapters in Core. Agent-facing connection settings use a constrained JSON Schema
 contract compiled once with Ajv; local Provider definitions are validated and
 persisted through a single atomic repository.
 
+## Runtime permissions
+
+Tool inputs are validated and explicitly routed before execution. Trusted internal
+tools, such as Skill loading and deterministic in-memory computation, do not consult
+permission state. Permission-controlled tools are assessed before execution. The
+default `standard` mode allows routine workspace reads and writes, while asking before shell
+execution and higher-risk operations. `supervised` mode also asks before writes.
+External, destructive, unknown, and privileged operations always require a one-time
+decision. Explicit hard-stop operations are denied.
+
+The approval prompt supports allowing one call, automatically approving routine
+calls to that tool for the current Agent, or denying the call. Automatic approvals
+are stored in `~/.omni-agent/permissions.json`. They do not bypass later external,
+destructive, unknown, or privileged classifications.
+
+This layer is an execution policy, not an OS sandbox. It cannot fully constrain an
+untrusted child process or eliminate filesystem race conditions.
+
+The complete tool-call, authorization, execution, cancellation, persistence, and
+future sandbox contract is documented in
+[`docs/tool-call-runtime.md`](docs/tool-call-runtime.md).
+
 ## Development
 
 ```bash
@@ -84,6 +106,7 @@ Pre-commit hook (husky) automatically runs `format:check + typecheck + test` to 
 Built-in commands are registered via `CommandRegistry` and triggered by typing `/command` at runtime:
 
 - `/config` — Reconfigure provider
+- `/permissions` — Change permission mode and revoke automatic tool approvals
 - `/help` — List available commands
 
 **Adding a new command:**

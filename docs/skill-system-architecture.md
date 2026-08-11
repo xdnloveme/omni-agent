@@ -162,7 +162,8 @@ Responsibilities:
 - `loader.ts`: discover skills from configured directories.
 - `registry.ts`: cache metadata and load full bodies on demand.
 - `prompt.ts`: render the compact index and selection rules.
-- `skill-read-tool.ts`: expose `skill_read` as an `AgentTool`.
+- `skill-read-tool.ts`: expose `skill_read` as an `AgentToolDefinition` with trusted
+  authorization and host execution.
 - `policy.ts`: apply per-skill allowed tools later when the runtime supports tool policy.
 - `skill-renderer.ts`: render skill lifecycle events in TUI.
 - `commands/skills.ts`: `/skills`, `/skills reload`, and slash invocation support.
@@ -234,19 +235,20 @@ This keeps selection explicit and auditable.
 ```mermaid
 sequenceDiagram
   participant Model
-  participant AgentLoop
+  participant Coordinator as ToolCallCoordinator
   participant SkillReadTool
   participant SkillRegistry
   participant TUI
 
-  Model->>AgentLoop: tool call skill_read({name})
-  AgentLoop->>TUI: extension_event(skill, read_start)
-  AgentLoop->>SkillReadTool: execute
+  Model->>Coordinator: tool call skill_read({name})
+  Coordinator->>Coordinator: schema validation + trusted authorization
+  Coordinator->>TUI: extension_event(skill, read_start)
+  Coordinator->>SkillReadTool: execute on host
   SkillReadTool->>SkillRegistry: loadBody(name)
   SkillRegistry-->>SkillReadTool: LoadedSkill
-  SkillReadTool-->>AgentLoop: tool result with skill body
-  AgentLoop->>TUI: extension_event(skill, read_end)
-  AgentLoop->>Model: append tool_result
+  SkillReadTool-->>Coordinator: tool result with skill body
+  Coordinator->>TUI: extension_event(skill, read_end)
+  Coordinator->>Model: append tool_result
 ```
 
 The loaded body is appended as a normal tool result. The next LLM turn sees the complete skill content and can continue with the task.
@@ -308,13 +310,18 @@ The skill body must tell the model which supporting files matter. The base direc
 
 ## 8. Tool Design
 
-`skill_read` should be registered like other `AgentTool`s:
+`skill_read` is registered through the final `AgentToolDefinition` contract:
 
 ```ts
-export const skillReadTool: AgentTool = {
+export const skillReadTool: AgentToolDefinition = {
   name: "skill_read",
   description:
     "Read the full instructions for a named skill. Use this when the user's task matches an available skill. The result is added to context for the next step.",
+  authorization: {
+    kind: "trusted",
+    reason: "Loads internal instruction context without external side effects",
+  },
+  execution: { kind: "host" },
   schema: {
     type: "object",
     properties: {
@@ -324,8 +331,9 @@ export const skillReadTool: AgentTool = {
       },
     },
     required: ["name"],
+    additionalProperties: false,
   },
-  execute: async (params, signal) => { ... },
+  execute: async (params, context) => { ... },
 };
 ```
 
@@ -381,7 +389,8 @@ type SkillReadEndPayload = {
 
 This gives core a stable extension point:
 
-- `AgentLoop` and `StreamSession` understand only `extension_event`.
+- `ToolCallCoordinator` emits lifecycle `extension_event`s; `AgentLoop` and
+  `StreamSession` only forward the generic event envelope.
 - Skill rendering subscribes to `namespace === "skill"`.
 - Future features can add events under their own namespace without changing the base stream union.
 - The event body stays typed at the extension boundary through constants and payload adapters.
@@ -413,11 +422,13 @@ export interface ToolResult {
 }
 ```
 
-`runAgentLoop` remains the single event source:
+`ToolCallCoordinator` is the single tool event source:
 
 1. It emits the existing `tool_start` / `tool_end` events for compatibility.
-2. Tool lifecycle adapters can emit `extension_event` before and after a matching tool call.
-3. `SkillReadLifecycleAdapter` emits `skill/read_start` before execution and `skill/read_end` after execution.
+2. After trusted authorization, tool lifecycle adapters can emit `extension_event`
+   before and after matching execution.
+3. `SkillReadLifecycleAdapter` emits `skill/read_start` before execution and
+   `skill/read_end` after execution.
 
 This keeps the skill tool pure, keeps UI concerns out of the tool implementation, and avoids coupling core stream types to skill-specific events.
 
@@ -568,7 +579,12 @@ File watchers are optional. For a small local TUI, explicit reload is simpler an
 
 ## 14. Security and Policy
 
-Skills are instructions, not code execution. Reading a skill is safe, but following a skill may cause tool calls. This means policy belongs at tool execution time, not skill discovery time.
+Skills are instructions, not code execution. `skill_read` is explicitly declared as a
+trusted, host-executed internal capability. It bypasses `PermissionGate`, while still
+crossing schema validation, lifecycle adapters, execution middleware, cancellation,
+and structured tool-result handling. Following skill instructions may cause later
+permission-controlled tool calls; those calls are assessed independently at execution
+time.
 
 Still, skills can declare `allowed-tools` as an experimental future policy hint:
 
@@ -585,7 +601,14 @@ Policy semantics:
 - It must not expand capabilities beyond the host's allowed tools.
 - Multiple loaded skills should combine by intersection only when all declare `allowed-tools`; otherwise default host policy applies.
 
-This should be implemented after a general `ToolPolicyResolver` exists. Until then, `allowed-tools` is **parsed-only** metadata. It must not be documented to users as enforced behavior.
+This requires a dedicated skill tool-visibility policy upstream of
+`ToolCallCoordinator`. It must remain separate from `PermissionGate`, which
+authorizes permission-controlled calls to already-visible tools. Until then, `allowed-tools` is
+**parsed-only** metadata and must not be documented to users as enforced behavior.
+
+See [`docs/tool-call-runtime.md`](tool-call-runtime.md) for the authoritative runtime
+pipeline and the distinction between trusted authorization, permission-controlled
+authorization, host execution, and sandbox-eligible execution.
 
 ## 15. Fit With omni-agent Code
 
@@ -593,7 +616,8 @@ Current code maps cleanly:
 
 - The coding Agent owns its base prompt and composes Core-provided context and skills contributors.
 - `AgentConfig.tools` is already an array. Add `skillReadTool`.
-- `runAgentLoop` already emits tool start/end. Add tool lifecycle adapters that can emit namespaced `extension_event`s around matching tools.
+- `ToolCallCoordinator` emits tool start/end and invokes lifecycle adapters only
+  around authorized execution.
 - `StreamSession` already routes events to callbacks. Add `onExtensionEvent` once, then keep feature-specific rendering outside the generic stream layer.
 - `TUI` already renders tool calls. Add a special renderer for `skill_read` and suppress full-body preview.
 - `CommandRegistry` already supports slash commands. Add dynamic skill commands and `/skills`.
@@ -705,10 +729,10 @@ Rules:
 
 ### SkillReadTool
 
-`createSkillReadTool` binds an `AgentTool` to the registry.
+`createSkillReadTool` binds an `AgentToolDefinition` to the registry.
 
 ```ts
-export function createSkillReadTool(registry: SkillRegistry): AgentTool;
+export function createSkillReadTool(registry: SkillRegistry): AgentToolDefinition;
 ```
 
 The tool returns:
@@ -933,7 +957,8 @@ Tasks:
 
 1. Add generic `ExtensionEvent` to core `AgentEvent` and stream event unions.
 2. Extend `StreamCallbacks` with one `onExtensionEvent` callback.
-3. Add `ToolLifecycleAdapter` so extension events can be emitted around tool execution without embedding feature logic in `runAgentLoop`.
+3. Add `ToolLifecycleAdapter` so `ToolCallCoordinator` can emit extension events
+   around authorized execution without embedding feature logic in `runAgentLoop`.
 4. Implement `SkillReadLifecycleAdapter` that maps `skill_read` execution to `skill/read_start` and `skill/read_end`.
 5. Keep existing `tool_start` / `tool_end` events for compatibility.
 6. In TUI, render a compact skill card from `extension_event` and suppress full body preview for `skill_read`.
@@ -997,7 +1022,8 @@ Acceptance:
 
 ### Phase 7: Policy Integration
 
-Prerequisite: a general `ToolPolicyResolver`.
+Prerequisite: a dedicated skill tool-visibility policy upstream of
+`ToolCallCoordinator`.
 
 Tasks:
 
@@ -1042,7 +1068,8 @@ Acceptance:
 
 ### Stream and TUI
 
-- `extension_event(namespace: "skill", event: "read_start")` emits before tool execution.
+- `extension_event(namespace: "skill", event: "read_start")` emits after trusted
+  authorization and before tool execution.
 - `extension_event(namespace: "skill", event: "read_end")` emits after tool execution.
 - Non-skill extensions can add their own namespace without changing the core stream union.
 - TUI renders loaded skill card.

@@ -4,6 +4,13 @@
 > 适用范围：omni-agent monorepo
 > 目标：设计一套通用、可扩展的外部 CLI 工具集成架构
 
+> **运行时契约说明**：本文的 CLI 集成方案尚未实施，其中早期 `AgentTool`、
+> `execute(params, signal)` 和“同进程直接执行”示例不再是当前运行时契约。
+> 任何实现都必须生成最终 `AgentToolDefinition`，显式声明 `authorization` 与
+> `execution`，并统一经过 `ToolCallCoordinator`。权威契约见
+> [`docs/tool-call-runtime.md`](tool-call-runtime.md)。本文其余 `AgentTool` 表述仅代表
+> “模型可调用工具”这一概念，不构成可复制的 TypeScript API。
+
 ---
 
 ## 目录
@@ -343,7 +350,7 @@ github(action: "pr_create", params: {...})
 2. 每个 tool 的 schema 简洁，参数验证精确，错误信息直观
 3. 通过命名空间前缀（`gh_issue_list`）保持逻辑分组
 4. 通过配置控制哪些 tool 激活，避免 context window 膨胀
-5. 与现有 `AgentTool` 接口完全兼容，无需修改
+5. 可直接生成当前 `AgentToolDefinition`，无需增加另一条工具执行入口
 
 缓解 tool 数量问题的策略：
 
@@ -457,7 +464,8 @@ output:
 理由：
 
 1. **当前阶段**：omni-agent 是本地 CLI 工具，不需要远程 tool serving，多进程通信是过度工程
-2. **核心需求**：把 CLI 命令包装成 `AgentTool`，同进程执行即可
+2. **核心需求**：把 CLI 命令包装成 `AgentToolDefinition`，同进程加载并经
+   `ToolCallCoordinator` 授权和执行
 3. **未来兼容**：设计时遵循 MCP 的 schema 规范（JSON Schema for inputSchema），未来写一层薄 adapter 即可暴露为 MCP server
 4. **性能优势**：同进程加载，零 IPC 开销，工具调用延迟 = CLI 执行时间
 5. **已有生态**：`keytar` 已在依赖中，无需额外基础设施
@@ -478,7 +486,8 @@ output:
 ```mermaid
 graph TB
     subgraph "Agent Loop (现有)"
-        AL[Agent Loop] --> |"调用"| AT[AgentTool[]]
+        AL[Agent Loop] --> |"调用"| TC[ToolCallCoordinator]
+        TC --> AT[AgentToolDefinition[]]
     end
 
     subgraph "Tool 生成器层"
@@ -718,7 +727,8 @@ interface AuthDefinition {
 
 ### 3.4 Tool 生成器层 (Tool Factory)
 
-**职责**：将声明式 `CLIIntegrationDefinition` 自动转换为 `AgentTool[]`。
+**职责**：将声明式 `CLIIntegrationDefinition` 自动转换为
+`AgentToolDefinition[]`。
 
 #### 核心流程
 
@@ -732,15 +742,18 @@ CLIIntegrationDefinition
     │   ├── 生成 tool.description = command.description
     │   ├── 生成 tool.schema = command.inputSchema
     │   └── 生成 tool.execute = buildExecutor(integration, command)
-    └── 返回 AgentTool[]
+    └── 返回 AgentToolDefinition[]
 ```
 
 #### ToolFactory 接口
 
 ```typescript
 interface ToolFactory {
-  /** 从集成定义创建 AgentTool 数组 */
-  create(definition: CLIIntegrationDefinition, options?: ToolFactoryOptions): Promise<AgentTool[]>;
+  /** 从集成定义创建最终工具定义数组 */
+  create(
+    definition: CLIIntegrationDefinition,
+    options?: ToolFactoryOptions,
+  ): Promise<AgentToolDefinition[]>;
 }
 
 interface ToolFactoryOptions {
@@ -843,8 +856,8 @@ interface IntegrationRegistry {
   get(id: string): CLIIntegrationDefinition | undefined;
   /** 从目录自动发现并注册 */
   discoverFrom(dir: string): Promise<void>;
-  /** 生成所有 AgentTool */
-  createTools(options?: ToolFactoryOptions): Promise<AgentTool[]>;
+  /** 生成所有最终工具定义 */
+  createTools(options?: ToolFactoryOptions): Promise<AgentToolDefinition[]>;
 }
 ```
 
@@ -868,7 +881,7 @@ interface IntegrationRegistry {
 
 6. 健康检查：验证 binary 可用性
 
-7. 生成 AgentTool[]：通过 ToolFactory 批量生成
+7. 生成 AgentToolDefinition[]：通过 ToolFactory 批量生成，再交给 ToolRegistry
 ```
 
 #### 目录结构约定
@@ -909,17 +922,19 @@ packages/cli/src/
 
 ## 4. 与现有代码的衔接
 
-### 4.1 AgentTool 接口兼容性
+### 4.1 AgentToolDefinition 接口兼容性
 
-ToolFactory 生成的每个 tool 完全符合现有 `AgentTool` 接口：
+ToolFactory 生成的每个 tool 必须符合当前 `AgentToolDefinition` 接口，并由
+`ToolRegistry` 生成稳定来源 identity：
 
 ```typescript
-// 现有接口（不修改）
-interface AgentTool {
+interface AgentToolDefinition {
   name: string;
   description: string;
   schema: Record<string, unknown>;
-  execute: (params: Record<string, unknown>, signal?: AbortSignal) => Promise<ToolResult>;
+  authorization: ToolAuthorizationDescriptor;
+  execution: ToolExecutionStrategy;
+  execute(params: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolResult>;
 }
 ```
 
@@ -938,10 +953,17 @@ interface AgentTool {
       labels: { type: "array", items: { type: "string" } },
     },
     required: ["title", "repo"],
+    additionalProperties: false,
   },
-  execute: async (params, signal) => { /* 自动生成的执行逻辑 */ },
+  authorization: { kind: "dynamic", assess: assessCliCommandPermission },
+  execution: { kind: "sandbox_eligible", profile: "external-cli" },
+  execute: async (params, context) => { /* 使用 context.cwd 和 context.signal */ },
 }
 ```
+
+CLI 集成工具通常会启动外部进程，不能默认标记为 `trusted`。具体命令的网络、
+写入、破坏性和未知风险应由该集成领域的 assessor 表达；App 和 CLI UI 不解析
+命令。当前尚无 OS sandbox，因此 `sandbox_eligible` 只是未来执行后端的路由声明。
 
 ### 4.2 tools/index.ts barrel 导出对接
 
@@ -1432,7 +1454,7 @@ Step 6: 启动时自动加载，tools 自动注册
 1. **可插拔**：新增集成只需添加一个定义文件，无需修改框架代码
 2. **可扩展**：支持内置 → 用户自定义 → npm 包三级扩展
 3. **不过度设计**：最小核心 + 可选扩展点，不引入不需要的复杂度
-4. **与现有架构兼容**：生成标准 `AgentTool`，零侵入现有代码
+4. **与现有架构兼容**：生成标准 `AgentToolDefinition`，统一注册、授权和执行
 5. **渐进增强**：从最简实现起步，按需添加复杂功能
 
 ---

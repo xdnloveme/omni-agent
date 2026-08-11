@@ -37,6 +37,8 @@ concrete agent. Agent packages must not import the CLI or another agent package.
 Concrete agents are registered explicitly through `AgentExtension`.
 
 See `docs/architecture.md` for the detailed architecture contract.
+See `docs/tool-call-runtime.md` for the authoritative tool authorization,
+permission, execution, cancellation, and sandbox-boundary contract.
 
 ## Ownership Rules
 
@@ -72,10 +74,11 @@ Preserve its system prompt composition, exposed tool names and order, commands,
 stream events, configuration behavior, credential storage, and JSONL session
 format unless a change explicitly requires a migration.
 
-`ModelRuntimePort`, `AgentMessage`, `AgentRunner`, `ToolExecutor`,
-`AgentFactory`, `AgentBlueprint`, and `AgentExtension` are the current architecture. Do not
-add legacy model execution branches, compatibility overloads, global runtime
-setters, static model registries, or aliases for removed model-library types.
+`ModelRuntimePort`, `AgentMessage`, `AgentRunner`, `ToolCallCoordinator`,
+`ToolAuthorizationRouter`, `PermissionGate`, `ToolInvocationRunner`, `AgentFactory`,
+`AgentBlueprint`, and `AgentExtension` are the current architecture. Do not add alternate tool
+execution paths, legacy model execution branches, compatibility overloads,
+global runtime setters, static model registries, or aliases for removed types.
 Historical configuration and credentials may be handled only by isolated,
 one-way data migration into the current format.
 
@@ -89,7 +92,17 @@ Local ESM extensions are trusted local code. Do not imply that
 - Optional local extension failures should produce diagnostics and must not stop
   the default coding agent from starting.
 - Tools must support `AbortSignal` where work can block.
-- Declare tool risk and approval metadata accurately.
+- Every tool must declare an explicit `authorization` strategy (`trusted`,
+  `static`, or `dynamic`) and an independent `execution` strategy (`host` or
+  `sandbox_eligible`). There is no metadata fallback.
+- Keep tool-domain assessment with the tool owner. Do not add a central
+  `switch(toolName)` or make App/CLI parse Bash commands or paths.
+- Resolve paths and spawn processes with the injected execution `cwd`; tool
+  implementations must not choose their own `process.cwd()`.
+- `ToolCallCoordinator` is the Agent loop's only tool entry. Middleware and
+  lifecycle adapters run only after authorization.
+- Use Core's shared sanitizer, abort helpers, schema validator, and
+  `InterprocessFileLock`; do not create parallel implementations.
 - Return structured errors instead of hiding failures in successful output.
 - Keep trading and order execution out of the financial analysis agent unless
   the product scope is explicitly changed.

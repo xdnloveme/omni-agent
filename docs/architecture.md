@@ -94,8 +94,9 @@ The extension manager validates all contributions before committing them and
 rolls back tools, agents, and commands when activation fails.
 Provider contributions participate in the same transaction and are removed and
 disposed in reverse registration order when activation fails.
-Middleware contributions are stored by the extension manager and executed around
-model and tool calls by the single agent loop; unregistering an extension removes
+Middleware contributions are stored by the extension manager. Model middleware is
+orchestrated by the Agent loop; tool execution middleware is invoked by
+`ToolInvocationRunner` only after authorization. Unregistering an extension removes
 the same middleware instances from the live application.
 
 Each installed Agent exports an `AgentBlueprint`. The application-scoped
@@ -164,3 +165,64 @@ Keytar is the credential source of truth. Its non-secret credential index is
 derived state; writes use provider-scoped serialization and compensation, while a
 corrupt index is quarantined and reconciled from known active provider IDs.
 Environment files are parsed without mutating `process.env`.
+
+## Runtime permissions
+
+The complete and authoritative runtime contract is in
+[`docs/tool-call-runtime.md`](tool-call-runtime.md). This section records only the
+cross-package boundary.
+
+Every tool call crosses one authorization path before execution:
+
+```text
+AgentLoop -> ToolCallCoordinator -> schema validation -> ToolAuthorizationRouter
+                                      |-> trusted -> authorized call
+                                      `-> permission -> PermissionGate -> authorized call
+          -> lifecycle -> ToolInvocationRunner -> host or sandbox-eligible execution
+```
+
+Core owns the stable authorization and permission contracts, `ToolCallCoordinator`,
+`ToolAuthorizationRouter`, `PermissionGate`, and `ToolInvocationRunner`. The
+coordinator is the AgentLoop's only tool-call entry. The router admits explicitly
+trusted internal tools without consulting permission state and delegates all other
+tools to the gate. The runner accepts only authorized calls and routes execution from
+the tool's explicit strategy. Authorization and execution strategy are independent.
+Concrete risk assessment stays with the owning technical domain in `packages/tools`:
+shell parsing and command classification live with the Bash tool, while filesystem
+and search tools map shared path-security facts into their own permission presentations.
+Cross-domain path normalization, workspace-boundary checks, and sensitive-path
+definitions remain pure shared security primitives. The app
+owns the default policy, Agent-scoped permission service, and atomic persistence.
+The CLI supplies the approval broker and renders approval prompts. No layer
+dispatches permission behavior through a central switch on tool name.
+
+The default modes are `standard` and `supervised`. Standard mode permits routine
+workspace reads and writes but asks before ordinary process execution.
+Supervised mode also asks before writes. External, destructive, and unknown
+operations, including privileged operations, always require a one-time decision;
+explicit hard-stop behavior is denied. An Agent-level automatic tool approval only
+answers routine, persistable prompts. It cannot override a fresh high-risk assessment.
+
+Permission state is stored in `~/.omni-agent/permissions.json`, keyed by Agent and
+stable tool origin. Updates use an inter-process lock and atomic JSON replacement.
+Invalid state fails closed to supervised behavior with no automatic approvals.
+Approval presentations and diagnostic events exclude raw tool input and file
+contents.
+
+Authorization and execution are separate tool-definition strategies. A trusted
+internal capability such as `skill_read` or deterministic indicator computation
+bypasses permission state but still crosses schema validation, lifecycle,
+middleware, cancellation, and structured result handling. Filesystem, search, web,
+and Bash tools carry domain-owned dynamic assessors. Bash alone is currently marked
+`sandbox_eligible`; this marker does not grant permission and does not imply that a
+sandbox implementation exists.
+
+Permissions are policy and interaction, not an operating-system security
+boundary. Local extensions remain trusted code, and a spawned process can still
+perform behavior that static command analysis cannot observe. `SandboxRunnerPort`
+is an optional execution backend injected into `ToolInvocationRunner`; it receives
+only tools declared `sandbox_eligible`. Host tools, including Skill loading and
+deterministic in-memory computation, are never routed to it. No OS-level sandbox
+implementation is included yet. A future sandbox runner may enforce eligible calls
+at the OS boundary, but it must not own Agent modes, TUI interaction, or persistent
+approval rules.
