@@ -226,3 +226,20 @@ deterministic in-memory computation, are never routed to it. No OS-level sandbox
 implementation is included yet. A future sandbox runner may enforce eligible calls
 at the OS boundary, but it must not own Agent modes, TUI interaction, or persistent
 approval rules.
+
+Every tool declares a required timeout strategy: `none`, runtime-owned `fixed`, or
+schema-bound `input`. The invocation runner starts a deadline only after approval and
+`beforeExecute` middleware. A timeout aborts the linked execution signal, permits a
+bounded cooperative cleanup window, and suppresses all late results. Bash and grep
+share one host-process runner; file and web tools retain domain-specific I/O behavior.
+Linked cancellation, timers, and late settlement observation are isolated in the
+runner-owned `ExecutionDeadlineSupervisor`.
+
+Filesystem tools share canonical path resolution, snapshot/version checks, an
+in-process path/inode mutex, text validation, streaming line reads, and direct writes.
+`file_read` exposes versioned continuation data in both structured metadata and
+LLM-visible text, including byte continuations for oversized UTF-8 lines. `file_edit`
+and `file_write` prepare complete content in memory and call the shared writer once.
+They deliberately do not implement temporary-file replacement or recovery, so a
+failed direct overwrite has an unknown target state. The detailed contract and
+residual risks are documented in `docs/tool-call-runtime.md`.

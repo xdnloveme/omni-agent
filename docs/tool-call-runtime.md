@@ -11,7 +11,7 @@ cancellation, and the future sandbox boundary.
 - Tool-domain knowledge stays with the owning tool package.
 - Trusted internal capabilities do not produce unnecessary permission prompts.
 - Permission decisions do not claim to provide an operating-system security boundary.
-- Extensions cannot omit authorization or execution metadata and fall into a legacy path.
+- Extensions cannot omit authorization, execution, or timeout metadata and fall into a legacy path.
 
 ## Runtime Components
 
@@ -62,11 +62,22 @@ interface AgentToolDefinition {
   description: string;
   schema: Record<string, unknown>;
   strict?: boolean;
-  timeoutMs?: number;
+  timeout: ToolTimeoutPolicy;
   authorization: ToolAuthorizationDescriptor;
   execution: ToolExecutionStrategy;
   execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolResult>;
 }
+
+type ToolTimeoutPolicy =
+  | { kind: "none" }
+  | { kind: "fixed"; timeoutMs: number }
+  | {
+      kind: "input";
+      parameter: string;
+      defaultMs: number;
+      minMs: number;
+      maxMs: number;
+    };
 ```
 
 Authorization and execution are orthogonal strategies:
@@ -107,9 +118,11 @@ Tools cannot provide `originId` or `toolIdentity`. `ToolRegistry` creates a
 - Other Agent built-ins: `builtin-<agentId>:<toolName>`.
 - Extensions: `<manifestId>:<toolName>`.
 
-Missing or malformed authorization, execution, schema, or execute definitions fail
-extension registration. There is no `risk`, `approval`, unscoped identity, or missing
-descriptor fallback.
+Missing or malformed authorization, execution, timeout, schema, or execute definitions
+fail extension registration. For `input` timeout policies, the named schema property
+must be an integer whose minimum and maximum exactly match the policy. Core never
+injects that property into an extension schema. There is no `risk`, `approval`,
+unscoped identity, missing descriptor, or timeout fallback.
 
 ## Call Sequence
 
@@ -309,6 +322,28 @@ and tool execution. `ToolCallMetrics` has stable ownership:
 - `totalMs`: coordinator.
 - `ToolEndEvent.durationMs`: `executionMs`, or zero when execution never started.
 
+Timeout policies distinguish runtime supervision from domain-specific request budgets:
+
+- `none` has no Runner deadline but still responds to user cancellation and shutdown.
+- `fixed` applies a runtime-owned deadline that model input cannot change.
+- `input` lets the model request a bounded budget through a validated schema property.
+- Bash uses `input` with a 120-second default and a 10-minute maximum.
+- File, search, trusted computation, and web tools use `none`. Web tools retain their
+  own HTTP request timeout and report it as a domain error.
+
+At a Runner deadline, the linked execution signal is aborted. The Runner allows up to
+two seconds for cooperative cleanup, then returns `tool_timeout` and observes any
+unsettled Promise in the background. A late success or failure cannot run
+`afterExecute`, emit another result, or enter the conversation. Late rejections are
+consumed and may be sent to an optional diagnostic observer. This observation creates
+no additional keep-alive handle.
+
+The internal `ExecutionDeadlineSupervisor` owns linked cancellation, deadline and
+cleanup timers, and late settlement observation. `ToolInvocationRunner` owns only
+middleware ordering, backend dispatch, execution metrics, and result conversion.
+Cleanup timers are cancelled when a tool settles cooperatively, and asynchronous
+diagnostic observer failures are isolated.
+
 ## Cancellation
 
 Core's abort helpers define the single cancellation meaning. Abort is checked at
@@ -318,6 +353,58 @@ after tool completion, and before results enter the next model turn.
 Blocking tools must observe `ToolExecutionContext.signal`. Bash passes the injected
 `cwd` and signal to the spawned process, terminates it when aborted, and propagates
 `AbortError`. Do not turn cancellation into a successful result or a permission denial.
+
+Bash and grep share the tools-layer `HostProcessRunner`. On POSIX it starts a detached
+process group, sends `SIGTERM` on cancellation, escalates to `SIGKILL` after 500 ms,
+waits for close, and bounds captured stdout/stderr by bytes. Windows uses the child
+process termination capabilities available through Node and does not claim POSIX
+process-group behavior. This process runner has no knowledge of permissions, schemas,
+the TUI, or sandbox policy. It preserves both numeric exit code and signal termination;
+an unexpected signal exit is an execution error rather than a successful null code.
+
+Web tools keep external cancellation separate from their HTTP timeout signal. User
+cancellation and shutdown propagate `AbortError`; an HTTP budget expiry becomes a
+normal domain timeout result; a future Runner deadline becomes `tool_timeout`.
+
+## Filesystem I/O Contract
+
+`file_read` uses a bounded streaming reader. It defaults to 200 lines, accepts at most
+1,000 lines, and caps the final UTF-8 tool text at 64 KiB including line prefixes and
+the continuation footer. It scans to the requested offset without retaining preceding
+text and does not scan beyond the requested page to calculate a total line count.
+Total lines are known only at EOF.
+
+Every page returns an opaque snapshot version in both `ToolResult.meta.pagination` and
+the LLM-visible footer. Continuations carry that version. A version is a stable SHA-256
+digest of device, inode, size, mtime, and ctime metadata; it is a consistency token,
+not authorization or a signature. The reader compares the open handle and current
+canonical path after reading and discards a page when either changed.
+
+Physical lines larger than the remaining output budget use `line_byte_offset`
+continuations. Offsets are relative to line content bytes, exclude CRLF terminators,
+and must be returned by the tool rather than calculated by the model. Chunks stop on a
+valid UTF-8 boundary and are explicitly marked partial. Grep can locate a line, but
+only `file_read` continuation retrieves its complete oversized content.
+
+`file_edit` reads and validates at most 8 MiB, performs one exact non-overlapping
+replacement in memory, and preserves BOM and existing newline bytes. `file_write`
+also validates and prepares its complete bytes before submission. Both use the shared
+`DirectFileWriter`, which verifies an expected snapshot, performs a final abort check,
+and invokes `fs.writeFile` once. New targets use `wx`; existing targets use direct
+overwrite semantics, preserving inode metadata and hard-link relationships.
+
+Direct writing intentionally does not use a temporary file, rename, fsync, backup, or
+automatic rollback. `fs.writeFile` is not an atomic commit: disk errors, process death,
+or power loss may leave an existing target truncated or partially changed. A rejected
+write reports `write_failed` with `targetState: "unknown"`; callers must read the file
+again. Snapshot checks and the canonical-path/inode mutex reduce cooperative races but
+do not eliminate external-process or symlink TOCTOU races. The permission layer is not
+an OS sandbox, and network filesystems may provide weaker semantics.
+
+The in-process file mutex always acquires a canonical path key and additionally
+acquires an inode key for an existing target. The stable path key preserves exclusion
+while a missing target becomes a file; the inode key serializes hard-link aliases.
+Cancellation only releases keys actually acquired by that operation.
 
 ## Events and Safe Presentation
 

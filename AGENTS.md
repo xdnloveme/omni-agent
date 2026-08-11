@@ -94,7 +94,8 @@ Local ESM extensions are trusted local code. Do not imply that
 - Tools must support `AbortSignal` where work can block.
 - Every tool must declare an explicit `authorization` strategy (`trusted`,
   `static`, or `dynamic`) and an independent `execution` strategy (`host` or
-  `sandbox_eligible`). There is no metadata fallback.
+  `sandbox_eligible`), plus an explicit timeout policy (`none`, `fixed`, or
+  schema-bound `input`). There is no metadata fallback.
 - Keep tool-domain assessment with the tool owner. Do not add a central
   `switch(toolName)` or make App/CLI parse Bash commands or paths.
 - Resolve paths and spawn processes with the injected execution `cwd`; tool
@@ -106,6 +107,30 @@ Local ESM extensions are trusted local code. Do not imply that
 - Return structured errors instead of hiding failures in successful output.
 - Keep trading and order execution out of the financial analysis agent unless
   the product scope is explicitly changed.
+
+## Tool Execution And Filesystem Contract
+
+- `ToolCallCoordinator` is the Agent loop's only tool-call entry. Permission
+  decisions belong to `PermissionGate`; authorized execution, middleware order,
+  and metrics belong to `ToolInvocationRunner`.
+- `ExecutionDeadlineSupervisor` owns linked cancellation, deadline timers,
+  bounded cooperative cleanup, and late-settlement observation. Do not recreate
+  timeout races or cancellation linking in individual tools.
+- Bash and grep share the tools-layer `HostProcessRunner`. Process tools must use
+  the injected execution `cwd` and signal and must preserve exit-code and signal
+  termination semantics.
+- Filesystem tools share canonical path resolution, path/inode locking, snapshot
+  checks, text validation, streaming reads, and direct writes. Do not add a
+  second file-write or process-execution path inside an individual tool.
+- `file_read` pagination is bounded and versioned; continuation parameters must
+  remain visible in both structured metadata and LLM-facing text. Oversized
+  lines continue by UTF-8 byte offset.
+- `file_edit` and `file_write` prepare complete content in memory before one
+  direct `fs.writeFile` submission. Direct overwrite is deliberately not an
+  atomic commit and may leave an unknown target state on I/O failure; do not
+  imply temp-file recovery, rollback, or OS-level isolation.
+- See `docs/tool-call-runtime.md` for the complete runtime, cancellation,
+  timeout, process, and filesystem contracts.
 
 ## Development Workflow
 
