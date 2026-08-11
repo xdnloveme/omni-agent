@@ -7,10 +7,12 @@ import {
 import { fileMutex } from "./file-mutex";
 import { resolveCanonicalOperationPath } from "./io/canonical-operation-path";
 import { FileToolError, fileToolErrorResult } from "./io/file-errors";
-import { readTextPage } from "./io/streaming-line-reader";
+import { MAX_FILE_READ_OUTPUT_BYTES, readTextPage } from "./io/streaming-line-reader";
 import { createFilePathPermission } from "./permission/create-file-path-permission";
 
-const DEFAULT_LIMIT = 200;
+const DEFAULT_LIMIT = 500;
+const MAX_LIMIT = 2000;
+const MAX_OUTPUT_KIB = MAX_FILE_READ_OUTPUT_BYTES / 1024;
 
 export const fileReadTool: AgentToolDefinition = {
   name: "file_read",
@@ -22,7 +24,7 @@ export const fileReadTool: AgentToolDefinition = {
     "Read a UTF-8 text file with bounded, version-consistent pagination.\n\n" +
     "Usage:\n" +
     "- Returns lines as `line_number|content`.\n" +
-    "- Defaults to 200 lines and never returns more than 64 KiB.\n" +
+    `- Requests up to ${DEFAULT_LIMIT} lines by default, accepts up to ${MAX_LIMIT}, and never returns more than ${MAX_OUTPUT_KIB} KiB.\n` +
     "- Use the exact continuation parameters returned in the footer.\n" +
     "- Long lines are returned in byte-aligned chunks instead of failing.\n" +
     "- Use grep to locate relevant line numbers in large files.\n\n" +
@@ -48,8 +50,8 @@ export const fileReadTool: AgentToolDefinition = {
       limit: {
         type: "integer",
         minimum: 1,
-        maximum: 1000,
-        description: "Maximum lines to return. Defaults to 200.",
+        maximum: MAX_LIMIT,
+        description: `Maximum lines to request. Defaults to ${DEFAULT_LIMIT}; the output byte budget may stop earlier.`,
       },
       line_byte_offset: {
         type: "integer",

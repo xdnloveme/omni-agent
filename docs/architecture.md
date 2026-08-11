@@ -238,8 +238,16 @@ runner-owned `ExecutionDeadlineSupervisor`.
 Filesystem tools share canonical path resolution, snapshot/version checks, an
 in-process path/inode mutex, text validation, streaming line reads, and direct writes.
 `file_read` exposes versioned continuation data in both structured metadata and
-LLM-visible text, including byte continuations for oversized UTF-8 lines. `file_edit`
+LLM-visible text, including byte continuations for oversized UTF-8 lines. It defaults
+to 500 lines, accepts explicit limits up to 2,000, and remains bounded by 64 KiB.
+`file_edit`
 and `file_write` prepare complete content in memory and call the shared writer once.
 They deliberately do not implement temporary-file replacement or recovery, so a
 failed direct overwrite has an unknown target state. The detailed contract and
 residual risks are documented in `docs/tool-call-runtime.md`.
+
+Search navigation remains in the tools layer. Glob reports stable paths and file sizes;
+grep parses ripgrep JSON into file size, line, column, and bounded preview facts. Both
+publish the facts in structured metadata and LLM-visible text. The coding Agent chooses
+file-read ranges from those facts; search tools do not invoke file reads, and file reads
+do not consume hidden search state.

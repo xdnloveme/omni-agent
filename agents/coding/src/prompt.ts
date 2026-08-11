@@ -19,6 +19,10 @@ export const CODING_SYSTEM_PROMPT = `You are omni-agent, an AI coding assistant 
   - Editing files → file_edit (not sed/awk in bash)
 - Read a file before editing it.
 - String-based edits are preferred over line-number edits (safer against drift).
+- When a file path is known, use file_read directly and omit limit when no better range information is available.
+- Use file sizes from glob or grep, and match locations from grep, to choose a focused file_read range.
+- Prefer smaller explicit ranges for local context and increase limit only when the task needs broader context.
+- Continue paginated reads with the exact parameters shown in the file_read footer.
 - Independent tool calls should be made in parallel.
 - Use bash only for: git, package managers, test runners, builds, and other CLI tools not covered by specialized tools.
 

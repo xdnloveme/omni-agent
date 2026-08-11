@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
-import { TextDecoder } from "node:util";
 import { createAbortError, throwIfAborted } from "@omni-agent/core";
+import { decodeUtf8Prefix } from "../text/utf8";
 
 const TERMINATION_GRACE_MS = 500;
 
@@ -102,16 +102,7 @@ class BoundedOutput {
   text(): string {
     const bytes = Buffer.concat(this.chunks);
     if (!this.truncated) return bytes.toString("utf8");
-    for (let removed = 0; removed <= Math.min(3, bytes.length); removed += 1) {
-      try {
-        return new TextDecoder("utf-8", { fatal: true }).decode(
-          bytes.subarray(0, bytes.length - removed),
-        );
-      } catch {
-        // A byte budget may split the final UTF-8 code point.
-      }
-    }
-    return bytes.toString("utf8");
+    return decodeUtf8Prefix(bytes);
   }
 }
 

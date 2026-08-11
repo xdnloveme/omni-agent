@@ -125,6 +125,13 @@ Local ESM extensions are trusted local code. Do not imply that
 - `file_read` pagination is bounded and versioned; continuation parameters must
   remain visible in both structured metadata and LLM-facing text. Oversized
   lines continue by UTF-8 byte offset.
+- Search tools expose navigation facts through both structured metadata and
+  LLM-facing text: glob returns file sizes, while grep returns file sizes and
+  structured line/column matches. They must not choose or invoke file-read
+  ranges on the Agent's behalf.
+- `file_read` defaults to 500 lines, accepts an explicit range of 1-2000 lines,
+  and always keeps the final tool text within 64 KiB. It must not depend on
+  prior glob or grep calls.
 - `file_edit` and `file_write` prepare complete content in memory before one
   direct `fs.writeFile` submission. Direct overwrite is deliberately not an
   atomic commit and may leave an unknown target state on I/O failure; do not

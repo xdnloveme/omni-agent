@@ -4,6 +4,7 @@ import path from "node:path";
 import os from "node:os";
 import { globTool } from "../search/glob";
 import { grepTool } from "../search/grep";
+import { fileReadTool } from "../filesystem/file-read";
 import { invokeToolImplementation } from "./tool-test-helper";
 
 let tmpDir: string;
@@ -34,6 +35,15 @@ describe("globTool", () => {
     expect(text).toContain("a.ts");
     expect(text).toContain("b.ts");
     expect(text).not.toContain("c.js");
+    expect(result.meta).toMatchObject({
+      totalMatches: 2,
+      returnedFiles: 2,
+      truncated: false,
+      files: [
+        { path: "a.ts", sizeBytes: 0 },
+        { path: "b.ts", sizeBytes: 0 },
+      ],
+    });
   });
 
   it("should find files recursively with **", async () => {
@@ -84,9 +94,11 @@ describe("globTool", () => {
     expect(result.isError).toBe(false);
     const text = result.content[0].text;
     expect(text).toContain("showing first 200");
-    // Count the file entries (lines after the header)
-    const lines = text.split("\n").filter((l) => l.endsWith(".txt"));
-    expect(lines.length).toBe(200);
+    expect(result.meta).toMatchObject({
+      totalMatches: 210,
+      returnedFiles: 200,
+      truncated: true,
+    });
   });
 
   it("should return message when no files match", async () => {
@@ -97,6 +109,12 @@ describe("globTool", () => {
 
     expect(result.isError).toBe(false);
     expect(result.content[0].text).toContain("No files matched");
+    expect(result.meta).toEqual({
+      files: [],
+      totalMatches: 0,
+      returnedFiles: 0,
+      truncated: false,
+    });
   });
 
   it("should return error when pattern is missing", async () => {
@@ -127,6 +145,20 @@ describe("grepTool", () => {
     expect(text).toContain("1:");
     expect(text).toContain("const foo = 1");
     expect(text).toContain("const foobar = 3");
+    expect(result.meta).toMatchObject({
+      returnedMatches: 2,
+      totalMatches: 2,
+      truncated: false,
+    });
+    const files = result.meta?.files as Array<Record<string, unknown>>;
+    expect(files).toHaveLength(1);
+    expect(files[0]).toMatchObject({
+      sizeBytes: 48,
+      matches: [
+        { line: 1, column: 7, preview: "const foo = 1;" },
+        { line: 3, column: 7, preview: "const foobar = 3;" },
+      ],
+    });
   });
 
   it("should support ignore_case", async () => {
@@ -189,6 +221,54 @@ describe("grepTool", () => {
     const text = result.content[0].text;
     const matchingLines = text.split("\n").filter((l) => l.includes("match line"));
     expect(matchingLines.length).toBe(5);
+    expect(result.meta).toMatchObject({ returnedMatches: 5, totalMatches: 100, truncated: true });
+  });
+
+  it("applies max_results globally across files", async () => {
+    await fs.writeFile(path.join(tmpDir, "a.txt"), "hit\nhit\nhit\n");
+    await fs.writeFile(path.join(tmpDir, "b.txt"), "hit\nhit\nhit\n");
+
+    const result = await invokeToolImplementation(grepTool, {
+      regex: "hit",
+      search_path: tmpDir,
+      max_results: 4,
+    });
+
+    expect(result).toMatchObject({
+      isError: false,
+      meta: { returnedMatches: 4, totalMatches: 6, truncated: true },
+    });
+  });
+
+  it("keeps visible text bounded and reports matches omitted by the text budget", async () => {
+    const content = Array.from(
+      { length: 200 },
+      (_, index) => `target-${index} ${"x".repeat(600)}`,
+    ).join("\n");
+    await fs.writeFile(path.join(tmpDir, "verbose.txt"), content);
+
+    const result = await invokeToolImplementation(grepTool, {
+      regex: "target-",
+      search_path: tmpDir,
+      max_results: 1000,
+    });
+
+    expect(result.isError).toBe(false);
+    expect(Buffer.byteLength(result.content[0].text)).toBeLessThanOrEqual(50 * 1024);
+    expect(result.meta).toMatchObject({ totalMatches: 200, truncated: true });
+    expect(result.meta?.returnedMatches).toBeLessThan(200);
+  });
+
+  it("treats a regex beginning with a dash as data", async () => {
+    await fs.writeFile(path.join(tmpDir, "dash.txt"), "value -needle here\n");
+
+    const result = await invokeToolImplementation(grepTool, {
+      regex: "-needle",
+      search_path: tmpDir,
+    });
+
+    expect(result.isError).toBe(false);
+    expect(result.content[0].text).toContain("value -needle here");
   });
 
   it("should return no matches message when nothing found", async () => {
@@ -248,5 +328,34 @@ describe("search path permissions", () => {
         toolCallId: "call-1",
       }),
     ).resolves.toMatchObject({ risk: "external" });
+  });
+});
+
+describe("search navigation workflow", () => {
+  it("uses glob size and grep location to read a focused file range", async () => {
+    const lines = Array.from({ length: 600 }, (_, index) =>
+      index === 449 ? "export const targetValue = 42;" : `line ${index + 1}`,
+    );
+    await fs.writeFile(path.join(tmpDir, "target.ts"), lines.join("\n"));
+
+    const discovered = await invokeToolImplementation(globTool, {
+      pattern: "*.ts",
+      dir_path: tmpDir,
+    });
+    const located = await invokeToolImplementation(grepTool, {
+      regex: "targetValue",
+      search_path: tmpDir,
+    });
+    const matchFile = (located.meta?.files as Array<Record<string, unknown>>)[0];
+    const match = (matchFile.matches as Array<Record<string, number>>)[0];
+    const read = await invokeToolImplementation(fileReadTool, {
+      file_path: matchFile.path,
+      offset: match.line - 2,
+      limit: 5,
+    });
+
+    expect(discovered.content[0].text).toContain("target.ts (");
+    expect(located.content[0].text).toContain("450:14");
+    expect(read.content[0].text).toContain("450|export const targetValue = 42;");
   });
 });

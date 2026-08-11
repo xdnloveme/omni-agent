@@ -1,7 +1,14 @@
 import path from "node:path";
 import fg from "fast-glob";
-import type { AgentToolDefinition, ToolResult } from "@omni-agent/core";
+import {
+  createAbortError,
+  isAbortError,
+  type AgentToolDefinition,
+  type ToolResult,
+} from "@omni-agent/core";
+import { formatFileSize, loadFileSizes } from "./file-metadata";
 import { createSearchPathPermission } from "./permission/create-search-path-permission";
+import type { GlobResultMeta } from "./types";
 
 const MAX_RESULTS = 200;
 
@@ -13,13 +20,13 @@ export const globTool: AgentToolDefinition = {
   description:
     "Fast file pattern matching tool for discovering files by name or path pattern.\n\n" +
     "Usage:\n" +
-    "- ALWAYS use glob for finding files by pattern. NEVER use `find` or `ls` in bash for file discovery.\n" +
+    "- Use this tool for file discovery instead of shelling out to `find` or `ls`.\n" +
     "- Pattern syntax: `*` matches within a directory, `**` matches recursively across directories, " +
     "`{}` for brace expansion (e.g. `*.{js,ts}`).\n" +
     "- Examples: `**/*.ts` (all TypeScript files), `src/**/*.{js,ts}` (JS/TS under src/), " +
     "`*.config.*` (config files in cwd).\n" +
-    "- Respects .gitignore by default — node_modules and other ignored paths are excluded.\n" +
-    "- Returns relative file paths from the search directory.\n" +
+    "- Hidden entries are excluded by default; use `exclude` for dependency or generated paths.\n" +
+    "- Returns relative file paths and file sizes from the search directory.\n" +
     "- Use `exclude` to filter out specific patterns (e.g. test files, generated code).\n\n" +
     "When to use:\n" +
     "- Finding files by extension or naming pattern.\n" +
@@ -77,8 +84,14 @@ export const globTool: AgentToolDefinition = {
         followSymbolicLinks: false,
       });
 
+      entries.sort(comparePaths);
       const truncated = entries.length > MAX_RESULTS;
-      const results = truncated ? entries.slice(0, MAX_RESULTS) : entries;
+      const results = entries.slice(0, MAX_RESULTS);
+      const sizes = await loadFileSizes(results, cwd, context.signal);
+      const files = results.map((filePath) => ({
+        path: filePath,
+        sizeBytes: sizes.get(filePath) ?? null,
+      }));
 
       const header = truncated
         ? `Found ${entries.length} files (showing first ${MAX_RESULTS}):\n`
@@ -88,14 +101,34 @@ export const globTool: AgentToolDefinition = {
         return {
           content: [{ type: "text", text: "No files matched the pattern." }],
           isError: false,
+          meta: {
+            files: [],
+            totalMatches: 0,
+            returnedFiles: 0,
+            truncated: false,
+          } satisfies GlobResultMeta,
         };
       }
 
       return {
-        content: [{ type: "text", text: header + results.join("\n") }],
+        content: [
+          {
+            type: "text",
+            text:
+              header +
+              files.map((file) => `${file.path} (${formatFileSize(file.sizeBytes)})`).join("\n"),
+          },
+        ],
         isError: false,
+        meta: {
+          files,
+          totalMatches: entries.length,
+          returnedFiles: files.length,
+          truncated,
+        } satisfies GlobResultMeta,
       };
     } catch (err: unknown) {
+      if (isAbortError(err, context.signal)) throw createAbortError(context.signal);
       const msg = err instanceof Error ? err.message : String(err);
       return {
         content: [{ type: "text", text: `Error running glob: ${msg}` }],
@@ -104,3 +137,7 @@ export const globTool: AgentToolDefinition = {
     }
   },
 };
+
+function comparePaths(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}

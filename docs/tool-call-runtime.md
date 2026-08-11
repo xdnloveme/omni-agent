@@ -368,8 +368,8 @@ normal domain timeout result; a future Runner deadline becomes `tool_timeout`.
 
 ## Filesystem I/O Contract
 
-`file_read` uses a bounded streaming reader. It defaults to 200 lines, accepts at most
-1,000 lines, and caps the final UTF-8 tool text at 64 KiB including line prefixes and
+`file_read` uses a bounded streaming reader. It defaults to 500 lines, accepts explicit
+limits from 1 through 2,000, and caps the final UTF-8 tool text at 64 KiB including line prefixes and
 the continuation footer. It scans to the requested offset without retaining preceding
 text and does not scan beyond the requested page to calculate a total line count.
 Total lines are known only at EOF.
@@ -385,6 +385,15 @@ continuations. Offsets are relative to line content bytes, exclude CRLF terminat
 and must be returned by the tool rather than calculated by the model. Chunks stop on a
 valid UTF-8 boundary and are explicitly marked partial. Grep can locate a line, but
 only `file_read` continuation retrieves its complete oversized content.
+
+Glob and grep provide optional navigation facts rather than hidden prerequisites.
+Glob returns stable sorted paths with file sizes for at most 200 visible results. Grep
+parses `rg --json`, enforces a global matching-line limit, and groups bounded line and
+column previews under each matching file and its size. File metadata is loaded only for
+visible results with bounded concurrency. Required navigation data appears in both
+`ToolResult.meta` and LLM-visible text because result metadata is not part of the model
+message. Search tools never calculate or invoke file-read ranges; the Agent chooses a
+range for the current task, and direct file reads safely use the 500-line default.
 
 `file_edit` reads and validates at most 8 MiB, performs one exact non-overlapping
 replacement in memory, and preserves BOM and existing newline bytes. `file_write`

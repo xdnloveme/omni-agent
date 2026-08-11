@@ -57,11 +57,11 @@ describe("fileReadTool", () => {
     expect(text).not.toContain("4|d");
   });
 
-  it("returns 200 lines by default and exposes matching continuation metadata", async () => {
+  it("returns 500 lines by default and exposes matching continuation metadata", async () => {
     const filePath = path.join(tmpDir, "many.txt");
     await fs.writeFile(
       filePath,
-      Array.from({ length: 205 }, (_, index) => `line-${index + 1}`).join("\n"),
+      Array.from({ length: 505 }, (_, index) => `line-${index + 1}`).join("\n"),
     );
 
     const result = await invokeToolImplementation(fileReadTool, { file_path: filePath });
@@ -70,12 +70,31 @@ describe("fileReadTool", () => {
     expect(result.isError).toBe(false);
     expect(pagination).toMatchObject({
       mode: "lines",
-      returnedLines: 200,
+      returnedLines: 500,
       hasMore: true,
-      nextOffset: 201,
+      nextOffset: 501,
     });
-    expect(result.content[0].text).toContain("offset=201, limit=200");
+    expect(result.content[0].text).toContain("offset=501, limit=500");
     expect(Buffer.byteLength(result.content[0].text)).toBeLessThanOrEqual(64 * 1024);
+  });
+
+  it("accepts an explicit 2000-line range while preserving the output budget", async () => {
+    const filePath = path.join(tmpDir, "short-lines.txt");
+    await fs.writeFile(filePath, Array.from({ length: 2000 }, () => "x").join("\n"));
+
+    const result = await invokeToolImplementation(fileReadTool, {
+      file_path: filePath,
+      limit: 2000,
+    });
+
+    expect(result).toMatchObject({
+      isError: false,
+      meta: { pagination: { returnedLines: 2000, hasMore: false } },
+    });
+    expect(Buffer.byteLength(result.content[0].text)).toBeLessThanOrEqual(64 * 1024);
+    const limitSchema = (fileReadTool.schema.properties as Record<string, Record<string, unknown>>)
+      .limit;
+    expect(limitSchema).toMatchObject({ minimum: 1, maximum: 2000 });
   });
 
   it("requires the previous version when continuing a changed file", async () => {

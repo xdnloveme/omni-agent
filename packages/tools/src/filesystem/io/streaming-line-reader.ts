@@ -10,7 +10,7 @@ import {
 } from "./file-snapshot";
 
 const READ_CHUNK_BYTES = 64 * 1024;
-const MAX_OUTPUT_BYTES = 64 * 1024;
+export const MAX_FILE_READ_OUTPUT_BYTES = 64 * 1024;
 const CONTENT_BUDGET_BYTES = 60 * 1024;
 const UTF8_BOM = Buffer.from([0xef, 0xbb, 0xbf]);
 
@@ -178,7 +178,7 @@ export async function readTextPage(request: StreamingReadRequest): Promise<Strea
 }
 
 function finalize(text: string, pagination: FilePagination): StreamingReadResult {
-  if (Buffer.byteLength(text) > MAX_OUTPUT_BYTES) {
+  if (Buffer.byteLength(text) > MAX_FILE_READ_OUTPUT_BYTES) {
     throw new FileToolError("read_failed", "Formatted file page exceeded output budget", true);
   }
   return { text, pagination };
