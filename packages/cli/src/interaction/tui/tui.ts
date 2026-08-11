@@ -68,7 +68,7 @@ export interface TuiSink {
   line(text?: string): void;
   spacer(): void;
   flush(): void;
-  toolStart(toolName: string, toolCallId: string, inputPreview: string): void;
+  toolStart(toolName: string, toolCallId: string, input: Record<string, unknown>): void;
   toolEnd(toolCallId: string, result: ToolMessageResult, durationMs: number): void;
 }
 
@@ -247,10 +247,10 @@ export function createOmniTui(): OmniTui {
     flush() {
       flushMarkdown();
     },
-    toolStart(toolName: string, toolCallId: string, inputPreview: string) {
+    toolStart(toolName: string, toolCallId: string, input: Record<string, unknown>) {
       sink.line();
       const linkUrl = `omni-agent://tool/${encodeURIComponent(toolCallId)}`;
-      const message = new ToolMessage(toolName, inputPreview, false, linkUrl);
+      const message = new ToolMessage(toolName, input, linkUrl);
       toolMessages.set(toolCallId, message);
       internalLinks.set(linkUrl, () => {
         message.toggleDetails();
@@ -262,8 +262,9 @@ export function createOmniTui(): OmniTui {
     toolEnd(toolCallId: string, result: ToolMessageResult, durationMs: number) {
       const message = toolMessages.get(toolCallId);
       if (!message) return;
-      message.finish(result, durationMs, true, true);
+      const shouldAutoCollapse = message.finish(result, durationMs);
       ui.requestRender();
+      if (!shouldAutoCollapse) return;
       const timer = setTimeout(() => {
         toolPreviewTimers.delete(timer);
         message.collapsePreview();

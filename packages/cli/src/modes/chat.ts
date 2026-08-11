@@ -1,6 +1,6 @@
 import chalk from "chalk";
 
-import { formatSanitizedToolInput, type StreamCallbacks, type TokenUsage } from "@omni-agent/core";
+import type { StreamCallbacks, TokenUsage } from "@omni-agent/core";
 import { AgentFactory, ConfigService, createModelService } from "@omni-agent/app";
 import { loadAgentBlueprint } from "../agents/agent-blueprint-loader";
 import { createOmniTui } from "../interaction/tui/tui";
@@ -199,7 +199,7 @@ export async function runChatMode(agentId: string): Promise<void> {
         },
         onToolStart(toolName, toolCallId, toolInput) {
           if (skillController?.shouldSuppressToolPreview(toolName)) return;
-          tui.sink.toolStart(toolName, toolCallId, formatSanitizedToolInput(toolInput));
+          tui.sink.toolStart(toolName, toolCallId, toolInput);
           tui.setStatus(chalk.cyan(`running: ${toolName}...`));
         },
         onToolEnd(toolName, toolCallId, result, durationMs) {

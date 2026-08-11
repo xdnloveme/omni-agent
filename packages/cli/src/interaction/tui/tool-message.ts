@@ -5,6 +5,7 @@ import {
   wrapTextWithAnsi,
   type Component,
 } from "@earendil-works/pi-tui";
+import { formatSanitizedToolInput, sanitizeSensitiveValue } from "@omni-agent/core";
 import chalk from "chalk";
 
 const MAX_OUTPUT_CHARS = 50_000;
@@ -13,6 +14,13 @@ const MAX_OUTPUT_LINES = 200;
 export interface ToolMessageResult {
   content: Array<{ type: "text"; text: string }>;
   isError: boolean;
+}
+
+interface ToolInputPresentation {
+  summary: string;
+  detail: string;
+  summaryKind: "code" | "plain";
+  completion: "collapsed" | "temporary-preview";
 }
 
 function indentWrapped(text: string, width: number, prefix: string): string[] {
@@ -59,24 +67,23 @@ export class ToolMessage implements Component {
   private result: ToolMessageResult | null = null;
   private durationMs: number | null = null;
   private autoCollapsePending = false;
+  private expanded = false;
+  private readonly presentation: ToolInputPresentation;
 
   constructor(
     private readonly toolName: string,
-    private readonly inputPreview: string,
-    private expanded = false,
+    input: Record<string, unknown>,
     private readonly linkUrl?: string,
-  ) {}
+  ) {
+    this.presentation = createInputPresentation(input);
+  }
 
-  finish(
-    result: ToolMessageResult,
-    durationMs: number,
-    expanded: boolean,
-    autoCollapse = false,
-  ): void {
+  finish(result: ToolMessageResult, durationMs: number): boolean {
     this.result = result;
     this.durationMs = durationMs;
-    this.expanded = expanded;
-    this.autoCollapsePending = expanded && autoCollapse;
+    this.autoCollapsePending = this.presentation.completion === "temporary-preview";
+    this.expanded = this.autoCollapsePending;
+    return this.autoCollapsePending;
   }
 
   collapsePreview(): void {
@@ -99,10 +106,11 @@ export class ToolMessage implements Component {
     const state = this.renderState();
     const fixed = `${marker} ${this.toolName}  ${state}`;
     const previewWidth = Math.max(0, safeWidth - visibleWidth(fixed) - 2);
-    const preview =
-      previewWidth > 8
-        ? ` ${chalk.dim(truncateToWidth(this.inputPreview, previewWidth, "…"))}`
-        : "";
+    const summary =
+      this.presentation.summaryKind === "code"
+        ? chalk.yellow(this.presentation.summary)
+        : chalk.dim(this.presentation.summary);
+    const preview = previewWidth > 8 ? ` ${truncateToWidth(summary, previewWidth, "…")}` : "";
     const header = truncateToWidth(
       `${marker} ${chalk.bold(this.toolName)}${preview}  ${state}`,
       safeWidth,
@@ -112,7 +120,7 @@ export class ToolMessage implements Component {
     if (!this.expanded || !this.result) return lines;
 
     lines.push(
-      ...indentWrapped(chalk.dim(`input: ${this.inputPreview}`), safeWidth, chalk.dim("│ ")),
+      ...indentWrapped(chalk.dim(`input: ${this.presentation.detail}`), safeWidth, chalk.dim("│ ")),
     );
     const output = collectOutput(this.result);
     if (output) {
@@ -138,4 +146,24 @@ export class ToolMessage implements Component {
       this.expanded ? "" : chalk.dim(" · click for details")
     }`;
   }
+}
+
+function createInputPresentation(input: Record<string, unknown>): ToolInputPresentation {
+  const sanitizedInput = sanitizeSensitiveValue(input) as Record<string, unknown>;
+  const detail = formatSanitizedToolInput(sanitizedInput);
+  const filePath = sanitizedInput.file_path;
+  if (typeof filePath === "string" && filePath.length > 0) {
+    return {
+      summary: filePath,
+      detail,
+      summaryKind: "code",
+      completion: "collapsed",
+    };
+  }
+  return {
+    summary: detail,
+    detail,
+    summaryKind: "plain",
+    completion: "temporary-preview",
+  };
 }
