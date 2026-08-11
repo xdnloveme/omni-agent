@@ -145,24 +145,21 @@ export function classifyWholeCommandHardStop(
   const segments = commandSegments(parsed);
   const context = { command, parsed, segments };
   if (segments.some(({ executable }) => executable === "sudo")) {
-    return classification(
-      "privileged",
-      "Privilege escalation is not allowed",
-      "shell.hard.sudo",
-      "hard_deny",
-    );
+    return classification("privileged", "Privilege escalation is not allowed", "shell.hard.sudo", {
+      enforcement: "hard_deny",
+    });
   }
   if (segments.some(({ executable, args }) => isCatastrophicDelete(executable, args, cwd))) {
     return classification(
       "privileged",
       "Deletes a protected filesystem root",
       "shell.hard.catastrophic-delete",
-      "hard_deny",
+      { enforcement: "hard_deny" },
     );
   }
   for (const entry of HARD_STOP_RULES) {
     if (entry.matches(context)) {
-      return classification("privileged", entry.reason, entry.id, "hard_deny");
+      return classification("privileged", entry.reason, entry.id, { enforcement: "hard_deny" });
     }
   }
   return null;

@@ -221,6 +221,7 @@ Assessments explicitly separate risk from enforcement:
 ```ts
 interface PermissionAssessment {
   risk: PermissionRisk;
+  operationClass: "routine" | "sensitive";
   enforcement: "policy" | "hard_deny";
   reasons: readonly string[];
   ruleIds: readonly string[];
@@ -229,8 +230,10 @@ interface PermissionAssessment {
 ```
 
 `ruleIds` are diagnostic and test data only. Policy must never infer authorization
-semantics from their presence or spelling. Security-relevant classifier output uses
-explicit fields such as `enforcement` and shell `effects`.
+semantics from their presence or spelling. `risk` describes operational impact, while
+`operationClass` explicitly distinguishes routine calls that may use a persistent tool grant
+from sensitive calls that require a fresh decision. Security-relevant classifier output
+uses explicit fields such as `enforcement`, `operationClass`, and shell `effects`.
 
 The default policy is:
 
@@ -240,15 +243,18 @@ The default policy is:
 | `write`                  | allow    | ask        | allowed          |
 | `execute`                | ask      | ask        | allowed          |
 | `external_read`          | allow    | ask        | forbidden        |
-| `external`               | ask      | ask        | forbidden        |
+| `external` + routine     | ask      | ask        | allowed          |
+| `external` + sensitive   | ask      | ask        | forbidden        |
 | `destructive`            | ask      | ask        | forbidden        |
 | `privileged`             | ask      | ask        | forbidden        |
 | `unknown`                | ask      | ask        | forbidden        |
 | `enforcement: hard_deny` | deny     | deny       | forbidden        |
 
-Persistent approval is scoped to Agent ID and stable tool identity. It only answers a
-routine `write` or `execute` prompt. A later external, destructive, privileged,
-unknown, or hard-deny assessment is evaluated again and is not covered by the grant.
+Persistent approval is scoped to Agent ID and stable tool identity. It answers routine
+`write`, `execute`, and explicitly classified routine `external` prompts. Bash examples
+include package installation and non-destructive Git fetch, pull, and push. Publish,
+force-push, destructive, privileged, unknown, sensitive-path, and hard-deny assessments
+are evaluated again and are not covered by the grant.
 
 `ApprovalBroker` receives only the sanitized `ApprovalRequest`. It never receives raw
 tool input. Escape maps to Deny. Ctrl+C, SIGTERM, shutdown, and an aborted signal map
@@ -475,7 +481,8 @@ keyboard listeners, overlay cleanup, status restoration, and Promise completion 
 `finally` path. Permission choices are:
 
 - Allow once.
-- Always approve this tool, only when policy marks the request persistable.
+- Always approve routine operations for this tool, only when policy marks the request
+  persistable.
 - Deny.
 
 `/permissions` accesses permission state through `AgentApplication` methods. The

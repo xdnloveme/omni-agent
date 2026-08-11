@@ -28,7 +28,7 @@ export class TuiApprovalBroker implements ApprovalBroker {
             ? [
                 {
                   value: "allow_always",
-                  label: `Always approve ${request.toolName} for ${request.agentId}`,
+                  label: `Always approve routine ${request.toolName} operations`,
                   description: `Automatically approve routine ${request.toolName} calls for ${request.agentId}`,
                   tone: "positive" as const,
                 },

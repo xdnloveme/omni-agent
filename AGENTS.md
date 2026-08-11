@@ -96,6 +96,9 @@ Local ESM extensions are trusted local code. Do not imply that
   `static`, or `dynamic`) and an independent `execution` strategy (`host` or
   `sandbox_eligible`), plus an explicit timeout policy (`none`, `fixed`, or
   schema-bound `input`). There is no metadata fallback.
+- Dynamic authorization must keep operational `risk` separate from `operationClass`.
+  Only routine assessments may consume an Agent-scoped persistent tool grant, and
+  every call must be reassessed before applying that grant.
 - Keep tool-domain assessment with the tool owner. Do not add a central
   `switch(toolName)` or make App/CLI parse Bash commands or paths.
 - Resolve paths and spawn processes with the injected execution `cwd`; tool

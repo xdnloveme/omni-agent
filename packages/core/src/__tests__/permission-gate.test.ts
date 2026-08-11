@@ -53,6 +53,7 @@ describe("PermissionGate", () => {
         kind: "dynamic",
         assess: () => ({
           risk: "privileged",
+          operationClass: "sensitive",
           enforcement: "hard_deny",
           reasons: ["blocked"],
           ruleIds: ["test.hard"],
@@ -209,6 +210,7 @@ describe("PermissionGate", () => {
           (candidate.nested as { value: string }).value = "mutated";
           return {
             risk: "read",
+            operationClass: "routine",
             enforcement: "policy",
             reasons: ["read"],
             ruleIds: [],

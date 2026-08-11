@@ -16,8 +16,9 @@ export const genericCommandClassifier: ShellClassifier = {
         "external",
         `${primary} accesses external systems`,
         `shell.external.${primary}`,
-        "policy",
-        NETWORK_TRANSFER_COMMANDS.has(primary) ? ["network_transfer"] : [],
+        {
+          effects: NETWORK_TRANSFER_COMMANDS.has(primary) ? ["network_transfer"] : [],
+        },
       );
     }
     if (EXECUTE_COMMANDS.has(primary)) {

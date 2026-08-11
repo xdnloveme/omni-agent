@@ -30,6 +30,7 @@ function classify(command: string, cwd: string, depth: number): ShellClassificat
     return unknown("Command contains dynamic or malformed shell syntax", "shell.unknown.dynamic");
   let result: ShellClassification = {
     risk: "read",
+    operationClass: "routine",
     enforcement: "policy",
     reasons: [],
     ruleIds: [],
@@ -48,6 +49,7 @@ function classify(command: string, cwd: string, depth: number): ShellClassificat
   if (parsed.hasOutputRedirection && result.risk === "read")
     result = maximum(result, {
       risk: "write",
+      operationClass: "routine",
       enforcement: "policy",
       reasons: ["Shell output redirection writes to a file"],
       ruleIds: ["shell.write.redirection"],
@@ -59,6 +61,7 @@ function classify(command: string, cwd: string, depth: number): ShellClassificat
 function unknown(reason: string, ruleId: string): ShellClassification {
   return {
     risk: "unknown",
+    operationClass: "sensitive",
     enforcement: "policy",
     reasons: [reason],
     ruleIds: [ruleId],
@@ -73,6 +76,10 @@ function maximum(left: ShellClassification, right: ShellClassification): ShellCl
       left.enforcement === "hard_deny" || right.enforcement === "hard_deny"
         ? "hard_deny"
         : "policy",
+    operationClass:
+      left.operationClass === "sensitive" || right.operationClass === "sensitive"
+        ? "sensitive"
+        : "routine",
     reasons: [...left.reasons, ...right.reasons],
     ruleIds: [...left.ruleIds, ...right.ruleIds],
     effects: [...new Set([...left.effects, ...right.effects])],

@@ -4,6 +4,7 @@ export type ShellEffect = "network_transfer";
 
 export interface ShellClassification {
   risk: PermissionRisk;
+  operationClass: "routine" | "sensitive";
   enforcement: "policy" | "hard_deny";
   reasons: string[];
   ruleIds: string[];
@@ -19,8 +20,29 @@ export function classification(
   risk: PermissionRisk,
   reason: string,
   ruleId: string,
-  enforcement: "policy" | "hard_deny" = "policy",
-  effects: ShellEffect[] = [],
+  options: {
+    enforcement?: "policy" | "hard_deny";
+    effects?: ShellEffect[];
+    operationClass?: "routine" | "sensitive";
+  } = {},
 ): ShellClassification {
-  return { risk, enforcement, reasons: [reason], ruleIds: [ruleId], effects };
+  const enforcement = options.enforcement ?? "policy";
+  return {
+    risk,
+    enforcement,
+    operationClass: options.operationClass ?? defaultOperationClass(risk, enforcement),
+    reasons: [reason],
+    ruleIds: [ruleId],
+    effects: options.effects ?? [],
+  };
+}
+
+function defaultOperationClass(
+  risk: PermissionRisk,
+  enforcement: "policy" | "hard_deny",
+): "routine" | "sensitive" {
+  return enforcement === "hard_deny" ||
+    ["external", "destructive", "privileged", "unknown"].includes(risk)
+    ? "sensitive"
+    : "routine";
 }

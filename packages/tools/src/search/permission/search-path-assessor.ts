@@ -11,6 +11,7 @@ export async function assessSearchPath(value: string, cwd: string): Promise<Perm
       : "Searches a path outside the workspace";
   return {
     risk,
+    operationClass: inWorkspace && !sensitive ? "routine" : "sensitive",
     enforcement: "policy",
     reasons: [reason],
     ruleIds: sensitive

@@ -24,6 +24,7 @@ const context = (
     | "privileged"
     | "unknown",
   mode: "standard" | "supervised" = "standard",
+  operationClass: "routine" | "sensitive" = "routine",
 ) => ({
   agentId: "coding",
   toolIdentity: "builtin-coding:bash",
@@ -31,6 +32,7 @@ const context = (
   mode,
   assessment: {
     risk,
+    operationClass,
     enforcement: "policy" as const,
     reasons: [risk],
     ruleIds: [],
@@ -51,11 +53,18 @@ describe("DefaultPermissionPolicy", () => {
 
   it("asks every time for high-risk operations", () => {
     for (const risk of ["external", "destructive", "privileged", "unknown"] as const) {
-      expect(policy.evaluate(context(risk))).toMatchObject({
+      expect(policy.evaluate(context(risk, "standard", "sensitive"))).toMatchObject({
         outcome: "ask",
         canAllowAlways: false,
       });
     }
+  });
+
+  it("allows persistent approval for routine external operations", () => {
+    expect(policy.evaluate(context("external", "standard", "routine"))).toMatchObject({
+      outcome: "ask",
+      canAllowAlways: true,
+    });
   });
 
   it("allows external reads only in standard mode", () => {
@@ -63,6 +72,13 @@ describe("DefaultPermissionPolicy", () => {
       outcome: "allow",
     });
     expect(policy.evaluate(context("external_read", "supervised"))).toMatchObject({
+      outcome: "ask",
+      canAllowAlways: false,
+    });
+  });
+
+  it("does not persist sensitive execute decisions", () => {
+    expect(policy.evaluate(context("execute", "standard", "sensitive"))).toMatchObject({
       outcome: "ask",
       canAllowAlways: false,
     });
@@ -103,5 +119,64 @@ describe("permission runtime composition", () => {
     expect(observer.onResolved).toHaveBeenCalledWith(
       expect.objectContaining({ toolIdentity: tool.toolIdentity, source: "policy" }),
     );
+  });
+
+  it("applies a stored tool grant only to routine assessments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "omni-permission-runtime-"));
+    directories.push(root);
+    const requestApproval = vi.fn(async () => "deny" as const);
+    const runtime = createPermissionRuntime({
+      globalDirectory: root,
+      approvalBroker: { request: requestApproval },
+    });
+    const tool: PermissionControlledTool = {
+      name: "bash",
+      description: "shell",
+      schema: { type: "object", additionalProperties: false },
+      authorization: {
+        kind: "dynamic",
+        assess(input) {
+          const operationClass = input.sensitive ? "sensitive" : "routine";
+          return {
+            risk: "external",
+            operationClass,
+            enforcement: "policy",
+            reasons: [operationClass],
+            ruleIds: [],
+            presentation: { title: "bash", reason: operationClass },
+          };
+        },
+      },
+      execution: { kind: "host" },
+      timeout: { kind: "none" },
+      originId: "builtin-coding",
+      toolIdentity: "builtin-coding:bash",
+      async execute() {
+        return { content: [{ type: "text", text: "ok" }], isError: false };
+      },
+    };
+    const request = (input: Record<string, unknown>) => ({
+      tool,
+      input,
+      context: {
+        agentId: "coding",
+        cwd: root,
+        toolCallId: "call-1",
+        toolIdentity: tool.toolIdentity,
+      },
+    });
+
+    await runtime.service.approveTool("coding", tool.toolIdentity, tool.name);
+
+    await expect(runtime.permissionGate.authorize(request({}))).resolves.toMatchObject({
+      outcome: "allowed",
+      source: "automatic_approval",
+    });
+    expect(requestApproval).not.toHaveBeenCalled();
+
+    await expect(
+      runtime.permissionGate.authorize(request({ sensitive: true })),
+    ).resolves.toMatchObject({ outcome: "denied", source: "user" });
+    expect(requestApproval).toHaveBeenCalledOnce();
   });
 });

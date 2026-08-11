@@ -15,5 +15,21 @@ export function commandArguments(words: readonly string[]): readonly string[] {
 }
 
 export function subcommand(words: readonly string[]): string {
-  return commandArguments(words).find((word) => !word.startsWith("-")) ?? "";
+  return findPositionalArgument(commandArguments(words))?.value ?? "";
+}
+
+export function findPositionalArgument(
+  args: readonly string[],
+  start = 0,
+  optionsWithValue?: ReadonlySet<string>,
+): { index: number; value: string } | null {
+  for (let index = start; index < args.length; index += 1) {
+    const argument = args[index]!;
+    if (optionsWithValue?.has(argument)) {
+      index += 1;
+      continue;
+    }
+    if (!argument.startsWith("-")) return { index, value: argument };
+  }
+  return null;
 }

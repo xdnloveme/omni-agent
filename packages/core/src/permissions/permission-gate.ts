@@ -150,6 +150,7 @@ export class PermissionGate {
       descriptor.kind === "static"
         ? {
             risk: descriptor.risk,
+            operationClass: "routine" as const,
             enforcement: "policy" as const,
             reasons: [descriptor.reason],
             ruleIds: [],
@@ -225,6 +226,9 @@ const POLICY_OUTCOMES = new Set(["allow", "ask", "deny"]);
 function assertPermissionAssessment(value: PermissionAssessment): void {
   if (!value || typeof value !== "object") throw new Error("Permission assessment is invalid");
   if (!PERMISSION_RISKS.has(value.risk)) throw new Error("Permission assessment risk is invalid");
+  if (value.operationClass !== "routine" && value.operationClass !== "sensitive") {
+    throw new Error("Permission assessment operation class is invalid");
+  }
   if (value.enforcement !== "policy" && value.enforcement !== "hard_deny") {
     throw new Error("Permission assessment enforcement is invalid");
   }

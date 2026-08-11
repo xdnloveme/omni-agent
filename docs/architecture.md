@@ -198,10 +198,13 @@ dispatches permission behavior through a central switch on tool name.
 
 The default modes are `standard` and `supervised`. Standard mode permits routine
 workspace reads and writes but asks before ordinary process execution.
-Supervised mode also asks before writes. External, destructive, and unknown
-operations, including privileged operations, always require a one-time decision;
-explicit hard-stop behavior is denied. An Agent-level automatic tool approval only
-answers routine, persistable prompts. It cannot override a fresh high-risk assessment.
+Supervised mode also asks before writes. Assessments separately describe operational
+impact (`risk`) and the domain operation category (`operationClass`). Routine package
+installation and non-destructive Git remote operations remain external, but an existing
+Agent-level tool grant may answer them. Sensitive external, destructive, unknown, and
+privileged operations require a one-time decision; explicit hard-stop behavior is denied.
+Every call is reassessed, so a stored grant cannot override a fresh sensitive or hard-stop
+assessment.
 
 Permission state is stored in `~/.omni-agent/permissions.json`, keyed by Agent and
 stable tool origin. Updates use an inter-process lock and atomic JSON replacement.

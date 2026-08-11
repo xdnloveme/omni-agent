@@ -6,11 +6,8 @@ export const privilegedCommandClassifier: ShellClassifier = {
   classify(words) {
     const primary = commandName(words);
     if (!["shutdown", "reboot", "halt", "poweroff"].includes(primary)) return null;
-    return classification(
-      "privileged",
-      "Controls host power state",
-      "shell.hard.power",
-      "hard_deny",
-    );
+    return classification("privileged", "Controls host power state", "shell.hard.power", {
+      enforcement: "hard_deny",
+    });
   },
 };

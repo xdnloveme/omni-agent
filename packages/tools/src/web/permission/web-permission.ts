@@ -37,6 +37,7 @@ function assessUrl(value: string, title: string): PermissionAssessment {
 function externalRead(title: string, detail: string): PermissionAssessment {
   return {
     risk: "external_read",
+    operationClass: "sensitive",
     enforcement: "policy",
     reasons: ["Reads information from an external service"],
     ruleIds: ["web.external-read"],
@@ -52,6 +53,7 @@ function hardDeny(
 ): PermissionAssessment {
   return {
     risk: "privileged",
+    operationClass: "sensitive",
     enforcement: "hard_deny",
     reasons: [reason],
     ruleIds: [ruleId],

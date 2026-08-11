@@ -21,21 +21,31 @@ export const GIT_WRITE = new Set([
   "cherry-pick",
   "revert",
 ]);
-export const GIT_EXTERNAL = new Set(["push", "pull", "fetch", "clone", "remote", "submodule"]);
+export const GIT_EXTERNAL_ROUTINE = new Set(["push", "pull", "fetch", "clone", "submodule"]);
 export const GIT_DESTRUCTIVE = new Set(["clean", "rebase", "filter-branch", "filter-repo"]);
 
-export const PACKAGE_EXTERNAL = new Set([
-  "install",
-  "i",
-  "add",
-  "remove",
-  "uninstall",
-  "update",
-  "upgrade",
-  "publish",
-  "yank",
-  "login",
-]);
+export interface PackageManagerActions {
+  routineExternal: ReadonlySet<string>;
+  sensitiveExternal: ReadonlySet<string>;
+}
+
+export const PACKAGE_MANAGER_ACTIONS: Readonly<Record<string, PackageManagerActions>> = {
+  npm: actions(
+    ["install", "i", "ci", "remove", "rm", "uninstall", "update"],
+    ["publish", "unpublish", "login", "exec"],
+  ),
+  pnpm: actions(
+    ["install", "i", "add", "remove", "rm", "update", "up", "fetch"],
+    ["publish", "unpublish", "login", "dlx", "exec"],
+  ),
+  yarn: actions(
+    ["install", "add", "remove", "update", "up", "upgrade"],
+    ["publish", "login", "dlx", "exec"],
+  ),
+  cargo: actions(["install", "add", "remove", "update"], ["publish", "yank", "login"]),
+  go: actions(["get", "install"], []),
+};
+
 export const PACKAGE_EXECUTE = new Set([
   "run",
   "test",
@@ -51,3 +61,13 @@ export const PACKAGE_EXECUTE = new Set([
 
 export const DOCKER_DESTRUCTIVE = new Set(["rm", "rmi", "prune", "kill"]);
 export const KUBECTL_DESTRUCTIVE = new Set(["delete", "drain"]);
+
+function actions(
+  routineExternal: readonly string[],
+  sensitiveExternal: readonly string[],
+): PackageManagerActions {
+  return {
+    routineExternal: new Set(routineExternal),
+    sensitiveExternal: new Set(sensitiveExternal),
+  };
+}

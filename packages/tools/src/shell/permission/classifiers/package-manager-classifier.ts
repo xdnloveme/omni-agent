@@ -1,19 +1,37 @@
-import { PACKAGE_EXECUTE, PACKAGE_EXTERNAL } from "../rules/subcommand-rules";
+import { PACKAGE_EXECUTE, PACKAGE_MANAGER_ACTIONS } from "../rules/subcommand-rules";
 import { classification, type ShellClassifier } from "./types";
-import { commandName, subcommand } from "./command-utils";
+import { commandArguments, commandName, findPositionalArgument } from "./command-utils";
 
-const PACKAGE_MANAGERS = new Set(["npm", "pnpm", "yarn", "cargo", "go"]);
+const GLOBAL_OPTIONS_WITH_VALUE = new Set([
+  "--prefix",
+  "--dir",
+  "--cwd",
+  "-C",
+  "--workspace",
+  "-w",
+  "--filter",
+  "-F",
+]);
 
 export const packageManagerClassifier: ShellClassifier = {
   priority: 40,
   classify(words) {
     const primary = commandName(words);
-    if (!PACKAGE_MANAGERS.has(primary)) return null;
-    const action = subcommand(words);
-    if (PACKAGE_EXTERNAL.has(action) || ["dlx", "exec"].includes(action)) {
+    const profile = PACKAGE_MANAGER_ACTIONS[primary];
+    if (!profile) return null;
+    const action = resolvePackageAction(primary, commandArguments(words));
+    if (profile.routineExternal.has(action)) {
       return classification(
         "external",
         `${primary} ${action} accesses package services`,
+        `shell.external.${primary}`,
+        { operationClass: "routine" },
+      );
+    }
+    if (profile.sensitiveExternal.has(action)) {
+      return classification(
+        "external",
+        `${primary} ${action} performs a sensitive package-service operation`,
         `shell.external.${primary}`,
       );
     }
@@ -23,3 +41,10 @@ export const packageManagerClassifier: ShellClassifier = {
     return classification("execute", reason, `shell.execute.${primary}`);
   },
 };
+
+function resolvePackageAction(primary: string, args: readonly string[]): string {
+  const action = findPositionalArgument(args, 0, GLOBAL_OPTIONS_WITH_VALUE);
+  if (!action) return "";
+  if (primary !== "yarn" || action.value !== "npm") return action.value;
+  return findPositionalArgument(args, action.index + 1, GLOBAL_OPTIONS_WITH_VALUE)?.value ?? "";
+}

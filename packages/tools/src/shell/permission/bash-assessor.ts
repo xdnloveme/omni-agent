@@ -22,6 +22,8 @@ export async function assessBashPermission(
     paths.hasSensitivePath && classification.effects.includes("network_transfer");
   return {
     risk,
+    operationClass:
+      paths.hasExternalPath || paths.hasSensitivePath ? "sensitive" : classification.operationClass,
     enforcement:
       classification.enforcement === "hard_deny" || transfersCredential ? "hard_deny" : "policy",
     reasons,

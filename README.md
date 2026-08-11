@@ -70,13 +70,17 @@ tools, such as Skill loading and deterministic in-memory computation, do not con
 permission state. Permission-controlled tools are assessed before execution. The
 default `standard` mode allows routine workspace reads and writes, while asking before shell
 execution and higher-risk operations. `supervised` mode also asks before writes.
-External, destructive, unknown, and privileged operations always require a one-time
-decision. Explicit hard-stop operations are denied.
+Routine development operations may be covered by an Agent-scoped tool approval. This
+includes ordinary package installation and non-destructive Git remote operations such as
+fetch, pull, and push. Sensitive external operations, destructive commands, unknown
+commands, and privileged operations still require a one-time decision. Explicit hard-stop
+operations are denied.
 
-The approval prompt supports allowing one call, automatically approving routine
-calls to that tool for the current Agent, or denying the call. Automatic approvals
-are stored in `~/.omni-agent/permissions.json`. They do not bypass later external,
-destructive, unknown, or privileged classifications.
+The approval prompt supports allowing one call, automatically approving routine calls to
+that tool for the current Agent, or denying the call. Automatic approvals are stored in
+`~/.omni-agent/permissions.json`. Every call is reassessed, so a Bash grant covers routine
+build, package, and Git operations but does not cover publish, force-push, destructive,
+unknown, privileged, or hard-stop classifications.
 
 This layer is an execution policy, not an OS sandbox. It cannot fully constrain an
 untrusted child process or eliminate filesystem race conditions.

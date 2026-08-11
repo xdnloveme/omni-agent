@@ -27,7 +27,12 @@ describe("TuiApprovalBroker", () => {
     await expect(new TuiApprovalBroker(interactive).request(request)).resolves.toBe("allow_always");
     expect(interactive.select).toHaveBeenCalledWith(
       expect.objectContaining({
-        items: expect.arrayContaining([expect.objectContaining({ value: "allow_always" })]),
+        items: expect.arrayContaining([
+          expect.objectContaining({
+            value: "allow_always",
+            label: "Always approve routine bash operations",
+          }),
+        ]),
       }),
       undefined,
     );

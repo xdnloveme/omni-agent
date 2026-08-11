@@ -18,6 +18,7 @@ export interface PermissionPresentation {
 
 export interface PermissionAssessment {
   risk: PermissionRisk;
+  operationClass: "routine" | "sensitive";
   enforcement: "policy" | "hard_deny";
   reasons: readonly string[];
   presentation: PermissionPresentation;

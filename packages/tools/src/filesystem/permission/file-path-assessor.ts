@@ -25,6 +25,7 @@ export async function assessFilePath(
 
   return {
     risk,
+    operationClass: inWorkspace && !sensitive ? "routine" : "sensitive",
     enforcement: "policy",
     reasons: [reason],
     presentation: {
