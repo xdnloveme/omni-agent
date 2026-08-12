@@ -79,6 +79,18 @@ export const EXECUTE_COMMANDS = new Set([
   "dash",
 ]);
 
+export const INTERPRETER_COMMANDS = new Set([
+  "bash",
+  "sh",
+  "zsh",
+  "dash",
+  "node",
+  "python",
+  "python3",
+  "perl",
+  "ruby",
+]);
+
 export const NETWORK_TRANSFER_COMMANDS = new Set(["curl", "wget", "scp", "sftp", "rsync"]);
 
 export const EXTERNAL_COMMANDS = new Set([

@@ -1,44 +1,67 @@
 import { describe, expect, it } from "vitest";
-import { parseShellCommand } from "../shell/permission/parser";
+import { parseShellProgram } from "../shell/permission/parser";
 
 describe("shell parser", () => {
-  it("produces one AST for compound commands and quoted operators", () => {
-    const parsed = parseShellCommand("echo 'a|b' && git status | tail -1");
-    expect(parsed.segments.map(({ raw }) => raw)).toEqual(["echo 'a|b'", "git status", "tail -1"]);
-    expect(parsed.segments.map(({ nextOperator }) => nextOperator)).toEqual(["&&", "|", undefined]);
-    expect(parsed.segments[0]?.words.map(({ value }) => value)).toEqual(["echo", "a|b"]);
+  it("preserves compound and nested execution structure", () => {
+    const program = parseShellProgram('f=$(gh api x); gh api "$f" | base64 -d | head');
+    expect(program.status).toBe("complete");
+    expect(program.body.map(({ kind }) => kind)).toEqual(["assignment", "pipeline"]);
+    expect(program.body[0]).toMatchObject({ kind: "assignment", nested: [{ status: "complete" }] });
   });
 
-  it("retains exact shell payload and redirection facts", () => {
-    const wrapped = parseShellCommand("sh -c 'printf \"a;b\"'");
-    expect(wrapped.segments[0]?.words[2]?.value).toBe('printf "a;b"');
-    expect(parseShellCommand("gh pr view 1 2>&1")).toMatchObject({
-      hasControlOperator: false,
-      hasOutputRedirection: false,
-      malformed: false,
+  it("distinguishes executable substitutions from ordinary dynamic arguments", () => {
+    const argument = parseShellProgram('echo "$(date)"').body[0];
+    expect(argument).toMatchObject({
+      kind: "command",
+      command: { executableName: "echo", nested: [{ status: "complete" }] },
     });
-    expect(parseShellCommand('echo x > "notes file.txt"').redirections).toEqual([
-      { operator: ">", target: "notes file.txt" },
-    ]);
-    expect(parseShellCommand("echo ok>output.log").redirections).toEqual([
-      { operator: ">", target: "output.log" },
+
+    const executable = parseShellProgram("$(getcmd) value").body[0];
+    expect(executable).toMatchObject({
+      kind: "command",
+      command: { executableName: "", nested: [{ status: "complete" }] },
+    });
+  });
+
+  it("keeps quoted heredoc inert and exposes unquoted substitutions", () => {
+    const quoted = parseShellProgram('cat <<"EOF"\n$(sudo id)\nEOF').body[0];
+    const expanded = parseShellProgram("cat <<EOF\n$(sudo id)\nEOF").body[0];
+    expect(quoted).toMatchObject({ kind: "redirected", nested: [] });
+    expect(expanded).toMatchObject({ kind: "redirected", nested: [{ status: "complete" }] });
+  });
+
+  it("marks malformed syntax as partial", () => {
+    expect(parseShellProgram("echo 'open").status).toBe("partial");
+  });
+
+  it("does not treat file-descriptor duplication as a file target", () => {
+    const statement = parseShellProgram("gh pr view 1 2>&1").body[0];
+    expect(statement).toMatchObject({ kind: "redirected" });
+    expect(statement?.kind === "redirected" ? statement.redirections : []).toEqual([
+      { operator: ">&", sourceFd: 2 },
     ]);
   });
 
-  it("preserves executables next to attached redirections", () => {
-    const sudo = parseShellCommand("sudo>output.log");
-    expect(sudo.segments[0]?.words.map(({ value }) => value)).toEqual(["sudo"]);
-    expect(sudo.redirections).toEqual([{ operator: ">", target: "output.log" }]);
-
-    const cat = parseShellCommand("cat<input.txt");
-    expect(cat.segments[0]?.words.map(({ value }) => value)).toEqual(["cat"]);
-    expect(cat.redirections).toEqual([{ operator: "<", target: "input.txt" }]);
-  });
-
-  it("marks dynamic and malformed syntax", () => {
-    expect(parseShellCommand("echo $(whoami)").hasDynamicExecution).toBe(true);
-    expect(parseShellCommand("cat <(printf value)").hasDynamicExecution).toBe(true);
-    expect(parseShellCommand("echo 'open").malformed).toBe(true);
-    expect(parseShellCommand("echo ok &&").malformed).toBe(true);
+  it("preserves empty assignments and decodes static shell escapes", () => {
+    expect(parseShellProgram("X=; cat /tmp/a\\ b; cat ${HOME}/x")).toMatchObject({
+      status: "complete",
+      body: [
+        { kind: "assignment", assignment: { name: "X", value: { staticValue: "" } } },
+        { kind: "command", command: { argumentValues: ["/tmp/a b"] } },
+        {
+          kind: "command",
+          command: {
+            arguments: [
+              {
+                parts: [
+                  { kind: "parameter", name: "HOME" },
+                  { kind: "literal", value: "/x" },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    });
   });
 });

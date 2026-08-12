@@ -70,11 +70,12 @@ tools, such as Skill loading and deterministic in-memory computation, do not con
 permission state. Permission-controlled tools are assessed before execution. The
 default `standard` mode allows routine workspace reads and writes, while asking before shell
 execution and higher-risk operations. `supervised` mode also asks before writes.
-Bash can persist an Agent-scoped approval for a literal executable name when a fully parsed
-command passes the current shell boundary checks. The approval applies to that executable
-without distinguishing subcommands. Destructive commands recognized by the generic shell
-rules, privileged commands, sensitive paths, and complex or dynamic shell expressions do
-not consume the executable grant. Explicit hard-stop operations are denied.
+Bash can persist an Agent-scoped approval for a literal executable name when structured Shell
+analysis passes the current boundary checks. The approval applies regardless of subcommand and
+ordinary dynamic arguments, while each call is still reassessed. Compound commands and nested
+substitutions require every known executable scope. Destructive rules, privileged commands,
+static sensitive paths, unresolved executables, and unsupported syntax do not consume the
+executable grant. Explicit hard-stop operations are denied.
 
 The approval prompt supports persisting the eligible scope, allowing one call, or denying
 the call. Persistent approvals are stored in `~/.omni-agent/permissions.json`. Every call

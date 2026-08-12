@@ -18,7 +18,9 @@
   "dependencies": {
     "@omni-agent/core": "workspace:*",
     "cheerio": "^1.2.0",
-    "fast-glob": "^3.3.3"
+    "fast-glob": "^3.3.3",
+    "tree-sitter": "^0.25.1",
+    "tree-sitter-bash": "^0.25.1"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

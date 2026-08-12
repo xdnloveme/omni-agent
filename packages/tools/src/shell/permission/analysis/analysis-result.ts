@@ -7,15 +7,15 @@ export interface ShellAnalysisResult {
   commands: readonly ShellCommandFact[];
   paths: readonly ShellPathFact[];
   effects: readonly ShellEffect[];
+  uncertainties: readonly ShellUncertaintyFact[];
   security: ShellSecurityAssessment;
   approvalRequirements: readonly PersistentApprovalRequirement[];
 }
 
 export interface ShellSyntaxSummary {
-  valid: boolean;
+  status: "complete" | "partial" | "unsupported";
   compound: boolean;
-  dynamic: boolean;
-  segmentCount: number;
+  nestedExecution: boolean;
 }
 
 export interface ShellCommandFact {
@@ -33,6 +33,11 @@ export interface ShellPathFact {
   location: "workspace" | "external";
   sensitivity: PathSensitivity;
   source: "argument" | "option_value" | "redirection";
+}
+
+export interface ShellUncertaintyFact {
+  kind: "execution_target" | "path" | "unsupported_syntax" | "analysis_limit";
+  reason: string;
 }
 
 export interface ShellSecurityAssessment {

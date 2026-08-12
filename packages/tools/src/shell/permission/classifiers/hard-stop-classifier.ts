@@ -1,49 +1,11 @@
 import path from "node:path";
-import { createShellCommandView, type ParsedShellCommand, type ShellCommandView } from "../parser";
-import { classification, type ShellClassification } from "./types";
-
-export function classifyWholeCommandHardStop(
-  parsed: ParsedShellCommand,
-  cwd: string,
-  home: string,
-): ShellClassification | null {
-  for (const segment of parsed.segments) {
-    const result = classifyCommandHardStop(createShellCommandView(segment), cwd, home);
-    if (result) return result;
-  }
-  if (
-    parsed.segments.length > 1 &&
-    /\b(?:curl|wget)\b[^|;&]*\|\s*(?:(?:env|command|exec|nohup|time)(?:\s+(?:-[^\s]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]+))*\s+)*(?:(?:ba|z|da)?sh|python(?:3)?|node|perl|ruby)\b/i.test(
-      parsed.raw,
-    )
-  ) {
-    return hardDeny("Executes downloaded code", "shell.hard.download-execute");
-  }
-  if (
-    parsed.segments.length > 1 &&
-    /\b(?:base64|openssl)\b[^|;&]*\|\s*(?:(?:env|command|exec|nohup|time)\s+)*(?:(?:ba|z|da)?sh|python(?:3)?|node|perl|ruby)\b/i.test(
-      parsed.raw,
-    )
-  ) {
-    return hardDeny("Decodes and executes an opaque payload", "shell.hard.decode-execute");
-  }
-  if (
-    parsed.segments.length > 1 &&
-    /(?:\.ssh|\.aws|\.gnupg|\.kube|\.env|\.npmrc)[^|;&]*\|[^\n]*\b(?:curl|wget|nc|scp)\b/i.test(
-      parsed.raw,
-    )
-  ) {
-    return hardDeny("Uploads credential material", "shell.hard.credential-upload");
-  }
-  if (parsed.segments.length > 1 && /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/.test(parsed.raw)) {
-    return hardDeny("Creates an unbounded process fork loop", "shell.hard.fork-bomb");
-  }
-  return null;
-}
+import { assignmentFromWord, type ShellCommandView } from "../parser";
+import { hardDenyClassification as hardDeny, type ShellClassification } from "./types";
 
 export function classifyCommandHardStop(
   command: ShellCommandView,
-  cwd: string,
+  shellCwd: string,
+  workspaceRoot: string,
   home: string,
 ): ShellClassification | null {
   const executable = command.executableName;
@@ -51,19 +13,20 @@ export function classifyCommandHardStop(
   if (executable === "sudo") {
     return hardDeny("Privilege escalation is not allowed", "shell.hard.sudo");
   }
-  if (isCatastrophicDelete(executable, args, cwd, home)) {
+  if (isCatastrophicDelete(executable, args, shellCwd, workspaceRoot, home)) {
     return hardDeny("Deletes a protected filesystem root", "shell.hard.catastrophic-delete");
   }
   if (executable === "rm" && args.includes("--no-preserve-root")) {
     return hardDeny("Disables root deletion protection", "shell.hard.no-preserve-root");
   }
-  const assignmentNames = [
-    ...command.segment.leadingAssignments.map(({ name }) => name),
-    ...command.segment.words
-      .map(({ value }) => value.match(/^([A-Za-z_][A-Za-z0-9_]*)=/)?.[1])
-      .filter((name): name is string => name !== undefined),
-  ];
-  if (assignmentNames.some((name) => /^(?:LD_PRELOAD|LD_AUDIT|DYLD_.+)$/i.test(name))) {
+  const assignments = commandAssignments(command);
+  if (assignments.some(({ name, value }) => isShellStartupVariable(name) && value !== "")) {
+    return hardDeny(
+      "Injects code through the shell startup environment",
+      "shell.hard.startup-environment",
+    );
+  }
+  if (assignments.some(({ name }) => /^(?:LD_PRELOAD|LD_AUDIT|DYLD_.+)$/i.test(name))) {
     return hardDeny("Injects code through the dynamic loader", "shell.hard.loader-injection");
   }
   if (
@@ -82,8 +45,8 @@ export function classifyCommandHardStop(
   }
   const authPath = /\/etc\/(?:passwd|shadow|sudoers)\b/i;
   if (
-    command.segment.redirections.some(
-      ({ operator, target }) => operator.includes(">") && authPath.test(target),
+    command.redirections.some(
+      ({ operator, target }) => operator.includes(">") && authPath.test(target?.staticValue ?? ""),
     ) ||
     (executable === "tee" && args.some((argument) => authPath.test(argument)))
   ) {
@@ -100,7 +63,9 @@ export function classifyCommandHardStop(
   if (
     (["nc", "netcat", "ncat"].includes(executable) && args.includes("-e")) ||
     (executable === "socat" && args.some((argument) => /(?:exec|system)/i.test(argument))) ||
-    command.segment.redirections.some(({ target }) => /\/dev\/(?:tcp|udp)\//i.test(target))
+    command.redirections.some(({ target }) =>
+      /\/dev\/(?:tcp|udp)\//i.test(target?.staticValue ?? ""),
+    )
   ) {
     return hardDeny("Creates a reverse shell", "shell.hard.reverse-shell");
   }
@@ -122,7 +87,8 @@ export function classifyCommandHardStop(
 function isCatastrophicDelete(
   executable: string,
   args: readonly string[],
-  cwd: string,
+  shellCwd: string,
+  workspaceRoot: string,
   home: string,
 ): boolean {
   if (executable !== "rm") return false;
@@ -136,12 +102,14 @@ function isCatastrophicDelete(
     "~",
     "$HOME",
     "${HOME}",
-    "$PWD",
-    "${PWD}",
-    ".",
-    path.resolve(cwd),
     home,
+    path.resolve(workspaceRoot),
   ]);
+  if (shellCwd !== "unknown" && path.resolve(shellCwd) === path.resolve(workspaceRoot)) {
+    protectedTargets.add(".");
+    protectedTargets.add("$PWD");
+    protectedTargets.add("${PWD}");
+  }
   return args.some((argument) => protectedTargets.has(argument.replace(/\/$/, "") || "/"));
 }
 
@@ -173,6 +141,27 @@ function disablesSecurity(executable: string, args: readonly string[]): boolean 
   );
 }
 
-function hardDeny(reason: string, ruleId: string): ShellClassification {
-  return classification("privileged", reason, ruleId, { enforcement: "hard_deny" });
+function isShellStartupVariable(name: string): boolean {
+  return name === "BASH_ENV" || name === "ENV" || name.startsWith("BASH_FUNC_");
+}
+
+function commandAssignments(
+  command: ShellCommandView,
+): readonly { name: string; value: string | undefined }[] {
+  return [
+    ...command.leadingAssignments.map(({ name, value }) => ({ name, value: value.staticValue })),
+    ...command.arguments.flatMap((word) => {
+      const assignment = assignmentFromWord(word);
+      if (assignment) return [{ name: assignment.name, value: assignment.value.staticValue }];
+      const separator = word.staticValue?.indexOf("=") ?? -1;
+      return separator > 0
+        ? [
+            {
+              name: word.staticValue!.slice(0, separator),
+              value: word.staticValue!.slice(separator + 1),
+            },
+          ]
+        : [];
+    }),
+  ];
 }

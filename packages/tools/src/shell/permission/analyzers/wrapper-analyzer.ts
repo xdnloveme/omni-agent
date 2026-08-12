@@ -1,5 +1,11 @@
-import type { ParsedShellWord, ShellCommandView } from "../parser";
-import { createNestedCommandView } from "../parser";
+import path from "node:path";
+import {
+  assignmentFromWord,
+  wordAfterPrefix,
+  type ShellAssignment,
+  type ShellCommandView,
+  type ShellWord,
+} from "../parser";
 
 const ENV_OPTIONS_WITH_VALUE = new Set(["-u", "--unset", "-C", "--chdir"]);
 const EXEC_OPTIONS_WITH_VALUE = new Set(["-a"]);
@@ -25,18 +31,29 @@ const XARGS_OPTIONS_WITH_VALUE = new Set([
 const NO_OPTIONS_WITH_VALUE = new Set<string>();
 
 export type WrapperAnalysis =
-  | { kind: "argv"; target: ShellCommandView; wrapperOperands: readonly ParsedShellWord[] }
-  | { kind: "shell"; command: string; wrapperOperands: readonly ParsedShellWord[] }
-  | { kind: "none"; wrapperOperands: readonly ParsedShellWord[] };
+  | {
+      kind: "argv";
+      target: ShellCommandView;
+      wrapperOperands: readonly ShellWord[];
+      targetContext?: WrapperTargetContext;
+    }
+  | { kind: "shell"; payload: string; wrapperOperands: readonly ShellWord[] }
+  | { kind: "none"; wrapperOperands: readonly ShellWord[] };
+
+export interface WrapperTargetContext {
+  cwd?: ShellWord;
+  assignments: readonly ShellAssignment[];
+}
 
 export function analyzeWrapper(command: ShellCommandView): WrapperAnalysis | null | undefined {
   const { executableName: primary, arguments: args } = command;
   if (primary === "env") {
-    if (args.some(({ value }) => value === "-S" || value === "--split-string")) return null;
-    return argvTarget(args, ENV_OPTIONS_WITH_VALUE, true);
+    if (args.some(({ staticValue }) => staticValue === "-S" || staticValue === "--split-string"))
+      return null;
+    return analyzeEnvWrapper(args);
   }
   if (primary === "command") {
-    if (args.some(({ value }) => value === "-v" || value === "-V")) {
+    if (args.some(({ staticValue }) => staticValue === "-v" || staticValue === "-V")) {
       return { kind: "none", wrapperOperands: args };
     }
     return argvTarget(args);
@@ -46,34 +63,70 @@ export function analyzeWrapper(command: ShellCommandView): WrapperAnalysis | nul
   if (primary === "time") return argvTarget(args, TIME_OPTIONS_WITH_VALUE);
   if (primary === "xargs") return argvTarget(args, XARGS_OPTIONS_WITH_VALUE);
   if (["bash", "sh", "zsh", "dash"].includes(primary)) {
-    const commandFlag = args.findIndex(({ value }) => value === "-c");
+    const commandFlag = args.findIndex(({ staticValue }) => staticValue === "-c");
     if (commandFlag < 0) return undefined;
-    const payload = args[commandFlag + 1];
-    return payload
-      ? { kind: "shell", command: payload.value, wrapperOperands: args.slice(0, commandFlag) }
-      : null;
+    const payload = args[commandFlag + 1]?.staticValue;
+    return payload === undefined
+      ? null
+      : { kind: "shell", payload, wrapperOperands: args.slice(0, commandFlag) };
   }
   return undefined;
 }
 
+function analyzeEnvWrapper(args: readonly ShellWord[]): WrapperAnalysis | null {
+  const index = findWrappedCommandIndex(args, ENV_OPTIONS_WITH_VALUE, true);
+  if (index === null) return { kind: "none", wrapperOperands: args };
+  const target = createCommandView(args.slice(index));
+  if (!target) return null;
+  const wrapperOperands = args.slice(0, index);
+  return {
+    kind: "argv",
+    target,
+    wrapperOperands,
+    targetContext: envTargetContext(wrapperOperands),
+  };
+}
+
+function envTargetContext(args: readonly ShellWord[]): WrapperTargetContext {
+  const assignments: ShellAssignment[] = [];
+  let cwd: ShellWord | undefined;
+  for (let index = 0; index < args.length; index += 1) {
+    const word = args[index]!;
+    if (word.staticValue === "-C" || word.staticValue === "--chdir") {
+      cwd = args[index + 1];
+      index += 1;
+      continue;
+    }
+    const inlineCwd = wordAfterPrefix(word, "--chdir=");
+    if (inlineCwd) {
+      cwd = inlineCwd;
+      continue;
+    }
+    const assignment = assignmentFromWord(word);
+    if (assignment) assignments.push(assignment);
+  }
+  return { ...(cwd ? { cwd } : {}), assignments };
+}
+
 function argvTarget(
-  args: readonly ParsedShellWord[],
+  args: readonly ShellWord[],
   optionsWithValue: ReadonlySet<string> = NO_OPTIONS_WITH_VALUE,
   skipAssignments = false,
 ): WrapperAnalysis | null {
   const index = findWrappedCommandIndex(args, optionsWithValue, skipAssignments);
   if (index === null) return { kind: "none", wrapperOperands: args };
-  const target = createNestedCommandView(args.slice(index));
+  const target = createCommandView(args.slice(index));
   return target ? { kind: "argv", target, wrapperOperands: args.slice(0, index) } : null;
 }
 
 function findWrappedCommandIndex(
-  args: readonly ParsedShellWord[],
+  args: readonly ShellWord[],
   optionsWithValue: ReadonlySet<string>,
   skipAssignments: boolean,
 ): number | null {
   for (let index = 0; index < args.length; index += 1) {
-    const argument = args[index]!.value;
+    const argument = args[index]!.staticValue;
+    if (argument === undefined) return null;
     if (argument === "--") return args[index + 1] ? index + 1 : null;
     if (optionsWithValue.has(argument)) {
       index += 1;
@@ -84,4 +137,29 @@ function findWrappedCommandIndex(
     return index;
   }
   return null;
+}
+
+function createCommandView(words: readonly ShellWord[]): ShellCommandView | null {
+  const executable = words[0];
+  if (!executable) return null;
+  const executableName = executable.staticValue
+    ? path.basename(executable.staticValue).toLowerCase()
+    : "";
+  return {
+    raw: executable.raw,
+    executable,
+    executableName,
+    arguments: words.slice(1),
+    argumentValues: words.slice(1).map((word) => word.staticValue ?? word.value),
+    leadingAssignments: [],
+    redirections: [],
+    nested: words.flatMap(({ parts }) =>
+      parts.flatMap((part) =>
+        part.kind === "command_output" || part.kind === "process_substitution"
+          ? [part.program]
+          : [],
+      ),
+    ),
+    span: { startByte: executable.span.startByte, endByte: words.at(-1)!.span.endByte },
+  };
 }

@@ -1,3 +1,3 @@
-export { parseShellCommand } from "./shell-parser";
-export { createNestedCommandView, createShellCommandView } from "./command-view";
-export type * from "./types";
+export { parseShellProgram } from "./tree-sitter-adapter";
+export { assignmentFromWord, nestedProgramsOfWord, wordAfterPrefix } from "./shell-program";
+export type * from "./shell-program";

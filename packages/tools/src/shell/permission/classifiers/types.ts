@@ -1,7 +1,8 @@
 import type { PermissionRisk } from "@omni-agent/core";
 import type { ShellCommandView } from "../parser";
 
-export type ShellEffect = "network_transfer";
+export type ShellEffect =
+  "network_transfer" | "download" | "decode" | "interpreter" | "credential_read";
 
 export interface ShellClassification {
   risk: PermissionRisk;
@@ -36,6 +37,10 @@ export function classification(
     ruleIds: [ruleId],
     effects: options.effects ?? [],
   };
+}
+
+export function hardDenyClassification(reason: string, ruleId: string): ShellClassification {
+  return classification("privileged", reason, ruleId, { enforcement: "hard_deny" });
 }
 
 function defaultOperationClass(

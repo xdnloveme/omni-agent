@@ -1,217 +1,61 @@
-import { throwIfAborted, type PersistentApprovalRequirement } from "@omni-agent/core";
-import { executableRequirement } from "../analyzers/executable-analyzer";
-import { analyzeCommandPaths } from "../analyzers/path-analyzer";
-import { analyzeWrapper } from "../analyzers/wrapper-analyzer";
-import { classifyCommand } from "../classifiers/command-classifiers";
-import {
-  classifyCommandHardStop,
-  classifyWholeCommandHardStop,
-} from "../classifiers/hard-stop-classifier";
-import type { ShellClassification } from "../classifiers/types";
-import { createShellCommandView, parseShellCommand, type ShellCommandView } from "../parser";
-import { aggregateClassifications, unknownClassification } from "./aggregate-analysis";
+import type { PersistentApprovalRequirement } from "@omni-agent/core";
+import { aggregateClassifications } from "./aggregate-analysis";
+import { analyzeShellSource, createShellAnalysisState } from "./analyze-shell-program";
 import type { ShellAnalysisInput } from "./analysis-input";
-import type { ShellAnalysisResult, ShellCommandFact, ShellPathFact } from "./analysis-result";
-
-const MAX_WRAPPER_DEPTH = 8;
+import type { ShellAnalysisResult, ShellPathFact, ShellUncertaintyFact } from "./analysis-result";
+import { createShellAnalysisContext } from "./shell-analysis-context";
+import { hardDenyClassification, type ShellClassification } from "../classifiers/types";
+import type { ShellProgram, ShellStatement } from "../parser";
 
 export async function analyzeShellCommand(input: ShellAnalysisInput): Promise<ShellAnalysisResult> {
-  return analyzeParsed(parseShellCommand(input.command), input, [], 0);
-}
-
-async function analyzeParsed(
-  parsed: ReturnType<typeof parseShellCommand>,
-  input: ShellAnalysisInput,
-  wrapperChain: readonly string[],
-  depth: number,
-): Promise<ShellAnalysisResult> {
-  throwIfAborted(input.signal);
-  const syntax = {
-    valid: !parsed.malformed,
-    compound: parsed.segments.length > 1,
-    dynamic: parsed.hasDynamicExecution,
-    segmentCount: parsed.segments.length,
-  };
-  if (depth > MAX_WRAPPER_DEPTH) {
-    return resultFromClassification(
-      syntax,
-      unknownClassification(
-        "Wrapper nesting exceeds the analysis limit",
-        "shell.unknown.wrapper-depth",
-      ),
-    );
-  }
-  const hardStop = classifyWholeCommandHardStop(parsed, input.cwd, input.environment.home);
-  if (hardStop) return resultFromClassification(syntax, hardStop);
-  if (parsed.malformed || parsed.hasDynamicExecution) {
-    return resultFromClassification(
-      syntax,
-      unknownClassification(
-        "Command contains dynamic or malformed shell syntax",
-        "shell.unknown.dynamic",
-      ),
-    );
-  }
-
-  const classifications: ShellClassification[] = [];
-  const commands: ShellCommandFact[] = [];
-  const paths: ShellPathFact[] = [];
-  const requirements: PersistentApprovalRequirement[] = [];
-  for (const segment of parsed.segments) {
-    throwIfAborted(input.signal);
-    const analyzed = await analyzeCommand(
-      createShellCommandView(segment),
-      input,
-      wrapperChain,
-      depth,
-    );
-    classifications.push(...analyzed.classifications);
-    commands.push(...analyzed.commands);
-    paths.push(...analyzed.paths);
-    requirements.push(...analyzed.requirements);
-  }
-  if (parsed.hasOutputRedirection) {
-    classifications.push({
-      risk: "write",
-      operationClass: "routine",
+  const state = createShellAnalysisState();
+  const { program, analyzed } = await analyzeShellSource(
+    input.command,
+    input,
+    createShellAnalysisContext(input),
+    [],
+    0,
+    state,
+  );
+  if (state.limitExceeded) {
+    analyzed.classifications.push({
+      risk: "unknown",
+      operationClass: "sensitive",
       enforcement: "policy",
-      reasons: ["Shell output redirection writes to a file"],
-      ruleIds: ["shell.write.redirection"],
+      reasons: ["Shell analysis exceeded its complexity limit"],
+      ruleIds: ["shell.unknown.limit"],
       effects: [],
     });
+    analyzed.uncertainties.push({
+      kind: "analysis_limit",
+      reason: "Shell analysis exceeded its bounded complexity limit",
+    });
   }
-  const base = aggregateClassifications(classifications);
-  const secured = applyPathSecurity(base, paths);
-  const credentialTransfer =
-    paths.some((fact) => fact.sensitivity === "credential") &&
-    base.effects.includes("network_transfer");
-  const security = credentialTransfer
-    ? aggregateClassifications([
-        secured,
-        {
-          risk: "privileged",
-          operationClass: "sensitive",
-          enforcement: "hard_deny",
-          reasons: ["Uploads credential material"],
-          ruleIds: ["shell.hard.credential-transfer"],
-          effects: [],
-        },
-      ])
-    : secured;
+
+  const base = aggregateClassifications(analyzed.classifications);
+  const secured = applyPathSecurity(base, analyzed.paths);
+  const security = secured;
+  const blocksPersistence = analyzed.uncertainties.some((fact) =>
+    ["execution_target", "unsupported_syntax", "analysis_limit"].includes(fact.kind),
+  );
   const canPersist =
     security.enforcement === "policy" &&
     !["destructive", "privileged"].includes(security.risk) &&
-    !syntax.dynamic &&
-    paths.every((fact) => fact.sensitivity === null);
+    !blocksPersistence &&
+    analyzed.paths.every((fact) => fact.sensitivity === null);
+
   return {
-    syntax,
-    commands,
-    paths,
+    syntax: {
+      status: state.limitExceeded ? "unsupported" : program.status,
+      compound: isCompound(program),
+      nestedExecution: hasNestedExecution(program),
+    },
+    commands: analyzed.commands,
+    paths: analyzed.paths,
     effects: [...new Set(base.effects)],
+    uncertainties: uniqueUncertainties(analyzed.uncertainties),
     security: toSecurity(security),
-    approvalRequirements: canPersist ? uniqueRequirements(requirements) : [],
-  };
-}
-
-async function analyzeCommand(
-  command: ShellCommandView,
-  input: ShellAnalysisInput,
-  wrapperChain: readonly string[],
-  depth: number,
-): Promise<{
-  classifications: ShellClassification[];
-  commands: ShellCommandFact[];
-  paths: ShellPathFact[];
-  requirements: PersistentApprovalRequirement[];
-}> {
-  const segmentHardStop = classifyCommandHardStop(command, input.cwd, input.environment.home);
-  if (segmentHardStop) {
-    return {
-      classifications: [segmentHardStop],
-      commands: [commandFact(command, segmentHardStop, wrapperChain)],
-      paths: [],
-      requirements: [],
-    };
-  }
-  const target = analyzeWrapper(command);
-  const wrapper = command.executableName;
-  if (target === null) {
-    const classification = unknownClassification(
-      "Wrapper target command is unknown",
-      "shell.unknown.wrapper",
-    );
-    return { classifications: [classification], commands: [], paths: [], requirements: [] };
-  }
-  if (target?.kind === "shell" || target?.kind === "argv") {
-    const nested =
-      target.kind === "shell"
-        ? fromNested(
-            await analyzeParsed(
-              parseShellCommand(target.command),
-              input,
-              [...wrapperChain, wrapper],
-              depth + 1,
-            ),
-          )
-        : await analyzeCommand(target.target, input, [...wrapperChain, wrapper], depth + 1);
-    const wrapperClassification = classifyCommand(command);
-    return {
-      ...nested,
-      paths: [
-        ...(await analyzeCommandPaths(command, wrapperClassification, input, {
-          operands: target.wrapperOperands,
-        })),
-        ...nested.paths,
-      ],
-    };
-  }
-  if (target?.kind === "none") {
-    const classification = classifyCommand(command);
-    return {
-      classifications: [classification],
-      commands: [commandFact(command, classification, wrapperChain)],
-      paths: await analyzeCommandPaths(command, classification, input),
-      requirements: [],
-    };
-  }
-
-  const classification = classifyCommand(command);
-  const requirement = executableRequirement(command);
-  return {
-    classifications: [classification],
-    commands: [commandFact(command, classification, wrapperChain)],
-    paths: await analyzeCommandPaths(command, classification, input),
-    requirements: requirement ? [requirement] : [],
-  };
-}
-
-function fromNested(result: ShellAnalysisResult) {
-  const classification: ShellClassification = {
-    ...result.security,
-    reasons: [...result.security.reasons],
-    ruleIds: [...result.security.ruleIds],
-    effects: [...result.effects],
-  };
-  return {
-    classifications: [classification],
-    commands: [...result.commands],
-    paths: [...result.paths],
-    requirements: [...result.approvalRequirements],
-  };
-}
-
-function commandFact(
-  command: ShellCommandView,
-  classification: ShellClassification,
-  wrapperChain: readonly string[],
-): ShellCommandFact {
-  return {
-    executable: command.executableName,
-    wrapperChain,
-    risk: classification.risk,
-    operationClass: classification.operationClass,
-    reasons: classification.reasons,
-    ruleIds: classification.ruleIds,
+    approvalRequirements: canPersist ? uniqueRequirements(analyzed.requirements) : [],
   };
 }
 
@@ -224,7 +68,7 @@ function applyPathSecurity(
     if (fact.sensitivity === "device") {
       result = aggregateClassifications([
         result,
-        hardDeny("Command accesses a device path", "shell.path.device"),
+        hardDenyClassification("Command accesses a device path", "shell.path.device"),
       ]);
     } else if (fact.sensitivity) {
       result = aggregateClassifications([
@@ -255,31 +99,6 @@ function applyPathSecurity(
   return result;
 }
 
-function hardDeny(reason: string, ruleId: string): ShellClassification {
-  return {
-    risk: "privileged",
-    operationClass: "sensitive",
-    enforcement: "hard_deny",
-    reasons: [reason],
-    ruleIds: [ruleId],
-    effects: [],
-  };
-}
-
-function resultFromClassification(
-  syntax: ShellAnalysisResult["syntax"],
-  classification: ShellClassification,
-): ShellAnalysisResult {
-  return {
-    syntax,
-    commands: [],
-    paths: [],
-    effects: classification.effects,
-    security: toSecurity(classification),
-    approvalRequirements: [],
-  };
-}
-
 function toSecurity(classification: ShellClassification): ShellAnalysisResult["security"] {
   return {
     risk: classification.risk,
@@ -294,4 +113,50 @@ function uniqueRequirements(
   requirements: readonly PersistentApprovalRequirement[],
 ): PersistentApprovalRequirement[] {
   return [...new Map(requirements.map((entry) => [entry.approval.key, entry])).values()];
+}
+
+function uniqueUncertainties(
+  uncertainties: readonly ShellUncertaintyFact[],
+): ShellUncertaintyFact[] {
+  return [
+    ...new Map(uncertainties.map((entry) => [`${entry.kind}\0${entry.reason}`, entry])).values(),
+  ];
+}
+
+function isCompound(program: ShellProgram): boolean {
+  return program.body.length > 1 || program.body.some(isCompoundStatement);
+}
+
+function isCompoundStatement(statement: ShellStatement): boolean {
+  return ["pipeline", "list", "group", "background", "function"].includes(statement.kind);
+}
+
+function hasNestedExecution(program: ShellProgram): boolean {
+  return program.body.some((statement) => {
+    if (statement.kind === "command") return statement.command.nested.length > 0;
+    if (statement.kind === "assignment") return statement.nested.length > 0;
+    if (
+      statement.kind === "pipeline" ||
+      statement.kind === "group" ||
+      statement.kind === "function" ||
+      statement.kind === "unsupported"
+    ) {
+      return statement.statements.some((child) =>
+        hasNestedExecution({ body: [child], status: "complete" }),
+      );
+    }
+    if (statement.kind === "list") {
+      return hasNestedExecution({
+        body: [statement.left, statement.right],
+        status: "complete",
+      });
+    }
+    if (statement.kind === "background") {
+      return hasNestedExecution({ body: [statement.statement], status: "complete" });
+    }
+    return (
+      statement.nested.length > 0 ||
+      hasNestedExecution({ body: [statement.statement], status: "complete" })
+    );
+  });
 }

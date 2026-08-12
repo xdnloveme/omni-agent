@@ -6,8 +6,12 @@ import {
 } from "@omni-agent/core";
 import { runHostProcess } from "../process/host-process-runner";
 import { assessBashPermission } from "./permission/bash-assessor";
+import { createShellEnvironment } from "./shell-environment";
 
-const MAX_OUTPUT_BYTES = 10_240;
+const DEFAULT_TIMEOUT_MS = 120_000;
+const MIN_TIMEOUT_MS = 1_000;
+const MAX_TIMEOUT_MS = 600_000;
+const MAX_OUTPUT_BYTES = 10 * 1024;
 
 export const bashTool: AgentToolDefinition = {
   name: "bash",
@@ -15,19 +19,19 @@ export const bashTool: AgentToolDefinition = {
   timeout: {
     kind: "input",
     parameter: "timeout_ms",
-    defaultMs: 120_000,
-    minMs: 1_000,
-    maxMs: 600_000,
+    defaultMs: DEFAULT_TIMEOUT_MS,
+    minMs: MIN_TIMEOUT_MS,
+    maxMs: MAX_TIMEOUT_MS,
   },
   authorization: { kind: "dynamic", assess: assessBashPermission },
   execution: { kind: "sandbox_eligible", profile: "shell" },
   description:
-    "Execute a shell command and return its output (stdout/stderr).\n\n" +
+    "Execute Bash source from the current workspace and return its stdout/stderr.\n\n" +
     "Usage:\n" +
     "- Use for running shell commands: git operations, package management (npm/pnpm), " +
     "running tests, building projects, installing dependencies, and other CLI tasks.\n" +
-    "- Commands default to a 120-second timeout; set `timeout_ms` for longer or shorter work.\n" +
-    "- Output is truncated to 10KB — for verbose commands, pipe through `tail` or redirect to a file.\n\n" +
+    `- Commands default to a ${DEFAULT_TIMEOUT_MS / 1_000}-second timeout; set \`timeout_ms\` for longer or shorter work.\n` +
+    `- Combined output is limited to ${MAX_OUTPUT_BYTES / 1024} KiB. For verbose commands, narrow the output or redirect it to a workspace file and read the needed range.\n\n` +
     "When to use:\n" +
     "- Running tests (`pnpm test`, `pytest`, etc.).\n" +
     "- Git operations (`git status`, `git diff`, `git commit`).\n" +
@@ -47,13 +51,13 @@ export const bashTool: AgentToolDefinition = {
         type: "string",
         minLength: 1,
         maxLength: 32_768,
-        description: "The shell command to execute",
+        description: "Bash source to execute from the current workspace directory.",
       },
       timeout_ms: {
         type: "integer",
-        minimum: 1_000,
-        maximum: 600_000,
-        description: "Execution timeout in milliseconds. Defaults to 120000.",
+        minimum: MIN_TIMEOUT_MS,
+        maximum: MAX_TIMEOUT_MS,
+        description: `Execution budget in milliseconds, excluding permission wait time. Defaults to ${DEFAULT_TIMEOUT_MS}.`,
       },
     },
     required: ["command"],
@@ -73,7 +77,7 @@ export const bashTool: AgentToolDefinition = {
           command: "bash",
           args: ["-c", command],
           cwd: context.cwd,
-          env: process.env,
+          env: createShellEnvironment(process.env),
           signal: context.signal,
           maxOutputBytes: MAX_OUTPUT_BYTES,
         });

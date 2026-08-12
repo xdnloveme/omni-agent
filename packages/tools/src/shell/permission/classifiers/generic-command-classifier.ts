@@ -1,6 +1,7 @@
 import {
   EXECUTE_COMMANDS,
   EXTERNAL_COMMANDS,
+  INTERPRETER_COMMANDS,
   NETWORK_TRANSFER_COMMANDS,
   READ_ONLY_COMMANDS,
   SHELL_CONTEXT_COMMANDS,
@@ -24,7 +25,12 @@ export const genericCommandClassifier: ShellClassifier = {
         `${primary} accesses external systems`,
         `shell.external.${primary}`,
         {
-          effects: NETWORK_TRANSFER_COMMANDS.has(primary) ? ["network_transfer"] : [],
+          effects: NETWORK_TRANSFER_COMMANDS.has(primary)
+            ? [
+                "network_transfer",
+                ...(primary === "curl" || primary === "wget" ? ["download" as const] : []),
+              ]
+            : [],
         },
       );
     }
@@ -33,6 +39,9 @@ export const genericCommandClassifier: ShellClassifier = {
         "execute",
         `${primary} executes local code`,
         `shell.execute.${primary}`,
+        {
+          effects: INTERPRETER_COMMANDS.has(primary) ? ["interpreter"] : [],
+        },
       );
     }
     if (READ_ONLY_COMMANDS.has(primary)) {

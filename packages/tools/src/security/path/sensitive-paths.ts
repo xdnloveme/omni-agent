@@ -12,7 +12,7 @@ const credentialFiles = new Set([
   ".git-credentials",
 ]);
 const credentialTemplates = new Set([".env.example", ".env.sample", ".env.template", ".env.dist"]);
-const systemDirectories = ["/etc", "/root"];
+const systemDirectories = ["/etc", "/root", "/private/etc", "/private/var/root"];
 const virtualSystemDirectories = ["/proc", "/sys"];
 const deviceDirectories = ["/dev"];
 

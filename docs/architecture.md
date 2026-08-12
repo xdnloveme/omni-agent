@@ -204,8 +204,9 @@ trusted internal tools without consulting permission state and delegates all oth
 tools to the gate. The runner accepts only authorized calls and routes execution from
 the tool's explicit strategy. Authorization and execution strategy are independent.
 Concrete risk assessment stays with the owning technical domain in `packages/tools`:
-one Shell analysis entry, its internal parser and command classifiers live with the Bash tool, while filesystem
-and search tools map shared path-security facts into their own permission presentations.
+one Shell analysis entry, the Tree-sitter Bash adapter, its permission-specific `ShellProgram`,
+and command classifiers live with the Bash tool, while filesystem and search tools map shared
+path-security facts into their own permission presentations.
 Cross-domain path normalization, workspace-boundary checks, and sensitive-path
 definitions remain pure shared security primitives. The app
 owns the default policy, Agent-scoped permission service, and atomic persistence.
@@ -217,14 +218,24 @@ workspace reads and writes but asks before ordinary process execution.
 Supervised mode also asks before writes. Assessments separately describe operational
 impact (`risk`) and the domain operation category (`operationClass`). Routine package
 operations may use an existing Agent/tool/scope grant. Bash persistent approval identifies
-one literal executable and deliberately does not classify its subcommands for persistence.
-Generic sensitive-path, destructive, privileged, and hard-stop assessments cannot consume
-that scope. Compound commands expose one requirement for each executable,
-including targets resolved through supported wrappers. Multiple executable identities use
+one literal executable and deliberately does not classify its subcommands or dynamic ordinary
+arguments for persistence. Static sensitive-path, destructive, privileged, and hard-stop
+assessments cannot consume that scope. Compound commands and nested substitutions expose one
+requirement for each known executable, including targets resolved through supported wrappers.
+Unresolved executables and unsupported syntax cannot expose persistent scopes. Multiple
+executable identities use
 all-of matching: all existing grants allow execution, while one approval can atomically add
 only the missing executable scopes. Every call is reassessed before scope lookup, so stored
 state cannot override those boundaries. Constraining behavior inside an approved CLI is a
 future sandbox responsibility.
+
+Tree-sitter handles Shell syntax once; the tools-local semantic IR is recursively analyzed for
+command, path, effect, uncertainty, and approval facts. A bounded context tracks static cwd,
+literal variables, and security effects carried by known variables without attempting to model
+general command output. Bash execution rejects command-local shell startup injection and removes
+`BASH_ENV`, `ENV`, and exported Bash functions from the host environment so startup hooks cannot
+invalidate the analyzed command graph. PATH target replacement remains a documented sandbox
+boundary.
 
 Filesystem path approval remains domain-owned. Ordinary external files may consume a
 canonical parent-directory read or write scope, while sensitive reads may consume only an exact-file

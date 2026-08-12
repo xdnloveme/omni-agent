@@ -327,9 +327,11 @@ all-of matching. Routine scopes answer eligible `write`, `execute`,
 `external_read`, and routine `external` prompts. Bash instead uses one executable scope:
 after approval, eligible calls to the same literal executable can consume it regardless of
 subcommand classification. A compound command identifies each literal executable,
-including through supported wrappers and ordinary redirection. Sensitive paths, generic
-destructive or privileged classifications, dynamic shell expressions, and hard-deny
-assessments remain outside that scope.
+including through supported wrappers, nested substitutions, and ordinary redirection. Static
+sensitive paths, generic destructive or privileged classifications, unresolved executables,
+unsupported syntax, and hard-deny assessments remain outside that scope. Dynamic arguments do
+not invalidate an otherwise known executable scope; constraining arguments inside an approved
+CLI belongs to the future sandbox.
 
 Compound Bash authorization uses all-of scope matching. The assessor returns one deduplicated
 requirement per executable. `PermissionGate` loads all candidate grants in one call,
@@ -388,29 +390,43 @@ Bash assessment is deterministic and local:
 ```text
 ShellAnalysisInput
 -> analyzeShellCommand
--> one internal ParsedShellCommand AST
--> hard-stop, wrapper, command, path, and executable analyzers
+-> Tree-sitter Bash AST
+-> one internal ShellProgram semantic IR
+-> recursive hard-stop, wrapper, command, path, and executable analyzers
 -> one ShellAnalysisResult
 -> Bash PermissionAssessment
 ```
 
-The parser is the only module that handles quoting, escaping, control operators,
-redirections, leading assignments, executable positions, substitutions, and wrapper payload
-boundaries. Domain analyzers consume the AST and cannot reparse raw command text. The public
-analysis result contains syntax, command, path, effect, security, and approval facts; it never
-contains a policy decision, grant lookup, UI model, or executable action.
+Tree-sitter owns Bash syntax. A tools-local adapter projects only permission-relevant commands,
+pipelines, substitutions, assignments, redirections, heredocs, and source spans into
+`ShellProgram`; it does not copy the complete parser AST. Domain analyzers consume this IR and
+cannot reparse raw command text. A bounded analysis context tracks static cwd, literal variables,
+and security effects carried by known variables. This is limited security-flow propagation, not
+general stdout simulation. The result contains syntax, command, path, uncertainty, effect,
+security, and approval facts; it never contains a policy decision, grant lookup, UI model, or
+executable action.
 
-An eligible command may expose literal-name approval requirements after full parsing, supported
-wrapper expansion, assignment handling, and ordinary redirection analysis. Sequences and
-pipelines require one requirement for each executable. The scope deliberately ignores subcommands: approving `gh`
-covers later eligible `gh ...` calls. Substitution, sensitive paths, generic destructive,
-privileged, and hard-stop classifications still take precedence. Per-CLI behavioral
-isolation belongs to the future sandbox rather than a growing subcommand permission table.
+Analysis is bounded to 4,096 semantic nodes, 16 nested execution levels, and 128 tracked literal
+variables. Exceeding a bound yields a sensitive `unknown` assessment without persistent scopes;
+it never silently skips the remaining syntax.
+
+An eligible command may expose literal-name approval requirements after recursive parsing,
+supported wrapper expansion, assignment handling, and redirection analysis. Sequences,
+pipelines, command substitutions, and process substitutions require one requirement for each
+known executable. The scope deliberately ignores subcommands and dynamic ordinary arguments:
+approving `gh` covers later otherwise eligible `gh ...` calls. A substitution used as the
+executable, static sensitive paths, generic destructive or privileged classifications, and
+hard-stop assessments still take precedence.
 
 Wrappers such as `env`, `command`, `exec`, `nohup`, `time`, `xargs`, and
-`bash/sh/zsh -c` are recursively inspected. Incomplete parsing, dynamic executables,
-and unsupported shell expressions become `unknown`. Classifier `effects` carry
-security semantics such as network transfer; `ruleIds` remain observational.
+`bash/sh/zsh -c` are recursively inspected. Partial parser output is still traversed so a
+recoverable nested hard-stop cannot hide behind malformed outer syntax; incomplete execution
+targets and unsupported expressions become `unknown` and cannot expose persistent scopes.
+Classifier `effects` carry security semantics such as download, decode, interpreter, and
+network transfer; effects consumed from tracked variables continue through compound and pipeline
+aggregation. `ruleIds` remain observational. Command-local non-empty `BASH_ENV`, `ENV`, and
+`BASH_FUNC_*` assignments are hard-denied, and Bash execution removes inherited values with those
+names so startup injection cannot change the analyzed command graph.
 
 ## Execution Boundary
 

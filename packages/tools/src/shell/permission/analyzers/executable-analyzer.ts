@@ -8,7 +8,7 @@ const SIMPLE_EXECUTABLE = /^[A-Za-z0-9][A-Za-z0-9._+-]*$/;
 export function executableRequirement(
   command: ShellCommandView,
 ): PersistentApprovalRequirement | null {
-  const raw = command.executable?.value;
+  const raw = command.executable?.staticValue;
   if (!raw) return null;
   if (raw !== path.basename(raw)) return null;
   const executable = path.basename(raw);

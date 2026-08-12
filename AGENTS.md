@@ -106,11 +106,19 @@ Local ESM extensions are trusted local code. Do not imply that
 - Bash persistent approval is scoped to a literal executable name, not its subcommands.
   Do not add per-CLI or per-subcommand classifiers merely to control persistence. Commands
   may expose executable scopes only after generic parser, wrapper, sensitive-path,
-  destructive, privileged, and hard-stop checks succeed. Compound commands expose one
-  deduplicated requirement per executable and require all requirements to be granted.
+  destructive, privileged, and hard-stop checks succeed. Compound commands and nested
+  substitutions expose one deduplicated requirement per known executable and require all
+  requirements to be granted. Dynamic ordinary arguments do not invalidate a known executable;
+  dynamic executables and unsupported syntax cannot expose persistent scopes.
 - All Bash authorization facts must come from the single `analyzeShellCommand` entry and its
-  internal AST. Classifiers, path analysis, wrappers, and executable approval must not reparse
-  raw command text or reconstruct wrapper payloads.
+  Tree-sitter-backed `ShellProgram`. Classifiers, path analysis, wrappers, and executable
+  approval must not reparse raw command text or reconstruct wrapper payloads. Partial syntax
+  must still expose recoverable nested commands to hard-stop analysis.
+- Bash execution must remove `BASH_ENV`, `ENV`, and exported `BASH_FUNC_*` values before spawning
+  and Shell analysis must reject non-empty command-local assignments to those names, so runtime
+  startup injection cannot invalidate the analyzed command graph. Keep bounded variable security
+  effects inside the unified analysis pipeline so assignment and pipeline boundaries cannot erase
+  known download, decode, or credential-read flows.
 - Filesystem persistence is path-scoped. Ordinary external files may use a canonical
   parent-directory read or write grant; sensitive reads may use only an exact-file grant. Reassess
   sensitivity before matching grants so directory approval never covers `.env`, credentials,
