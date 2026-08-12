@@ -38,10 +38,10 @@ function fixture(options: { allow?: boolean } = {}) {
     },
     grants: {
       getMode,
-      async isToolAlwaysApproved() {
-        return false;
+      async getGrantedScopeKeys() {
+        return [];
       },
-      async approveTool() {},
+      async saveGrants() {},
     },
     broker: {
       async request() {
@@ -107,6 +107,34 @@ describe("ToolCallCoordinator", () => {
     });
     expect(value.execute).not.toHaveBeenCalled();
     expect(value.order).toEqual([]);
+  });
+
+  it("stops on domain preflight errors before authorization and execution", async () => {
+    const value = fixture();
+    const preflight = vi.fn(async () => ({
+      outcome: "error" as const,
+      result: {
+        content: [{ type: "text" as const, text: "Target does not exist" }],
+        isError: true,
+        meta: { code: "path_not_found" },
+      },
+    }));
+    value.tool.preflight = { validate: preflight };
+
+    const result = await events(value, { value: "ok" });
+
+    expect(preflight).toHaveBeenCalledWith(
+      { value: "ok" },
+      expect.objectContaining({ cwd: "/workspace" }),
+    );
+    expect(value.evaluate).not.toHaveBeenCalled();
+    expect(value.getMode).not.toHaveBeenCalled();
+    expect(value.execute).not.toHaveBeenCalled();
+    expect(value.order).toEqual([]);
+    expect(result.at(-1)).toMatchObject({
+      result: { meta: { code: "path_not_found" } },
+      metrics: { authorizationMs: 0, executionMs: 0 },
+    });
   });
 
   it("runs middleware only around an authorized invocation with the configured cwd", async () => {

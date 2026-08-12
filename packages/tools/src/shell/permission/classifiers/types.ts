@@ -1,4 +1,5 @@
 import type { PermissionRisk } from "@omni-agent/core";
+import type { ShellCommandView } from "../parser";
 
 export type ShellEffect = "network_transfer";
 
@@ -13,7 +14,7 @@ export interface ShellClassification {
 
 export interface ShellClassifier {
   readonly priority: number;
-  classify(words: readonly string[], segment: string): ShellClassification | null;
+  classify(command: ShellCommandView): ShellClassification | null;
 }
 
 export function classification(

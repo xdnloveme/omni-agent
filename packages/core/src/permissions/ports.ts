@@ -1,6 +1,7 @@
 import type {
   ApprovalRequest,
   ApprovalResponse,
+  PermissionGrant,
   PermissionMode,
   PermissionPolicyContext,
   PermissionPolicyDecision,
@@ -20,8 +21,12 @@ export interface ApprovalBroker {
 
 export interface PermissionGrantStore {
   getMode(agentId: string): Promise<PermissionMode>;
-  isToolAlwaysApproved(agentId: string, toolIdentity: string): Promise<boolean>;
-  approveTool(agentId: string, toolIdentity: string, toolName: string): Promise<void>;
+  getGrantedScopeKeys(
+    agentId: string,
+    toolIdentity: string,
+    scopeKeys: readonly string[],
+  ): Promise<readonly string[]>;
+  saveGrants(agentId: string, grants: readonly PermissionGrant[]): Promise<void>;
 }
 
 export interface PermissionObserver {

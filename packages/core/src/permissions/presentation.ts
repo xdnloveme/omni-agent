@@ -3,8 +3,10 @@ import type { PermissionPresentation } from "./types";
 const MAX_TITLE_LENGTH = 120;
 const MAX_DETAIL_LENGTH = 500;
 const MAX_REASON_LENGTH = 300;
+const MAX_LABEL_LENGTH = 160;
 const MAX_DEPTH = 6;
 const MAX_FIELDS = 100;
+const TRUNCATION_SUFFIX = "... (truncated)";
 const SENSITIVE_KEY = /authorization|password|passwd|secret|token|api[_-]?key/i;
 
 export function sanitizePermissionPresentation(
@@ -17,6 +19,10 @@ export function sanitizePermissionPresentation(
       : {}),
     reason: redact(sanitize(presentation.reason, MAX_REASON_LENGTH)),
   };
+}
+
+export function sanitizePermissionLabel(label: string): string {
+  return redact(sanitize(label, MAX_LABEL_LENGTH));
 }
 
 export function sanitizeSensitiveValue(
@@ -52,7 +58,7 @@ export function formatSanitizedToolInput(
   const rendered = JSON.stringify(sanitizeSensitiveValue(input, hiddenKeys));
   return rendered.length <= MAX_DETAIL_LENGTH
     ? rendered
-    : `${rendered.slice(0, MAX_DETAIL_LENGTH - 14)}... (truncated)`;
+    : `${rendered.slice(0, MAX_DETAIL_LENGTH - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`;
 }
 
 function sanitize(value: string, maxLength: number): string {
@@ -60,7 +66,7 @@ function sanitize(value: string, maxLength: number): string {
     .replace(/\u001b\[[0-9;]*m/g, "")
     .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, "");
   if (clean.length <= maxLength) return clean;
-  return `${clean.slice(0, maxLength - 14)}... (truncated)`;
+  return `${clean.slice(0, maxLength - TRUNCATION_SUFFIX.length)}${TRUNCATION_SUFFIX}`;
 }
 
 function redact(value: string): string {

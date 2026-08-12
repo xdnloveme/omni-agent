@@ -8,6 +8,7 @@ import {
 import { runHostProcess } from "../process/host-process-runner";
 import { formatFileSize, loadFileSizes } from "./file-metadata";
 import { createSearchPathPermission } from "./permission/create-search-path-permission";
+import { createSearchPathPreflight } from "./permission/create-search-path-preflight";
 import { parseRipgrepJson, type ParsedRipgrepMatch } from "./rg-json-parser";
 import type { GrepFileMatches, GrepResultMeta } from "./types";
 
@@ -19,6 +20,11 @@ const TRUNCATION_FOOTER = "[Results truncated. Narrow regex, glob, or search_pat
 
 export const grepTool: AgentToolDefinition = {
   name: "grep",
+  preflight: createSearchPathPreflight({
+    parameter: "search_path",
+    defaultToCwd: true,
+    acceptedKinds: ["regular_file", "directory"],
+  }),
   authorization: createSearchPathPermission("search_path"),
   execution: { kind: "host" },
   timeout: { kind: "none" },

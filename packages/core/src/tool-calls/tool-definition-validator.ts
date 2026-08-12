@@ -22,6 +22,14 @@ export class ToolDefinitionValidator {
     if (tool.strict !== undefined && typeof tool.strict !== "boolean") {
       throw new Error(`Invalid strict schema setting: ${tool.name}`);
     }
+    if (
+      tool.preflight !== undefined &&
+      (!tool.preflight ||
+        typeof tool.preflight !== "object" ||
+        typeof tool.preflight.validate !== "function")
+    ) {
+      throw new Error(`Invalid tool preflight: ${tool.name}`);
+    }
     validateTimeout(tool);
     validateAuthorization(tool);
     validateExecution(tool);

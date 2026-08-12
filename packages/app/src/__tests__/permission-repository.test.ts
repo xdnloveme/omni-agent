@@ -24,11 +24,11 @@ describe("PermissionRepository", () => {
     await repository.update((current) => ({
       ...current,
       agents: {
-        coding: { mode: "standard", alwaysApproveTools: [] },
+        coding: { mode: "standard", persistentApprovals: [] },
       },
     }));
     await expect(repository.read()).resolves.toMatchObject({
-      version: 2,
+      version: 3,
       agents: { coding: { mode: "standard" } },
     });
     expect((await stat(repository.path)).mode & 0o777).toBe(0o600);
@@ -40,11 +40,11 @@ describe("PermissionRepository", () => {
     await Promise.all([
       repository.update((current) => ({
         ...current,
-        agents: { ...current.agents, coding: { mode: "standard", alwaysApproveTools: [] } },
+        agents: { ...current.agents, coding: { mode: "standard", persistentApprovals: [] } },
       })),
       other.update((current) => ({
         ...current,
-        agents: { ...current.agents, financial: { mode: "supervised", alwaysApproveTools: [] } },
+        agents: { ...current.agents, financial: { mode: "supervised", persistentApprovals: [] } },
       })),
     ]);
     expect(Object.keys((await repository.read())!.agents).sort()).toEqual(["coding", "financial"]);
@@ -62,7 +62,7 @@ describe("PermissionRepository", () => {
   it("rejects an invalid update result", async () => {
     const { repository } = await fixture();
     await expect(
-      repository.update(() => ({ version: 2, agents: { Coding: {} } }) as never),
+      repository.update(() => ({ version: 3, agents: { Coding: {} } }) as never),
     ).rejects.toThrow("invalid configuration");
     await expect(repository.read()).resolves.toBeUndefined();
   });
@@ -86,16 +86,24 @@ describe("PermissionRepository", () => {
     );
 
     await expect(repository.read()).resolves.toEqual({
-      version: 2,
+      version: 3,
       agents: {
         coding: {
           mode: "supervised",
-          alwaysApproveTools: [{ toolIdentity: "builtin-coding:bash", toolName: "bash" }],
+          persistentApprovals: [
+            {
+              toolIdentity: "builtin-coding:bash",
+              toolName: "bash",
+              scopeKey: "tool:routine",
+              scopeKind: "tool_routine",
+              label: "Always approve routine bash operations",
+            },
+          ],
         },
       },
     });
     expect(repository.diagnostics).toEqual([
-      "Dropped unrecognized v1 tool identity: unscoped:legacy",
+      "Dropped unrecognized legacy tool identity: unscoped:legacy",
     ]);
   });
 
@@ -111,6 +119,37 @@ describe("PermissionRepository", () => {
 
     await expect(repository.read()).resolves.toMatchObject({
       agents: { coding: { mode: "supervised" } },
+    });
+  });
+
+  it("migrates v2 tool approvals to routine scopes", async () => {
+    const { repository } = await fixture();
+    await writeFile(
+      repository.path,
+      JSON.stringify({
+        version: 2,
+        agents: {
+          coding: {
+            mode: "standard",
+            alwaysApproveTools: [{ toolIdentity: "builtin-coding:bash", toolName: "bash" }],
+          },
+        },
+      }),
+    );
+
+    await expect(repository.read()).resolves.toMatchObject({
+      version: 3,
+      agents: {
+        coding: {
+          persistentApprovals: [
+            {
+              toolIdentity: "builtin-coding:bash",
+              scopeKey: "tool:routine",
+              scopeKind: "tool_routine",
+            },
+          ],
+        },
+      },
     });
   });
 });

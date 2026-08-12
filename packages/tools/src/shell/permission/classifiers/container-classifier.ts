@@ -1,12 +1,12 @@
 import { DOCKER_DESTRUCTIVE, KUBECTL_DESTRUCTIVE } from "../rules/subcommand-rules";
 import { classification, type ShellClassifier } from "./types";
-import { commandName, subcommand } from "./command-utils";
+import { findPositionalArgument } from "./command-utils";
 
 export const containerClassifier: ShellClassifier = {
   priority: 50,
-  classify(words) {
-    const primary = commandName(words);
-    const action = subcommand(words);
+  classify(command) {
+    const primary = command.executableName;
+    const action = findPositionalArgument(command.argumentValues)?.value ?? "";
     if (primary === "docker") {
       return DOCKER_DESTRUCTIVE.has(action)
         ? classification("destructive", "Removes container resources", "shell.destructive.docker")

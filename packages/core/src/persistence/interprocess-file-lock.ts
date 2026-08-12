@@ -97,7 +97,7 @@ export class InterprocessFileLock {
       await writeFile(this.reclaimPath, randomUUID(), { mode: 0o600, flag: "wx" });
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
-      if (code === "EEXIST" || code === "ENOENT") return;
+      if (code === "EEXIST" || isRemovedDirectoryRace(code)) return;
       throw error;
     }
 
@@ -112,7 +112,7 @@ export class InterprocessFileLock {
       if (code !== "ENOENT" && code !== "ENOTEMPTY") throw error;
     } finally {
       await unlink(this.reclaimPath).catch((error: NodeJS.ErrnoException) => {
-        if (error.code !== "ENOENT") throw error;
+        if (!isRemovedDirectoryRace(error.code)) throw error;
       });
     }
   }
@@ -161,4 +161,9 @@ function isProcessAlive(pid: number): boolean {
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function isRemovedDirectoryRace(code: string | undefined): boolean {
+  // macOS may report EINVAL when another contender removes the parent during open/unlink.
+  return code === "ENOENT" || code === "EINVAL";
 }

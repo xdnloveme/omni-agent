@@ -7,13 +7,21 @@ import type {
   PermissionObserver,
   PermissionPolicy,
 } from "./ports";
-import { sanitizePermissionPresentation } from "./presentation";
+import { sanitizePermissionLabel, sanitizePermissionPresentation } from "./presentation";
 import type {
   PermissionAssessment,
   PermissionContext,
   PermissionDecisionSource,
+  PermissionGrant,
+  PersistentApprovalRequirement,
+  PersistentApprovalScope,
   ToolPermissionDescriptor,
 } from "./types";
+import {
+  createToolRoutineApprovalScope,
+  isPersistentApprovalScope,
+  isPersistentApprovalScopeKey,
+} from "./persistent-approval";
 
 export type PermissionControlledTool = RegisteredAgentTool & {
   authorization: ToolPermissionDescriptor;
@@ -65,9 +73,7 @@ export class PermissionGate {
     throwIfAborted(request.context.signal);
 
     if (assessment.enforcement === "hard_deny") {
-      await this.observeResolved(request, assessment, "deny", "hard_stop");
-      throwIfAborted(request.context.signal);
-      return denied(assessment, "hard_stop", startedAt);
+      return this.resolveDenied(request, assessment, "hard_stop", startedAt);
     }
 
     const mode = await this.options.grants.getMode(request.context.agentId);
@@ -82,25 +88,34 @@ export class PermissionGate {
     throwIfAborted(request.context.signal);
 
     if (decision.outcome === "deny") {
-      await this.observeResolved(request, assessment, "deny", "policy");
-      throwIfAborted(request.context.signal);
-      return denied(assessment, "policy", startedAt);
+      return this.resolveDenied(request, assessment, "policy", startedAt);
     }
     if (decision.outcome === "allow") {
-      await this.observeResolved(request, assessment, "allow", "policy");
-      throwIfAborted(request.context.signal);
-      return this.allowed(candidateCall, assessment, "policy", startedAt);
+      return this.resolveAllowed(request, candidateCall, assessment, "policy", startedAt);
     }
-    if (
-      decision.canAllowAlways &&
-      (await this.options.grants.isToolAlwaysApproved(
-        request.context.agentId,
-        request.context.toolIdentity,
-      ))
-    ) {
-      await this.observeResolved(request, assessment, "allow", "automatic_approval");
-      throwIfAborted(request.context.signal);
-      return this.allowed(candidateCall, assessment, "automatic_approval", startedAt);
+    const requiredApprovals = resolvePersistentApprovals(request.tool.name, assessment, decision);
+    const candidateKeys = [
+      ...new Set(requiredApprovals.flatMap((requirement) => requirement.satisfiedBy)),
+    ];
+    const grantedKeys = requiredApprovals.length
+      ? await this.options.grants.getGrantedScopeKeys(
+          request.context.agentId,
+          request.context.toolIdentity,
+          candidateKeys,
+        )
+      : [];
+    const granted = new Set(grantedKeys);
+    const missingApprovals = requiredApprovals.filter((requirement) =>
+      requirement.satisfiedBy.every((key) => !granted.has(key)),
+    );
+    if (requiredApprovals.length > 0 && missingApprovals.length === 0) {
+      return this.resolveAllowed(
+        request,
+        candidateCall,
+        assessment,
+        "automatic_approval",
+        startedAt,
+      );
     }
 
     await this.observeRequested(request, assessment);
@@ -112,36 +127,38 @@ export class PermissionGate {
         toolName: request.tool.name,
         risk: assessment.risk,
         presentation: assessment.presentation,
-        canAllowAlways: decision.canAllowAlways,
+        ...(missingApprovals.length
+          ? {
+              persistentApprovals: missingApprovals.map(({ approval: { kind, label } }) => ({
+                kind,
+                label,
+              })),
+            }
+          : {}),
       },
       request.context.signal,
     );
     throwIfAborted(request.context.signal);
     if (response === "deny") {
-      await this.observeResolved(request, assessment, "deny", "user");
-      throwIfAborted(request.context.signal);
-      return denied(assessment, "user", startedAt);
+      return this.resolveDenied(request, assessment, "user", startedAt);
     }
     if (response === "allow_always") {
-      if (!decision.canAllowAlways) {
-        await this.observeResolved(request, assessment, "deny", "policy");
-        throwIfAborted(request.context.signal);
-        return denied(assessment, "policy", startedAt);
+      if (missingApprovals.length === 0) {
+        return this.resolveDenied(request, assessment, "policy", startedAt);
       }
-      await this.options.grants.approveTool(
-        request.context.agentId,
-        request.context.toolIdentity,
-        request.tool.name,
-      );
+      const grants: PermissionGrant[] = missingApprovals.map(({ approval }) => ({
+        toolIdentity: request.context.toolIdentity,
+        toolName: request.tool.name,
+        scopeKey: approval.key,
+        scopeKind: approval.kind,
+        label: approval.label,
+      }));
+      await this.options.grants.saveGrants(request.context.agentId, grants);
       throwIfAborted(request.context.signal);
     } else if (response !== "allow_once") {
-      await this.observeResolved(request, assessment, "deny", "policy");
-      throwIfAborted(request.context.signal);
-      return denied(assessment, "policy", startedAt);
+      return this.resolveDenied(request, assessment, "policy", startedAt);
     }
-    await this.observeResolved(request, assessment, "allow", "user");
-    throwIfAborted(request.context.signal);
-    return this.allowed(candidateCall, assessment, "user", startedAt);
+    return this.resolveAllowed(request, candidateCall, assessment, "user", startedAt);
   }
 
   private async assess(request: PermissionGateRequest): Promise<PermissionAssessment> {
@@ -158,18 +175,36 @@ export class PermissionGate {
           }
         : await descriptor.assess(request.input, request.context);
     assertPermissionAssessment(assessment);
-    return {
+    const sanitized = {
       ...assessment,
+      ...(assessment.persistentApprovalRequirements
+        ? {
+            persistentApprovalRequirements: assessment.persistentApprovalRequirements.map(
+              (requirement) => ({
+                ...requirement,
+                approval: {
+                  ...requirement.approval,
+                  label: sanitizePermissionLabel(requirement.approval.label),
+                },
+              }),
+            ),
+          }
+        : {}),
       presentation: sanitizePermissionPresentation(assessment.presentation),
     };
+    assertPermissionAssessment(sanitized);
+    return sanitized;
   }
 
-  private allowed(
+  private async resolveAllowed(
+    request: PermissionGateRequest,
     call: AuthorizedToolCall,
     assessment: PermissionAssessment,
     source: "policy" | "automatic_approval" | "user",
     startedAt: number,
-  ): PermissionGateResult {
+  ): Promise<PermissionGateResult> {
+    await this.observeResolved(request, assessment, "allow", source);
+    throwIfAborted(request.context.signal);
     return {
       outcome: "allowed",
       call,
@@ -177,6 +212,17 @@ export class PermissionGate {
       authorizationMs: Date.now() - startedAt,
       source,
     };
+  }
+
+  private async resolveDenied(
+    request: PermissionGateRequest,
+    assessment: PermissionAssessment,
+    source: "policy" | "user" | "hard_stop",
+    startedAt: number,
+  ): Promise<PermissionGateResult> {
+    await this.observeResolved(request, assessment, "deny", source);
+    throwIfAborted(request.context.signal);
+    return denied(assessment, source, startedAt);
   }
 
   private event(request: PermissionGateRequest, assessment: PermissionAssessment) {
@@ -229,6 +275,19 @@ function assertPermissionAssessment(value: PermissionAssessment): void {
   if (value.operationClass !== "routine" && value.operationClass !== "sensitive") {
     throw new Error("Permission assessment operation class is invalid");
   }
+  if (value.persistentApprovalRequirements !== undefined) {
+    if (!Array.isArray(value.persistentApprovalRequirements)) {
+      throw new Error("Persistent approval scopes are invalid");
+    }
+    const keys = new Set<string>();
+    for (const requirement of value.persistentApprovalRequirements) {
+      assertPersistentApprovalRequirement(requirement);
+      if (keys.has(requirement.approval.key)) {
+        throw new Error("Persistent approval scopes contain duplicates");
+      }
+      keys.add(requirement.approval.key);
+    }
+  }
   if (value.enforcement !== "policy" && value.enforcement !== "hard_deny") {
     throw new Error("Permission assessment enforcement is invalid");
   }
@@ -252,6 +311,42 @@ function assertPermissionAssessment(value: PermissionAssessment): void {
   ) {
     throw new Error("Permission assessment presentation is invalid");
   }
+}
+
+function resolvePersistentApprovals(
+  toolName: string,
+  assessment: PermissionAssessment,
+  decision: { outcome: "ask"; canAllowAlways: boolean },
+): readonly PersistentApprovalRequirement[] {
+  if (!decision.canAllowAlways) return [];
+  return (
+    assessment.persistentApprovalRequirements ?? [
+      requirement(createToolRoutineApprovalScope(toolName)),
+    ]
+  );
+}
+
+function requirement(approval: PersistentApprovalScope): PersistentApprovalRequirement {
+  return { approval, satisfiedBy: [approval.key] };
+}
+
+function assertPersistentApprovalRequirement(value: PersistentApprovalRequirement): void {
+  if (!value || typeof value !== "object") {
+    throw new Error("Persistent approval requirement is invalid");
+  }
+  assertPersistentApprovalScope(value.approval);
+  if (
+    !Array.isArray(value.satisfiedBy) ||
+    value.satisfiedBy.length === 0 ||
+    new Set(value.satisfiedBy).size !== value.satisfiedBy.length ||
+    !value.satisfiedBy.every(isPersistentApprovalScopeKey)
+  ) {
+    throw new Error("Persistent approval requirement satisfaction keys are invalid");
+  }
+}
+
+function assertPersistentApprovalScope(value: PersistentApprovalScope): void {
+  if (!isPersistentApprovalScope(value)) throw new Error("Persistent approval scope is invalid");
 }
 
 function assertPermissionDecision(value: unknown): void {

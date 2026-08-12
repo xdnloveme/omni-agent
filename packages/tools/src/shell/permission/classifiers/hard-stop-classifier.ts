@@ -1,189 +1,135 @@
-import os from "node:os";
 import path from "node:path";
-import { parseShellCommand, shellWords, type ParsedShellCommand } from "../shell-parser";
+import { createShellCommandView, type ParsedShellCommand, type ShellCommandView } from "../parser";
 import { classification, type ShellClassification } from "./types";
 
-interface HardStopRule {
-  id: string;
-  reason: string;
-  matches(context: HardStopContext): boolean;
-}
-
-interface HardStopContext {
-  command: string;
-  parsed: ParsedShellCommand;
-  segments: ReturnType<typeof commandSegments>;
-}
-
-const HARD_STOP_RULES: readonly HardStopRule[] = [
-  rule("shell.hard.no-preserve-root", "Disables root deletion protection", ({ segments }) =>
-    segments.some(
-      ({ executable, args }) => executable === "rm" && args.includes("--no-preserve-root"),
-    ),
-  ),
-  rule("shell.hard.disk", "Modifies or erases disks", ({ segments }) =>
-    segments.some(({ executable, args }) => {
-      if (
-        ["mkfs", "wipefs", "fdisk", "parted", "newfs"].some(
-          (name) => executable === name || executable.startsWith(`${name}.`),
-        )
-      )
-        return true;
-      return executable === "diskutil" && /^(?:erase|partition|zeroDisk)/i.test(args[0] ?? "");
-    }),
-  ),
-  rule("shell.hard.block-write", "Writes directly to a block device", ({ segments }) =>
-    segments.some(
-      ({ executable, args }) =>
-        executable === "dd" && args.some((arg) => /^of=\/dev\/(?:disk|sd|nvme|vd|xvd)/i.test(arg)),
-    ),
-  ),
-  rule("shell.hard.auth-file", "Writes a system authentication file", ({ parsed, segments }) => {
-    const authPath = /\/etc\/(?:passwd|shadow|sudoers)\b/i;
-    return (
-      parsed.redirections.some(
-        ({ operator, target }) => operator.includes(">") && authPath.test(target),
-      ) ||
-      segments.some(
-        ({ executable, args }) => executable === "tee" && args.some((arg) => authPath.test(arg)),
-      )
-    );
-  }),
-  rule("shell.hard.persistence", "Installs system-level persistence", ({ segments }) =>
-    segments.some(({ executable, args }) => {
-      if (executable === "crontab" || executable === "launchctl") return true;
-      if (executable === "systemctl") return ["enable", "mask"].includes(args[0] ?? "");
-      return executable === "service" && args.includes("enable");
-    }),
-  ),
-  rule(
-    "shell.hard.reverse-shell",
-    "Creates a reverse shell",
-    ({ parsed, segments }) =>
-      segments.some(({ executable, args }) => {
-        if (["nc", "netcat", "ncat"].includes(executable)) return args.includes("-e");
-        if (executable === "socat") return args.some((arg) => /(?:exec|system)/i.test(arg));
-        return false;
-      }) || parsed.redirections.some(({ target }) => /\/dev\/(?:tcp|udp)\//i.test(target)),
-  ),
-  rule(
-    "shell.hard.download-execute",
-    "Executes downloaded code",
-    ({ command, parsed }) =>
-      parsed.segments.length > 1 &&
-      /\b(?:curl|wget)\b[^|;&]*\|\s*(?:(?:env|command|exec|nohup|time)(?:\s+(?:-[^\s]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]+))*\s+)*(?:(?:ba|z|da)?sh|python(?:3)?|node|perl|ruby)\b/i.test(
-        command,
-      ),
-  ),
-  rule(
-    "shell.hard.decode-execute",
-    "Decodes and executes an opaque payload",
-    ({ command, parsed }) =>
-      parsed.segments.length > 1 &&
-      /\b(?:base64|openssl)\b[^|;&]*\|\s*(?:(?:env|command|exec|nohup|time)\s+)*(?:(?:ba|z|da)?sh|python(?:3)?|node|perl|ruby)\b/i.test(
-        command,
-      ),
-  ),
-  rule(
-    "shell.hard.credential-upload",
-    "Uploads credential material",
-    ({ command, parsed }) =>
-      parsed.segments.length > 1 &&
-      /(?:\.ssh|\.aws|\.gnupg|\.kube|\.env|\.npmrc)[^|;&]*\|[^\n]*\b(?:curl|wget|nc|scp)\b/i.test(
-        command,
-      ),
-  ),
-  rule("shell.hard.docker-host", "Grants a container host-level control", ({ segments }) =>
-    segments.some(({ executable, args }) => {
-      const runIndex = args.indexOf("run");
-      if (executable !== "docker" || runIndex < 0) return false;
-      return args
-        .slice(runIndex + 1)
-        .some(
-          (arg, index, runArgs) =>
-            arg === "--privileged" ||
-            /^--cap-add=all$/i.test(arg) ||
-            (arg === "--cap-add" && runArgs[index + 1]?.toLowerCase() === "all") ||
-            /^--pid=host$/i.test(arg) ||
-            (arg === "--pid" && runArgs[index + 1]?.toLowerCase() === "host") ||
-            /^--volume=\/:/.test(arg) ||
-            (["-v", "--volume"].includes(arg) && runArgs[index + 1]?.startsWith("/:") === true),
-        );
-    }),
-  ),
-  rule("shell.hard.security-disable", "Disables host security controls", ({ segments }) =>
-    segments.some(({ executable, args }) => {
-      const joined = args.join(" ").toLowerCase();
-      return (
-        (executable === "csrutil" && joined === "disable") ||
-        (executable === "spctl" && joined === "--master-disable") ||
-        (executable === "ufw" && joined === "disable") ||
-        (executable === "setenforce" && joined === "0") ||
-        (executable === "auditctl" && joined === "-e 0")
-      );
-    }),
-  ),
-  rule("shell.hard.setid", "Sets setuid or setgid permissions", ({ segments }) =>
-    segments.some(
-      ({ executable, args }) =>
-        executable === "chmod" && args.some((arg) => /^(?:u\+s|g\+s|[2467][0-7]{3})$/i.test(arg)),
-    ),
-  ),
-  rule(
-    "shell.hard.fork-bomb",
-    "Creates an unbounded process fork loop",
-    ({ command, parsed }) =>
-      parsed.segments.length > 1 && /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/.test(command),
-  ),
-];
-
 export function classifyWholeCommandHardStop(
-  command: string,
+  parsed: ParsedShellCommand,
   cwd: string,
+  home: string,
 ): ShellClassification | null {
-  const parsed = parseShellCommand(command);
-  const segments = commandSegments(parsed);
-  const context = { command, parsed, segments };
-  if (segments.some(({ executable }) => executable === "sudo")) {
-    return classification("privileged", "Privilege escalation is not allowed", "shell.hard.sudo", {
-      enforcement: "hard_deny",
-    });
+  for (const segment of parsed.segments) {
+    const result = classifyCommandHardStop(createShellCommandView(segment), cwd, home);
+    if (result) return result;
   }
-  if (segments.some(({ executable, args }) => isCatastrophicDelete(executable, args, cwd))) {
-    return classification(
-      "privileged",
-      "Deletes a protected filesystem root",
-      "shell.hard.catastrophic-delete",
-      { enforcement: "hard_deny" },
-    );
+  if (
+    parsed.segments.length > 1 &&
+    /\b(?:curl|wget)\b[^|;&]*\|\s*(?:(?:env|command|exec|nohup|time)(?:\s+(?:-[^\s]+|[A-Za-z_][A-Za-z0-9_]*=[^\s]+))*\s+)*(?:(?:ba|z|da)?sh|python(?:3)?|node|perl|ruby)\b/i.test(
+      parsed.raw,
+    )
+  ) {
+    return hardDeny("Executes downloaded code", "shell.hard.download-execute");
   }
-  for (const entry of HARD_STOP_RULES) {
-    if (entry.matches(context)) {
-      return classification("privileged", entry.reason, entry.id, { enforcement: "hard_deny" });
-    }
+  if (
+    parsed.segments.length > 1 &&
+    /\b(?:base64|openssl)\b[^|;&]*\|\s*(?:(?:env|command|exec|nohup|time)\s+)*(?:(?:ba|z|da)?sh|python(?:3)?|node|perl|ruby)\b/i.test(
+      parsed.raw,
+    )
+  ) {
+    return hardDeny("Decodes and executes an opaque payload", "shell.hard.decode-execute");
+  }
+  if (
+    parsed.segments.length > 1 &&
+    /(?:\.ssh|\.aws|\.gnupg|\.kube|\.env|\.npmrc)[^|;&]*\|[^\n]*\b(?:curl|wget|nc|scp)\b/i.test(
+      parsed.raw,
+    )
+  ) {
+    return hardDeny("Uploads credential material", "shell.hard.credential-upload");
+  }
+  if (parsed.segments.length > 1 && /:\(\)\s*\{\s*:\s*\|\s*:\s*&\s*\}\s*;\s*:/.test(parsed.raw)) {
+    return hardDeny("Creates an unbounded process fork loop", "shell.hard.fork-bomb");
   }
   return null;
 }
 
-function rule(id: string, reason: string, matches: HardStopRule["matches"]): HardStopRule {
-  return { id, reason, matches };
+export function classifyCommandHardStop(
+  command: ShellCommandView,
+  cwd: string,
+  home: string,
+): ShellClassification | null {
+  const executable = command.executableName;
+  const args = command.argumentValues;
+  if (executable === "sudo") {
+    return hardDeny("Privilege escalation is not allowed", "shell.hard.sudo");
+  }
+  if (isCatastrophicDelete(executable, args, cwd, home)) {
+    return hardDeny("Deletes a protected filesystem root", "shell.hard.catastrophic-delete");
+  }
+  if (executable === "rm" && args.includes("--no-preserve-root")) {
+    return hardDeny("Disables root deletion protection", "shell.hard.no-preserve-root");
+  }
+  const assignmentNames = [
+    ...command.segment.leadingAssignments.map(({ name }) => name),
+    ...command.segment.words
+      .map(({ value }) => value.match(/^([A-Za-z_][A-Za-z0-9_]*)=/)?.[1])
+      .filter((name): name is string => name !== undefined),
+  ];
+  if (assignmentNames.some((name) => /^(?:LD_PRELOAD|LD_AUDIT|DYLD_.+)$/i.test(name))) {
+    return hardDeny("Injects code through the dynamic loader", "shell.hard.loader-injection");
+  }
+  if (
+    ["mkfs", "wipefs", "fdisk", "parted", "newfs"].some(
+      (name) => executable === name || executable.startsWith(`${name}.`),
+    ) ||
+    (executable === "diskutil" && /^(?:erase|partition|zeroDisk)/i.test(args[0] ?? ""))
+  ) {
+    return hardDeny("Modifies or erases disks", "shell.hard.disk");
+  }
+  if (
+    executable === "dd" &&
+    args.some((argument) => /^of=\/dev\/(?:disk|sd|nvme|vd|xvd)/i.test(argument))
+  ) {
+    return hardDeny("Writes directly to a block device", "shell.hard.block-write");
+  }
+  const authPath = /\/etc\/(?:passwd|shadow|sudoers)\b/i;
+  if (
+    command.segment.redirections.some(
+      ({ operator, target }) => operator.includes(">") && authPath.test(target),
+    ) ||
+    (executable === "tee" && args.some((argument) => authPath.test(argument)))
+  ) {
+    return hardDeny("Writes a system authentication file", "shell.hard.auth-file");
+  }
+  if (
+    executable === "crontab" ||
+    executable === "launchctl" ||
+    (executable === "systemctl" && ["enable", "mask"].includes(args[0] ?? "")) ||
+    (executable === "service" && args.includes("enable"))
+  ) {
+    return hardDeny("Installs system-level persistence", "shell.hard.persistence");
+  }
+  if (
+    (["nc", "netcat", "ncat"].includes(executable) && args.includes("-e")) ||
+    (executable === "socat" && args.some((argument) => /(?:exec|system)/i.test(argument))) ||
+    command.segment.redirections.some(({ target }) => /\/dev\/(?:tcp|udp)\//i.test(target))
+  ) {
+    return hardDeny("Creates a reverse shell", "shell.hard.reverse-shell");
+  }
+  if (isPrivilegedDocker(executable, args)) {
+    return hardDeny("Grants a container host-level control", "shell.hard.docker-host");
+  }
+  if (disablesSecurity(executable, args)) {
+    return hardDeny("Disables host security controls", "shell.hard.security-disable");
+  }
+  if (
+    executable === "chmod" &&
+    args.some((argument) => /^(?:u\+s|g\+s|[2467][0-7]{3})$/i.test(argument))
+  ) {
+    return hardDeny("Sets setuid or setgid permissions", "shell.hard.setid");
+  }
+  return null;
 }
 
-function commandSegments(parsed: ParsedShellCommand) {
-  return parsed.segments.map((segment) => {
-    const words = shellWords(segment);
-    const index = words.findIndex((word) => !/^[A-Za-z_][A-Za-z0-9_]*=.*/.test(word));
-    return {
-      executable: index < 0 ? "" : path.basename(words[index]!).toLowerCase(),
-      args: index < 0 ? [] : words.slice(index + 1),
-    };
-  });
-}
-
-function isCatastrophicDelete(executable: string, args: readonly string[], cwd: string): boolean {
+function isCatastrophicDelete(
+  executable: string,
+  args: readonly string[],
+  cwd: string,
+  home: string,
+): boolean {
   if (executable !== "rm") return false;
-  const recursive = args.some((arg) => arg === "--recursive" || /^-[^-]*r/.test(arg));
-  const forced = args.some((arg) => arg === "--force" || /^-[^-]*f/.test(arg));
+  const recursive = args.some(
+    (argument) => argument === "--recursive" || /^-[^-]*r/.test(argument),
+  );
+  const forced = args.some((argument) => argument === "--force" || /^-[^-]*f/.test(argument));
   if (!recursive || !forced) return false;
   const protectedTargets = new Set([
     "/",
@@ -194,7 +140,39 @@ function isCatastrophicDelete(executable: string, args: readonly string[], cwd: 
     "${PWD}",
     ".",
     path.resolve(cwd),
-    os.homedir(),
+    home,
   ]);
-  return args.some((arg) => protectedTargets.has(arg.replace(/\/$/, "") || "/"));
+  return args.some((argument) => protectedTargets.has(argument.replace(/\/$/, "") || "/"));
+}
+
+function isPrivilegedDocker(executable: string, args: readonly string[]): boolean {
+  const runIndex = args.indexOf("run");
+  if (executable !== "docker" || runIndex < 0) return false;
+  return args
+    .slice(runIndex + 1)
+    .some(
+      (argument, index, runArgs) =>
+        argument === "--privileged" ||
+        /^--cap-add=all$/i.test(argument) ||
+        (argument === "--cap-add" && runArgs[index + 1]?.toLowerCase() === "all") ||
+        /^--pid=host$/i.test(argument) ||
+        (argument === "--pid" && runArgs[index + 1]?.toLowerCase() === "host") ||
+        /^--volume=\/:/.test(argument) ||
+        (["-v", "--volume"].includes(argument) && runArgs[index + 1]?.startsWith("/:") === true),
+    );
+}
+
+function disablesSecurity(executable: string, args: readonly string[]): boolean {
+  const joined = args.join(" ").toLowerCase();
+  return (
+    (executable === "csrutil" && joined === "disable") ||
+    (executable === "spctl" && joined === "--master-disable") ||
+    (executable === "ufw" && joined === "disable") ||
+    (executable === "setenforce" && joined === "0") ||
+    (executable === "auditctl" && joined === "-e 0")
+  );
+}
+
+function hardDeny(reason: string, ruleId: string): ShellClassification {
+  return classification("privileged", reason, ruleId, { enforcement: "hard_deny" });
 }

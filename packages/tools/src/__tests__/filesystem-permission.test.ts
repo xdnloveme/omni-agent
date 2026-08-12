@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { assessFilePath } from "../filesystem/permission/file-path-assessor";
+import { createFilePathPreflight } from "../filesystem/permission/create-file-path-preflight";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -53,5 +54,86 @@ describe("filesystem permission assessment", () => {
     await expect(
       assessFilePath(path.join(workspace, "linked", "data.txt"), workspace, "read"),
     ).resolves.toMatchObject({ risk: "external" });
+  });
+
+  it("uses directory grants for external reads and exact grants for sensitive files", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "omni-path-read-scope-"));
+    const workspace = path.join(root, "workspace");
+    const external = path.join(root, "reviews");
+    directories.push(root);
+    await fs.mkdir(workspace);
+    await fs.mkdir(external);
+    const canonicalExternal = await fs.realpath(external);
+
+    const ordinary = await assessFilePath(path.join(external, "review.diff"), workspace, "read");
+    const sensitive = await assessFilePath(path.join(workspace, ".env"), workspace, "read");
+
+    expect(ordinary.persistentApprovalRequirements?.[0]?.approval).toMatchObject({
+      kind: "filesystem_read_directory",
+      label: `Always allow reads under ${canonicalExternal}`,
+    });
+    expect(ordinary.persistentApprovalRequirements?.[0]?.satisfiedBy).toContain(
+      ordinary.persistentApprovalRequirements?.[0]?.approval.key,
+    );
+    expect(sensitive.persistentApprovalRequirements?.[0]?.approval).toMatchObject({
+      kind: "filesystem_read_file",
+      label: `Always allow reading ${path.join(await fs.realpath(workspace), ".env")}`,
+    });
+    expect(sensitive.persistentApprovalRequirements?.[0]?.satisfiedBy).toEqual([
+      sensitive.persistentApprovalRequirements?.[0]?.approval.key,
+    ]);
+    expect(sensitive.persistentApprovalRequirements?.[0]?.satisfiedBy).not.toContain(
+      ordinary.persistentApprovalRequirements?.[0]?.approval.key,
+    );
+  });
+
+  it("uses a separate directory scope for external writes", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "omni-path-write-scope-"));
+    const workspace = path.join(root, "workspace");
+    const external = path.join(root, "outside");
+    directories.push(root);
+    await fs.mkdir(workspace);
+    await fs.mkdir(external);
+
+    const assessment = await assessFilePath(path.join(external, "output.txt"), workspace, "write");
+
+    expect(assessment.persistentApprovalRequirements?.[0]?.approval).toMatchObject({
+      kind: "filesystem_write_directory",
+      label: `Always allow writes under ${await fs.realpath(external)}`,
+    });
+  });
+
+  it("rejects missing reads and dangling symlinks during preflight", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "omni-path-preflight-"));
+    directories.push(root);
+    const dangling = path.join(root, "dangling");
+    await fs.symlink(path.join(root, "missing-target"), dangling);
+    const preflight = createFilePathPreflight({
+      parameter: "file_path",
+      acceptedKinds: ["regular_file"],
+      operation: "read",
+    });
+
+    await expect(
+      preflight.validate({ file_path: path.join(root, "missing") }, { cwd: root }),
+    ).resolves.toMatchObject({
+      outcome: "error",
+      result: { meta: { code: "read_failed" } },
+    });
+    await expect(preflight.validate({ file_path: dangling }, { cwd: root })).resolves.toMatchObject(
+      {
+        outcome: "error",
+        result: { meta: { code: "unsupported_file" } },
+      },
+    );
+  });
+
+  it("keeps credential parents sensitive before env template exceptions", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "omni-workspace-"));
+    directories.push(workspace);
+    const credentialDirectory = path.join(os.homedir(), ".ssh");
+    await expect(
+      assessFilePath(path.join(credentialDirectory, ".env.example"), workspace, "read"),
+    ).resolves.toMatchObject({ operationClass: "sensitive" });
   });
 });

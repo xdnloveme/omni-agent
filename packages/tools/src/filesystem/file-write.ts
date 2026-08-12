@@ -14,12 +14,18 @@ import { FileToolError, fileToolErrorResult } from "./io/file-errors";
 import { createFileSnapshot } from "./io/file-snapshot";
 import { assertFileSize, encodeTextFile } from "./io/text-file-validation";
 import { createFilePathPermission } from "./permission/create-file-path-permission";
+import { createFilePathPreflight } from "./permission/create-file-path-preflight";
 
 const MAX_CONTENT_BYTES = 8 * 1024 * 1024;
 
 export const fileWriteTool: AgentToolDefinition = {
   name: "file_write",
   strict: true,
+  preflight: createFilePathPreflight({
+    parameter: "file_path",
+    acceptedKinds: ["regular_file", "missing"],
+    operation: "write",
+  }),
   authorization: {
     ...createFilePathPermission({ parameter: "file_path", access: "write" }),
     hiddenInputKeys: ["content"],

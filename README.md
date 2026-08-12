@@ -70,17 +70,23 @@ tools, such as Skill loading and deterministic in-memory computation, do not con
 permission state. Permission-controlled tools are assessed before execution. The
 default `standard` mode allows routine workspace reads and writes, while asking before shell
 execution and higher-risk operations. `supervised` mode also asks before writes.
-Routine development operations may be covered by an Agent-scoped tool approval. This
-includes ordinary package installation and non-destructive Git remote operations such as
-fetch, pull, and push. Sensitive external operations, destructive commands, unknown
-commands, and privileged operations still require a one-time decision. Explicit hard-stop
-operations are denied.
+Bash can persist an Agent-scoped approval for a literal executable name when a fully parsed
+command passes the current shell boundary checks. The approval applies to that executable
+without distinguishing subcommands. Destructive commands recognized by the generic shell
+rules, privileged commands, sensitive paths, and complex or dynamic shell expressions do
+not consume the executable grant. Explicit hard-stop operations are denied.
 
-The approval prompt supports allowing one call, automatically approving routine calls to
-that tool for the current Agent, or denying the call. Automatic approvals are stored in
-`~/.omni-agent/permissions.json`. Every call is reassessed, so a Bash grant covers routine
-build, package, and Git operations but does not cover publish, force-push, destructive,
-unknown, privileged, or hard-stop classifications.
+The approval prompt supports persisting the eligible scope, allowing one call, or denying
+the call. Persistent approvals are stored in `~/.omni-agent/permissions.json`. Every call
+is reassessed before its eligible scope keys are consulted. An executable grant covers only that
+literal command name and cannot bypass a later hard-stop, destructive, privileged, or
+sensitive-path assessment. Compound commands require every executable approval requirement;
+one Always decision atomically saves only the missing executable approvals.
+
+For `file_read`, ordinary files outside the workspace may persist a canonical parent-directory
+read grant. Sensitive files use exact-file grants, so a directory approval never silently covers
+`.env`, credential locations, system paths, or symlinks resolving into them. Read grants do not
+authorize file mutation or Bash access.
 
 This layer is an execution policy, not an OS sandbox. It cannot fully constrain an
 untrusted child process or eliminate filesystem race conditions.

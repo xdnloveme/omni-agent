@@ -1,12 +1,22 @@
-import { isAgentId, type PermissionGrantStore, type PermissionMode } from "@omni-agent/core";
+import { createHash } from "node:crypto";
+import {
+  isAgentId,
+  type PermissionGrant,
+  type PermissionGrantStore,
+  type PermissionMode,
+} from "@omni-agent/core";
 import { PermissionRepository } from "./permission-repository";
-import type { PersistedAgentPermissions, PersistedToolApproval } from "./persisted-types";
-import { isPersistedToolIdentity } from "./persisted-types";
+import type { PersistedAgentPermissions } from "./persisted-types";
+import { isPersistedPermissionGrant } from "./persisted-types";
 
 const DEFAULT_AGENT_PERMISSIONS: PersistedAgentPermissions = {
   mode: "standard",
-  alwaysApproveTools: [],
+  persistentApprovals: [],
 };
+
+export interface PersistentApprovalView extends PermissionGrant {
+  id: string;
+}
 
 export interface PermissionDiagnostic {
   code: "invalid_permissions" | "migration_dropped_approval" | "read_failed";
@@ -27,42 +37,58 @@ export class PermissionService implements PermissionGrantStore {
     await this.updateAgent(agentId, (current) => ({ ...current, mode }));
   }
 
-  async isToolAlwaysApproved(agentId: string, toolIdentity: string): Promise<boolean> {
-    return (await this.readAgent(agentId)).alwaysApproveTools.some(
-      (tool) => tool.toolIdentity === toolIdentity,
-    );
+  async getGrantedScopeKeys(
+    agentId: string,
+    toolIdentity: string,
+    scopeKeys: readonly string[],
+  ): Promise<readonly string[]> {
+    const requested = new Set(scopeKeys);
+    return (await this.readAgent(agentId)).persistentApprovals
+      .filter((grant) => grant.toolIdentity === toolIdentity && requested.has(grant.scopeKey))
+      .map((grant) => grant.scopeKey);
   }
 
-  async approveTool(agentId: string, toolIdentity: string, toolName: string): Promise<void> {
+  async saveGrants(agentId: string, grants: readonly PermissionGrant[]): Promise<void> {
     assertAgentId(agentId);
-    if (!isPersistedToolIdentity(toolIdentity, toolName)) {
-      throw new Error(`Invalid tool identity: ${toolIdentity}`);
+    if (!grants.length || grants.some((grant) => !isPersistedPermissionGrant(grant))) {
+      throw new Error("Invalid persistent approval grants");
     }
+    const uniqueGrants = [
+      ...new Map(
+        grants.map((grant) => [`${grant.toolIdentity}\0${grant.scopeKey}`, grant] as const),
+      ).values(),
+    ];
     await this.updateAgent(agentId, (current) => {
-      if (current.alwaysApproveTools.some((tool) => tool.toolIdentity === toolIdentity))
-        return current;
+      const existing = new Set(
+        current.persistentApprovals.map((entry) => `${entry.toolIdentity}\0${entry.scopeKey}`),
+      );
+      const additions = uniqueGrants.filter(
+        (grant) => !existing.has(`${grant.toolIdentity}\0${grant.scopeKey}`),
+      );
+      if (!additions.length) return current;
       return {
         ...current,
-        alwaysApproveTools: [...current.alwaysApproveTools, { toolIdentity, toolName }],
+        persistentApprovals: [...current.persistentApprovals, ...structuredClone(additions)],
       };
     });
   }
 
-  async listAlwaysApprovedTools(agentId: string): Promise<PersistedToolApproval[]> {
-    return [...(await this.readAgent(agentId)).alwaysApproveTools];
-  }
-
-  async revokeAlwaysApprovedTool(agentId: string, toolIdentity: string): Promise<void> {
-    await this.updateAgent(agentId, (current) => ({
-      ...current,
-      alwaysApproveTools: current.alwaysApproveTools.filter(
-        (tool) => tool.toolIdentity !== toolIdentity,
-      ),
+  async listPersistentApprovals(agentId: string): Promise<PersistentApprovalView[]> {
+    return (await this.readAgent(agentId)).persistentApprovals.map((grant) => ({
+      ...grant,
+      id: grantId(grant),
     }));
   }
 
-  async clearAlwaysApprovedTools(agentId: string): Promise<void> {
-    await this.updateAgent(agentId, (current) => ({ ...current, alwaysApproveTools: [] }));
+  async revokePersistentApproval(agentId: string, id: string): Promise<void> {
+    await this.updateAgent(agentId, (current) => ({
+      ...current,
+      persistentApprovals: current.persistentApprovals.filter((grant) => grantId(grant) !== id),
+    }));
+  }
+
+  async clearPersistentApprovals(agentId: string): Promise<void> {
+    await this.updateAgent(agentId, (current) => ({ ...current, persistentApprovals: [] }));
   }
 
   private async readAgent(agentId: string): Promise<PersistedAgentPermissions> {
@@ -87,7 +113,7 @@ export class PermissionService implements PermissionGrantStore {
             : "read_failed",
         message: error instanceof Error ? error.message : String(error),
       });
-      return { mode: "supervised", alwaysApproveTools: [] };
+      return { mode: "supervised", persistentApprovals: [] };
     }
   }
 
@@ -95,6 +121,7 @@ export class PermissionService implements PermissionGrantStore {
     agentId: string,
     mutator: (current: PersistedAgentPermissions) => PersistedAgentPermissions,
   ): Promise<void> {
+    assertAgentId(agentId);
     return this.repository.update((config) => ({
       ...config,
       agents: {
@@ -103,6 +130,12 @@ export class PermissionService implements PermissionGrantStore {
       },
     }));
   }
+}
+
+function grantId(grant: PermissionGrant): string {
+  return createHash("sha256")
+    .update(`${grant.toolIdentity}\0${grant.scopeKey}`)
+    .digest("base64url");
 }
 
 function assertAgentId(agentId: string): void {

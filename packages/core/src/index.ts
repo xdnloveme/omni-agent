@@ -18,6 +18,8 @@ export type {
   ToolAuthorizationRequest,
   ToolAuthorizationResult,
   ToolAuthorizer,
+  ToolPreflightDescriptor,
+  ToolPreflightResult,
 } from "./tool-calls/index";
 export {
   createAbortError,
@@ -41,8 +43,11 @@ export type {
 } from "./execution/index";
 export {
   DenyApprovalBroker,
+  createToolRoutineApprovalScope,
   formatSanitizedToolInput,
+  isPersistentApprovalScope,
   PermissionGate,
+  sanitizePermissionLabel,
   sanitizePermissionPresentation,
   sanitizeSensitiveValue,
 } from "./permissions/index";
@@ -53,6 +58,7 @@ export type {
   PermissionAssessment,
   PermissionControlledTool,
   PermissionContext,
+  PermissionGrant,
   PermissionGrantStore,
   PermissionMode,
   PermissionObserver,
@@ -61,6 +67,9 @@ export type {
   PermissionPolicyDecision,
   PermissionPresentation,
   PermissionRisk,
+  PersistentApprovalScope,
+  PersistentApprovalRequirement,
+  PersistentApprovalScopeKind,
   ToolAuthorizationDescriptor,
   ToolPermissionDescriptor,
 } from "./permissions/index";

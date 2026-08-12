@@ -120,16 +120,16 @@ export class AgentApplication {
     return this.permissions.setMode(this.agentId, mode);
   }
 
-  listAlwaysApprovedTools() {
-    return this.permissions.listAlwaysApprovedTools(this.agentId);
+  listPersistentApprovals() {
+    return this.permissions.listPersistentApprovals(this.agentId);
   }
 
-  revokeAlwaysApprovedTool(toolIdentity: string): Promise<void> {
-    return this.permissions.revokeAlwaysApprovedTool(this.agentId, toolIdentity);
+  revokePersistentApproval(id: string): Promise<void> {
+    return this.permissions.revokePersistentApproval(this.agentId, id);
   }
 
-  clearAlwaysApprovedTools(): Promise<void> {
-    return this.permissions.clearAlwaysApprovedTools(this.agentId);
+  clearPersistentApprovals(): Promise<void> {
+    return this.permissions.clearPersistentApprovals(this.agentId);
   }
 
   async dispose(): Promise<void> {

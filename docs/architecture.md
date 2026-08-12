@@ -190,7 +190,8 @@ cross-package boundary.
 Every tool call crosses one authorization path before execution:
 
 ```text
-AgentLoop -> ToolCallCoordinator -> schema validation -> ToolAuthorizationRouter
+AgentLoop -> ToolCallCoordinator -> schema validation -> domain preflight
+                                   -> ToolAuthorizationRouter
                                       |-> trusted -> authorized call
                                       `-> permission -> PermissionGate -> authorized call
           -> lifecycle -> ToolInvocationRunner -> host or sandbox-eligible execution
@@ -203,7 +204,7 @@ trusted internal tools without consulting permission state and delegates all oth
 tools to the gate. The runner accepts only authorized calls and routes execution from
 the tool's explicit strategy. Authorization and execution strategy are independent.
 Concrete risk assessment stays with the owning technical domain in `packages/tools`:
-shell parsing and command classification live with the Bash tool, while filesystem
+one Shell analysis entry, its internal parser and command classifiers live with the Bash tool, while filesystem
 and search tools map shared path-security facts into their own permission presentations.
 Cross-domain path normalization, workspace-boundary checks, and sensitive-path
 definitions remain pure shared security primitives. The app
@@ -215,14 +216,31 @@ The default modes are `standard` and `supervised`. Standard mode permits routine
 workspace reads and writes but asks before ordinary process execution.
 Supervised mode also asks before writes. Assessments separately describe operational
 impact (`risk`) and the domain operation category (`operationClass`). Routine package
-installation and non-destructive Git remote operations remain external, but an existing
-Agent-level tool grant may answer them. Sensitive external, destructive, unknown, and
-privileged operations require a one-time decision; explicit hard-stop behavior is denied.
-Every call is reassessed, so a stored grant cannot override a fresh sensitive or hard-stop
-assessment.
+operations may use an existing Agent/tool/scope grant. Bash persistent approval identifies
+one literal executable and deliberately does not classify its subcommands for persistence.
+Generic sensitive-path, destructive, privileged, and hard-stop assessments cannot consume
+that scope. Compound commands expose one requirement for each executable,
+including targets resolved through supported wrappers. Multiple executable identities use
+all-of matching: all existing grants allow execution, while one approval can atomically add
+only the missing executable scopes. Every call is reassessed before scope lookup, so stored
+state cannot override those boundaries. Constraining behavior inside an approved CLI is a
+future sandbox responsibility.
 
-Permission state is stored in `~/.omni-agent/permissions.json`, keyed by Agent and
-stable tool origin. Updates use an inter-process lock and atomic JSON replacement.
+Filesystem path approval remains domain-owned. Ordinary external files may consume a
+canonical parent-directory read or write scope, while sensitive reads may consume only an exact-file
+scope. Read/write and tool identities remain isolated. Sensitive-path classification runs before scope matching, so a directory grant never
+silently includes `.env`, credential locations, system paths, or symlink targets that resolve
+into those locations. Core treats filesystem scope keys as opaque alternatives and does not
+parse paths.
+
+Filesystem and search tools use optional domain preflight before authorization to reject
+missing, dangling, special, or wrong-kind targets without presenting an unusable approval.
+The execution implementation repeats the target-state check after approval to protect the
+later execution boundary; Core does not interpret path facts.
+
+Permission state is stored in `~/.omni-agent/permissions.json`, keyed by Agent, stable
+tool origin, and opaque approval scope. Updates use an inter-process lock and atomic JSON
+replacement.
 Invalid state fails closed to supervised behavior with no automatic approvals.
 Approval presentations and diagnostic events exclude raw tool input and file
 contents.

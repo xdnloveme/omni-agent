@@ -3,14 +3,21 @@ import {
   EXTERNAL_COMMANDS,
   NETWORK_TRANSFER_COMMANDS,
   READ_ONLY_COMMANDS,
+  SHELL_CONTEXT_COMMANDS,
 } from "../rules/command-rules";
 import { classification, type ShellClassifier } from "./types";
-import { commandName } from "./command-utils";
 
 export const genericCommandClassifier: ShellClassifier = {
   priority: 100,
-  classify(words) {
-    const primary = commandName(words);
+  classify(command) {
+    const primary = command.executableName;
+    if (SHELL_CONTEXT_COMMANDS.has(primary)) {
+      return classification(
+        "read",
+        `${primary} changes shell-local context`,
+        `shell.context.${primary}`,
+      );
+    }
     if (EXTERNAL_COMMANDS.has(primary)) {
       return classification(
         "external",

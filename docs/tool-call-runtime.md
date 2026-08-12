@@ -65,6 +65,7 @@ interface AgentToolDefinition {
   description: string;
   schema: Record<string, unknown>;
   strict?: boolean;
+  preflight?: ToolPreflightDescriptor;
   timeout: ToolTimeoutPolicy;
   authorization: ToolAuthorizationDescriptor;
   execution: ToolExecutionStrategy;
@@ -108,6 +109,11 @@ inside the host trust boundary. It bypasses `PermissionGate`, but it does not by
 tool resolution, schema validation, lifecycle handling, middleware, cancellation, or
 structured result handling.
 
+`preflight` is an optional domain validation step for facts that should be checked before
+an approval prompt, such as whether a file exists and is a regular file. It returns either
+`ready` or a structured domain error. It does not assess risk, query grants, render UI, or
+replace the execution-time consistency check.
+
 `host` and `sandbox_eligible` say where an authorized call may execute. They do not
 grant permission. A permission-controlled host tool still requires authorization; a
 trusted host tool does not. There is currently no sandbox implementation. When no
@@ -135,6 +141,7 @@ The successful path is fixed:
 resolve registered tool
 -> validate input with Ajv
 -> emit sanitized tool_start
+-> run optional domain preflight
 -> authorize through ToolAuthorizationRouter
 -> emit lifecycle start events
 -> run beforeExecute middleware
@@ -150,7 +157,7 @@ resolve registered tool
 -> continue with runtime guidance or halt the run
 ```
 
-Schema errors and permission denials emit paired `tool_start` and `tool_end` events,
+Schema errors, preflight errors, and permission denials emit paired `tool_start` and `tool_end` events,
 but do not invoke lifecycle adapters, execution middleware, or tool code. An abort is
 different: it throws `AbortError`, does not create an ordinary denial/tool result, and
 prevents the next model turn.
@@ -264,7 +271,7 @@ static/dynamic descriptor
 -> recursive presentation sanitization
 -> hard-deny enforcement
 -> PermissionPolicy
--> persisted Agent/tool grant lookup when eligible
+-> persisted Agent/tool/scope grant lookup when eligible
 -> ApprovalBroker when required
 -> AuthorizedToolCall or structured denial
 ```
@@ -275,39 +282,60 @@ Assessments explicitly separate risk from enforcement:
 interface PermissionAssessment {
   risk: PermissionRisk;
   operationClass: "routine" | "sensitive";
+  persistentApprovalRequirements?: readonly PersistentApprovalRequirement[];
   enforcement: "policy" | "hard_deny";
   reasons: readonly string[];
   ruleIds: readonly string[];
   presentation: PermissionPresentation;
 }
+
+interface PersistentApprovalRequirement {
+  approval: PersistentApprovalScope;
+  satisfiedBy: readonly string[];
+}
 ```
 
 `ruleIds` are diagnostic and test data only. Policy must never infer authorization
 semantics from their presence or spelling. `risk` describes operational impact, while
-`operationClass` explicitly distinguishes routine calls that may use a persistent tool grant
-from sensitive calls that require a fresh decision. Security-relevant classifier output
-uses explicit fields such as `enforcement`, `operationClass`, and shell `effects`.
+`operationClass` describes the operation independently from its approval scope. Tool-level
+routine grants consume it, while Bash executable grants deliberately do not distinguish
+subcommands. Security-relevant classifier output uses explicit fields such as
+`enforcement`, `operationClass`, and shell `effects`.
 
 The default policy is:
 
-| Risk                     | standard | supervised | Persistent grant |
-| ------------------------ | -------- | ---------- | ---------------- |
-| `read`                   | allow    | allow      | unnecessary      |
-| `write`                  | allow    | ask        | allowed          |
-| `execute`                | ask      | ask        | allowed          |
-| `external_read`          | allow    | ask        | forbidden        |
-| `external` + routine     | ask      | ask        | allowed          |
-| `external` + sensitive   | ask      | ask        | forbidden        |
-| `destructive`            | ask      | ask        | forbidden        |
-| `privileged`             | ask      | ask        | forbidden        |
-| `unknown`                | ask      | ask        | forbidden        |
-| `enforcement: hard_deny` | deny     | deny       | forbidden        |
+| Risk                                           | standard | supervised | Persistent grant |
+| ---------------------------------------------- | -------- | ---------- | ---------------- |
+| `read`                                         | allow    | allow      | unnecessary      |
+| `write`                                        | allow    | ask        | allowed          |
+| `execute`                                      | ask      | ask        | allowed          |
+| `external_read` + routine                      | allow    | ask        | allowed          |
+| `external` + routine                           | ask      | ask        | allowed          |
+| `external` + explicit scope                    | ask      | ask        | allowed          |
+| sensitive `external` without an explicit scope | ask      | ask        | forbidden        |
+| `destructive`                                  | ask      | ask        | forbidden        |
+| `privileged`                                   | ask      | ask        | forbidden        |
+| `unknown` + executable scope                   | ask      | ask        | allowed          |
+| other `unknown`                                | ask      | ask        | forbidden        |
+| `enforcement: hard_deny`                       | deny     | deny       | forbidden        |
 
-Persistent approval is scoped to Agent ID and stable tool identity. It answers routine
-`write`, `execute`, and explicitly classified routine `external` prompts. Bash examples
-include package installation and non-destructive Git fetch, pull, and push. Publish,
-force-push, destructive, privileged, unknown, sensitive-path, and hard-deny assessments
-are evaluated again and are not covered by the grant.
+Persistent approval is scoped to Agent ID, stable tool identity, and an opaque scope key
+from the current assessment. `approval` is the only scope persisted after an Always choice;
+`satisfiedBy` lists the existing scope keys that may satisfy that one requirement and is never
+stored. One matching key satisfies a requirement, while multiple independent requirements use
+all-of matching. Routine scopes answer eligible `write`, `execute`,
+`external_read`, and routine `external` prompts. Bash instead uses one executable scope:
+after approval, eligible calls to the same literal executable can consume it regardless of
+subcommand classification. A compound command identifies each literal executable,
+including through supported wrappers and ordinary redirection. Sensitive paths, generic
+destructive or privileged classifications, dynamic shell expressions, and hard-deny
+assessments remain outside that scope.
+
+Compound Bash authorization uses all-of scope matching. The assessor returns one deduplicated
+requirement per executable. `PermissionGate` loads all candidate grants in one call,
+computes the missing set, and automatically approves only when every required scope is present.
+An Always decision saves every missing scope in one repository update; partial persistence
+never authorizes execution.
 
 `ApprovalBroker` receives only the sanitized `ApprovalRequest`. It never receives raw
 tool input. Escape maps to Deny. Ctrl+C, SIGTERM, shutdown, and an aborted signal map
@@ -329,6 +357,24 @@ Filesystem and search assessors share `security/path` primitives for:
 - credential directories and credential filenames;
 - `.env` template exceptions;
 - system paths such as `/etc`, `/proc`, `/sys`, `/dev`, and `/root`.
+- target kinds including regular files, directories, special files, missing targets, and
+  dangling symlinks.
+
+`file_read` and `file_edit` preflight require an existing regular file. `file_write`
+preflight accepts a regular file or an ordinary missing target. `glob` requires a directory,
+while `grep` accepts a regular file or directory. Invalid targets return a domain error before
+the permission gate; execution still rechecks the target because approval introduces a new
+time boundary.
+
+Filesystem and search tools use path-owned persistent scopes after canonicalization. An ordinary
+path outside the workspace proposes one parent-directory read or write scope. A fresh assessment
+matches that scope against the target's canonical ancestor directory keys. Sensitive files,
+including credential files inside the workspace, propose only an exact-file scope and never
+consume a parent-directory grant. Read and write scopes are distinct, and tool identity keeps
+`file_read`, `grep`, `file_write`, and `file_edit` grants isolated. Sensitive writes, virtual
+system paths, and devices never receive persistent approval. This
+keeps `.env`, credential directories, system paths, and symlink targets subject to fresh
+sensitive-path classification before any stored grant is considered.
 
 Assessment and execution must use the same injected `cwd`. Tool implementations must
 not resolve operation paths with their own `process.cwd()`.
@@ -340,13 +386,26 @@ and are classified as `external`, not `external_read`.
 Bash assessment is deterministic and local:
 
 ```text
-ShellParser
--> whole-command hard stops
--> wrapper expansion
--> prioritized command classifiers
--> redirection and shell-path analysis
--> highest-risk aggregation
+ShellAnalysisInput
+-> analyzeShellCommand
+-> one internal ParsedShellCommand AST
+-> hard-stop, wrapper, command, path, and executable analyzers
+-> one ShellAnalysisResult
+-> Bash PermissionAssessment
 ```
+
+The parser is the only module that handles quoting, escaping, control operators,
+redirections, leading assignments, executable positions, substitutions, and wrapper payload
+boundaries. Domain analyzers consume the AST and cannot reparse raw command text. The public
+analysis result contains syntax, command, path, effect, security, and approval facts; it never
+contains a policy decision, grant lookup, UI model, or executable action.
+
+An eligible command may expose literal-name approval requirements after full parsing, supported
+wrapper expansion, assignment handling, and ordinary redirection analysis. Sequences and
+pipelines require one requirement for each executable. The scope deliberately ignores subcommands: approving `gh`
+covers later eligible `gh ...` calls. Substitution, sensitive paths, generic destructive,
+privileged, and hard-stop classifications still take precedence. Per-CLI behavioral
+isolation belongs to the future sandbox rather than a growing subcommand permission table.
 
 Wrappers such as `env`, `command`, `exec`, `nohup`, `time`, `xargs`, and
 `bash/sh/zsh -c` are recursively inspected. Incomplete parsing, dynamic executables,
@@ -496,18 +555,21 @@ permission storage, or permission errors.
 
 ## Permission Persistence
 
-Permission state lives at `~/.omni-agent/permissions.json` in version 2 format:
+Permission state lives at `~/.omni-agent/permissions.json` in version 3 format:
 
 ```json
 {
-  "version": 2,
+  "version": 3,
   "agents": {
     "coding": {
       "mode": "standard",
-      "alwaysApproveTools": [
+      "persistentApprovals": [
         {
           "toolIdentity": "builtin-coding:bash",
-          "toolName": "bash"
+          "toolName": "bash",
+          "scopeKey": "bash:executable:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "scopeKind": "bash_executable",
+          "label": "Always trust executable: mycli"
         }
       ]
     }
@@ -522,10 +584,16 @@ reclaimers from deleting a newly acquired lock. Release verifies owner identity.
 
 Writes are serialized in-process, re-read and merged under the inter-process lock,
 written atomically, and kept at mode `0600`. Invalid configuration fails closed to
-`supervised` with no grants. Version 1 migration is isolated and one-way: recognized
-`coding:<tool>` identities become `builtin-coding:<tool>` and unrecognized identities
-are dropped with diagnostics. Runtime policy and repository logic only understand
-version 2.
+`supervised` with no grants. Legacy version 1 identities are normalized and version 1/2
+tool approvals migrate once to the routine scope; unrecognized identities are dropped
+with diagnostics. Runtime policy, service, and repository logic only understand version 3.
+
+Scope keys are opaque to Core and App. The owning tool creates the scope to persist and the
+transient keys that may satisfy its requirement; Core only performs generic any-of/all-of set matching. Bash
+executable scopes hash the literal
+executable name, not its resolved binary path. A later PATH replacement therefore inherits
+the approval until it is revoked; this is a documented pre-sandbox tradeoff rather than a
+binary-integrity guarantee. Stored labels never include argv or the full command.
 
 ## TUI and Application Facade
 
@@ -533,13 +601,14 @@ CLI implements `ApprovalBroker` through one modal at a time. The modal owns focu
 keyboard listeners, overlay cleanup, status restoration, and Promise completion in a
 `finally` path. Permission choices are:
 
+- Persist the current eligible scope, when policy permits it. This option is shown first
+  and may represent routine tool operations, one literal Bash executable, an external read
+  directory, or one exact sensitive file.
 - Allow once.
-- Always approve routine operations for this tool, only when policy marks the request
-  persistable.
 - Deny.
 
 `/permissions` accesses permission state through `AgentApplication` methods. The
-command may change mode, list/revoke one grant, or clear Agent grants, and changes take
+command may change mode, list/revoke one scoped grant, or clear Agent grants, and changes take
 effect in the current runtime. CLI must not import the permission repository or
 re-evaluate policy.
 

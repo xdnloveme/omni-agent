@@ -1,6 +1,6 @@
 import { PACKAGE_EXECUTE, PACKAGE_MANAGER_ACTIONS } from "../rules/subcommand-rules";
 import { classification, type ShellClassifier } from "./types";
-import { commandArguments, commandName, findPositionalArgument } from "./command-utils";
+import { findPositionalArgument } from "./command-utils";
 
 const GLOBAL_OPTIONS_WITH_VALUE = new Set([
   "--prefix",
@@ -15,11 +15,11 @@ const GLOBAL_OPTIONS_WITH_VALUE = new Set([
 
 export const packageManagerClassifier: ShellClassifier = {
   priority: 40,
-  classify(words) {
-    const primary = commandName(words);
+  classify(command) {
+    const primary = command.executableName;
     const profile = PACKAGE_MANAGER_ACTIONS[primary];
     if (!profile) return null;
-    const action = resolvePackageAction(primary, commandArguments(words));
+    const action = resolvePackageAction(primary, command.argumentValues);
     if (profile.routineExternal.has(action)) {
       return classification(
         "external",

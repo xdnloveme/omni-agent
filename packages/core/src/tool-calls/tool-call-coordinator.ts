@@ -46,6 +46,29 @@ export class ToolCallCoordinator {
         return;
       }
 
+      if (tool.preflight) {
+        let preflight;
+        try {
+          preflight = await tool.preflight.validate(request.input, {
+            cwd: environment.cwd,
+            signal: request.signal,
+          });
+        } catch (error) {
+          if (isAbortError(error, request.signal)) throw error;
+          yield endEvent(
+            request,
+            errorResult("Tool preflight failed.", { code: "tool_preflight_failed" }),
+            metrics(totalStartedAt),
+          );
+          return;
+        }
+        throwIfAborted(request.signal);
+        if (preflight.outcome === "error") {
+          yield endEvent(request, preflight.result, metrics(totalStartedAt));
+          return;
+        }
+      }
+
       let authorization: ToolAuthorizationResult;
       try {
         authorization = await this.options.authorizer.authorize({

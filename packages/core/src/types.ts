@@ -5,12 +5,14 @@ import type { AgentMessage } from "./models/messages";
 import type { ModelRuntimePort, RuntimeModelSelection } from "./models/runtime";
 import type { ToolAuthorizationDescriptor } from "./permissions";
 import type { ToolExecutionContext, ToolExecutionStrategy, ToolTimeoutPolicy } from "./execution";
+import type { ToolPreflightDescriptor } from "./tool-calls/tool-preflight";
 
 export interface AgentToolDefinition {
   name: string;
   description: string;
   schema: Record<string, unknown>;
   strict?: boolean;
+  preflight?: ToolPreflightDescriptor;
   timeout: ToolTimeoutPolicy;
   authorization: ToolAuthorizationDescriptor;
   execution: ToolExecutionStrategy;

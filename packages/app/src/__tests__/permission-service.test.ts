@@ -20,22 +20,53 @@ async function fixture() {
 }
 
 describe("PermissionService", () => {
+  const grant = {
+    toolIdentity: "builtin-coding:bash",
+    toolName: "bash",
+    scopeKey: "tool:routine",
+    scopeKind: "tool_routine" as const,
+    label: "Always approve routine bash operations",
+  };
+
   it("defaults to standard mode and persists Agent-scoped approvals", async () => {
     const { service } = await fixture();
     await expect(service.getMode("coding")).resolves.toBe("standard");
-    await service.approveTool("coding", "builtin-coding:bash", "bash");
-    await expect(service.isToolAlwaysApproved("coding", "builtin-coding:bash")).resolves.toBe(true);
-    await expect(service.isToolAlwaysApproved("other", "builtin-coding:bash")).resolves.toBe(false);
+    await service.saveGrants("coding", [grant]);
+    await expect(
+      service.getGrantedScopeKeys("coding", grant.toolIdentity, [grant.scopeKey]),
+    ).resolves.toEqual([grant.scopeKey]);
+    await expect(
+      service.getGrantedScopeKeys("other", grant.toolIdentity, [grant.scopeKey]),
+    ).resolves.toEqual([]);
   });
 
   it("supports mode changes and approval revocation", async () => {
     const { service } = await fixture();
     await service.setMode("coding", "supervised");
-    await service.approveTool("coding", "builtin-coding:bash", "bash");
-    expect(await service.listAlwaysApprovedTools("coding")).toHaveLength(1);
-    await service.revokeAlwaysApprovedTool("coding", "builtin-coding:bash");
-    expect(await service.listAlwaysApprovedTools("coding")).toHaveLength(0);
+    await service.saveGrants("coding", [grant]);
+    const approvals = await service.listPersistentApprovals("coding");
+    expect(approvals).toHaveLength(1);
+    await service.revokePersistentApproval("coding", approvals[0]!.id);
+    expect(await service.listPersistentApprovals("coding")).toHaveLength(0);
     await expect(service.getMode("coding")).resolves.toBe("supervised");
+  });
+
+  it("keeps independent scopes for one tool and clears them together", async () => {
+    const { service } = await fixture();
+    await service.saveGrants("coding", [
+      grant,
+      {
+        ...grant,
+        scopeKey:
+          "bash:executable:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        scopeKind: "bash_executable",
+        label: "Always trust executable: mycli",
+      },
+    ]);
+
+    expect(await service.listPersistentApprovals("coding")).toHaveLength(2);
+    await service.clearPersistentApprovals("coding");
+    expect(await service.listPersistentApprovals("coding")).toEqual([]);
   });
 
   it("fails closed when configuration is invalid", async () => {

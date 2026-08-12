@@ -1,5 +1,5 @@
 import { classification, type ShellClassifier } from "./types";
-import { commandName, subcommand } from "./command-utils";
+import { findPositionalArgument } from "./command-utils";
 
 const INFRASTRUCTURE_COMMANDS = new Set([
   "terraform",
@@ -13,10 +13,10 @@ const INFRASTRUCTURE_COMMANDS = new Set([
 
 export const infrastructureClassifier: ShellClassifier = {
   priority: 60,
-  classify(words) {
-    const primary = commandName(words);
+  classify(command) {
+    const primary = command.executableName;
     if (!INFRASTRUCTURE_COMMANDS.has(primary)) return null;
-    const action = subcommand(words);
+    const action = findPositionalArgument(command.argumentValues)?.value ?? "";
     if (primary === "terraform" && action === "destroy") {
       return classification(
         "destructive",

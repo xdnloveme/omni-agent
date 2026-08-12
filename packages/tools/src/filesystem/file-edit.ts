@@ -17,6 +17,7 @@ import {
   encodeTextFile,
 } from "./io/text-file-validation";
 import { createFilePathPermission } from "./permission/create-file-path-permission";
+import { createFilePathPreflight } from "./permission/create-file-path-preflight";
 
 const MAX_TEXT_BYTES = 8 * 1024 * 1024;
 const MAX_REPLACEMENT_LENGTH = 1024 * 1024;
@@ -24,6 +25,11 @@ const MAX_REPLACEMENT_LENGTH = 1024 * 1024;
 export const fileEditTool: AgentToolDefinition = {
   name: "file_edit",
   strict: true,
+  preflight: createFilePathPreflight({
+    parameter: "file_path",
+    acceptedKinds: ["regular_file"],
+    operation: "edit",
+  }),
   authorization: createFilePathPermission({ parameter: "file_path", access: "write" }),
   execution: { kind: "host" },
   timeout: { kind: "none" },

@@ -39,7 +39,8 @@ export type {
   PermissionDiagnostic,
   PersistedAgentPermissions,
   PersistedPermissions,
-  PersistedToolApproval,
+  PersistedPermissionGrant,
+  PersistentApprovalView,
 } from "./permissions/index";
 export type { ConfigServiceOptions } from "./config/config-service";
 export type {

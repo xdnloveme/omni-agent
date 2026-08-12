@@ -36,11 +36,15 @@ export const READ_ONLY_COMMANDS = new Set([
   "dirname",
   "echo",
   "printf",
+  "command",
+  "xargs",
   "env",
   "printenv",
   "true",
   "false",
 ]);
+
+export const SHELL_CONTEXT_COMMANDS = new Set(["cd"]);
 
 export const WRITE_COMMANDS = new Set([
   "mkdir",

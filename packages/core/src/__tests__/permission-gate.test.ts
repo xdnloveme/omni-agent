@@ -1,6 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
 import { PermissionGate } from "../permissions";
-import type { PermissionControlledTool, ToolPermissionDescriptor } from "../permissions";
+import type {
+  ApprovalRequest,
+  PermissionControlledTool,
+  ToolPermissionDescriptor,
+} from "../permissions";
 
 function tool(authorization: ToolPermissionDescriptor): PermissionControlledTool {
   return {
@@ -132,11 +136,12 @@ describe("PermissionGate", () => {
 
   it("uses a stored grant only for an eligible routine decision", async () => {
     const broker = { request: vi.fn(async () => "deny" as const) };
+    const getGrantedScopeKeys = vi.fn(
+      async (_agentId, _toolIdentity, scopeKeys: readonly string[]) => scopeKeys,
+    );
     const storedGrants = {
       ...grants(),
-      async isToolAlwaysApproved() {
-        return true;
-      },
+      getGrantedScopeKeys,
     };
     const routine = new PermissionGate({
       policy: { evaluate: () => ({ outcome: "ask", reason: "test", canAllowAlways: true }) },
@@ -150,6 +155,7 @@ describe("PermissionGate", () => {
         context: context(),
       }),
     ).resolves.toMatchObject({ outcome: "allowed", source: "automatic_approval" });
+    expect(getGrantedScopeKeys).toHaveBeenCalledWith("test", "test:test_tool", ["tool:routine"]);
     expect(broker.request).not.toHaveBeenCalled();
 
     const highRisk = new PermissionGate({
@@ -167,12 +173,96 @@ describe("PermissionGate", () => {
     expect(broker.request).toHaveBeenCalledOnce();
   });
 
+  it("asks for and atomically saves only missing executable scopes", async () => {
+    const keyA = `bash:executable:${"a".repeat(64)}`;
+    const keyB = `bash:executable:${"b".repeat(64)}`;
+    const requests: ApprovalRequest[] = [];
+    const saveGrants = vi.fn(async () => undefined);
+    const gate = new PermissionGate({
+      policy: { evaluate: () => ({ outcome: "ask", reason: "unknown", canAllowAlways: true }) },
+      grants: {
+        ...grants(),
+        getGrantedScopeKeys: vi.fn(async () => [keyA]),
+        saveGrants,
+      },
+      broker: {
+        async request(request) {
+          requests.push(request);
+          return "allow_always";
+        },
+      },
+    });
+
+    await gate.authorize({
+      tool: tool({
+        kind: "dynamic",
+        assess: () =>
+          executableAssessment([
+            { key: keyA, label: "Always trust executable: a" },
+            { key: keyB, label: "Always trust executable: b" },
+          ]),
+      }),
+      input: {},
+      context: context(),
+    });
+
+    expect(requests[0]?.persistentApprovals).toEqual([
+      { kind: "bash_executable", label: "Always trust executable: b" },
+    ]);
+    expect(saveGrants).toHaveBeenCalledWith("test", [
+      expect.objectContaining({ scopeKey: keyB, label: "Always trust executable: b" }),
+    ]);
+  });
+
+  it("accepts any matching key for one persistent approval requirement", async () => {
+    const directoryKey = `filesystem:read:directory:${"d".repeat(64)}`;
+    const fileKey = `filesystem:read:file:${"f".repeat(64)}`;
+    const broker = { request: vi.fn(async () => "deny" as const) };
+    const gate = new PermissionGate({
+      policy: { evaluate: () => ({ outcome: "ask", reason: "external", canAllowAlways: true }) },
+      grants: {
+        ...grants(),
+        getGrantedScopeKeys: vi.fn(async () => [directoryKey]),
+      },
+      broker,
+    });
+
+    await expect(
+      gate.authorize({
+        tool: tool({
+          kind: "dynamic",
+          assess: () => ({
+            risk: "external",
+            operationClass: "sensitive",
+            persistentApprovalRequirements: [
+              {
+                approval: {
+                  key: directoryKey,
+                  kind: "filesystem_read_directory",
+                  label: "Always allow reads under /tmp/reviews",
+                },
+                satisfiedBy: [fileKey, directoryKey],
+              },
+            ],
+            enforcement: "policy",
+            reasons: ["external"],
+            ruleIds: ["path.outside-workspace.read"],
+            presentation: { title: "Read file", reason: "external" },
+          }),
+        }),
+        input: {},
+        context: context(),
+      }),
+    ).resolves.toMatchObject({ outcome: "allowed", source: "automatic_approval" });
+    expect(broker.request).not.toHaveBeenCalled();
+  });
+
   it("does not authorize when persistent approval cannot be saved", async () => {
     const gate = new PermissionGate({
       policy: { evaluate: () => ({ outcome: "ask", reason: "test", canAllowAlways: true }) },
       grants: {
         ...grants(),
-        async approveTool() {
+        async saveGrants() {
           throw new Error("write failed");
         },
       },
@@ -235,9 +325,24 @@ function grants() {
     async getMode() {
       return "standard" as const;
     },
-    async isToolAlwaysApproved() {
-      return false;
+    async getGrantedScopeKeys() {
+      return [];
     },
-    async approveTool() {},
+    async saveGrants() {},
+  };
+}
+
+function executableAssessment(scopes: readonly { key: string; label: string }[]) {
+  return {
+    risk: "unknown" as const,
+    operationClass: "sensitive" as const,
+    persistentApprovalRequirements: scopes.map(({ key, label }) => ({
+      approval: { key, kind: "bash_executable" as const, label },
+      satisfiedBy: [key],
+    })),
+    enforcement: "policy" as const,
+    reasons: ["unknown"],
+    ruleIds: ["shell.unknown"],
+    presentation: { title: "Run", reason: "unknown" },
   };
 }

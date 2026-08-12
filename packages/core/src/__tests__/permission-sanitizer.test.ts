@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   formatSanitizedToolInput,
+  sanitizePermissionLabel,
   sanitizePermissionPresentation,
   sanitizeSensitiveValue,
 } from "../permissions";
@@ -36,5 +37,9 @@ describe("permission sanitizer", () => {
       detail: "https://example.test/?password=[REDACTED]",
       reason: "authorization=[REDACTED]",
     });
+  });
+
+  it("sanitizes persistent approval labels", () => {
+    expect(sanitizePermissionLabel("Trust\u001b[31m token=private")).toBe("Trust token=[REDACTED]");
   });
 });

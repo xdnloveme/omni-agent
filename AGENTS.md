@@ -97,8 +97,24 @@ Local ESM extensions are trusted local code. Do not imply that
   `sandbox_eligible`), plus an explicit timeout policy (`none`, `fixed`, or
   schema-bound `input`). There is no metadata fallback.
 - Dynamic authorization must keep operational `risk` separate from `operationClass`.
-  Only routine assessments may consume an Agent-scoped persistent tool grant, and
-  every call must be reassessed before applying that grant.
+  Persistent approvals are Agent/tool/scope specific. Every call must be reassessed
+  before its opaque scope candidates are consulted, and only policy-eligible assessments may
+  consume a grant.
+- Optional tool preflight validates domain readiness before authorization. It must return a
+  structured domain error without performing permission policy, UI, or execution work; tools
+  must still revalidate mutable state at execution time.
+- Bash persistent approval is scoped to a literal executable name, not its subcommands.
+  Do not add per-CLI or per-subcommand classifiers merely to control persistence. Commands
+  may expose executable scopes only after generic parser, wrapper, sensitive-path,
+  destructive, privileged, and hard-stop checks succeed. Compound commands expose one
+  deduplicated requirement per executable and require all requirements to be granted.
+- All Bash authorization facts must come from the single `analyzeShellCommand` entry and its
+  internal AST. Classifiers, path analysis, wrappers, and executable approval must not reparse
+  raw command text or reconstruct wrapper payloads.
+- Filesystem persistence is path-scoped. Ordinary external files may use a canonical
+  parent-directory read or write grant; sensitive reads may use only an exact-file grant. Reassess
+  sensitivity before matching grants so directory approval never covers `.env`, credentials,
+  system paths, or symlinks resolving into them. Read grants never authorize writes or Bash.
 - Keep tool-domain assessment with the tool owner. Do not add a central
   `switch(toolName)` or make App/CLI parse Bash commands or paths.
 - Resolve paths and spawn processes with the injected execution `cwd`; tool

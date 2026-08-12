@@ -1,4 +1,9 @@
-import type { ApprovalBroker, ApprovalRequest, ApprovalResponse } from "@omni-agent/core";
+import {
+  sanitizePermissionLabel,
+  type ApprovalBroker,
+  type ApprovalRequest,
+  type ApprovalResponse,
+} from "@omni-agent/core";
 import type { OmniTui } from "../interaction/tui/tui";
 
 export class TuiApprovalBroker implements ApprovalBroker {
@@ -6,6 +11,7 @@ export class TuiApprovalBroker implements ApprovalBroker {
 
   async request(request: ApprovalRequest, signal?: AbortSignal): Promise<ApprovalResponse> {
     this.tui.setStatus(`awaiting permission: ${request.toolName}`);
+    const persistentOption = createPersistentApprovalOption(request);
     const selection = await this.tui.select(
       {
         title: "Permission required",
@@ -18,22 +24,13 @@ export class TuiApprovalBroker implements ApprovalBroker {
         detail: `${request.presentation.title}${request.presentation.detail ? `\n${request.presentation.detail}` : ""}`,
         message: `Risk: ${request.risk}\nReason: ${request.presentation.reason}`,
         items: [
+          ...(persistentOption ? [persistentOption] : []),
           {
             value: "allow_once",
             label: "Allow once",
             description: "Approve only this call",
             tone: "positive",
           },
-          ...(request.canAllowAlways
-            ? [
-                {
-                  value: "allow_always",
-                  label: `Always approve routine ${request.toolName} operations`,
-                  description: `Automatically approve routine ${request.toolName} calls for ${request.agentId}`,
-                  tone: "positive" as const,
-                },
-              ]
-            : []),
           {
             value: "deny",
             label: "Deny",
@@ -51,4 +48,26 @@ export class TuiApprovalBroker implements ApprovalBroker {
       ? selection.value
       : "deny";
   }
+}
+
+function createPersistentApprovalOption(request: ApprovalRequest) {
+  const scopes = request.persistentApprovals;
+  if (!scopes?.length) return undefined;
+  const allExecutables = scopes.every((scope) => scope.kind === "bash_executable");
+  return {
+    value: "allow_always",
+    label:
+      scopes.length === 1
+        ? scopes[0]!.label
+        : allExecutables
+          ? "Always trust listed executables"
+          : "Always approve all listed operations",
+    description:
+      scopes.length === 1
+        ? `Save this approval for ${request.agentId}`
+        : sanitizePermissionLabel(
+            `${scopes.length} missing approvals: ${scopes.map((scope) => scope.label).join(" · ")}`,
+          ),
+    tone: "positive" as const,
+  };
 }

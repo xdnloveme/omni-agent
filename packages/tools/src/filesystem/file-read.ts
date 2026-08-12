@@ -9,6 +9,7 @@ import { resolveCanonicalOperationPath } from "./io/canonical-operation-path";
 import { FileToolError, fileToolErrorResult } from "./io/file-errors";
 import { MAX_FILE_READ_OUTPUT_BYTES, readTextPage } from "./io/streaming-line-reader";
 import { createFilePathPermission } from "./permission/create-file-path-permission";
+import { createFilePathPreflight } from "./permission/create-file-path-preflight";
 
 const DEFAULT_LIMIT = 500;
 const MAX_LIMIT = 2000;
@@ -17,6 +18,11 @@ const MAX_OUTPUT_KIB = MAX_FILE_READ_OUTPUT_BYTES / 1024;
 export const fileReadTool: AgentToolDefinition = {
   name: "file_read",
   strict: true,
+  preflight: createFilePathPreflight({
+    parameter: "file_path",
+    acceptedKinds: ["regular_file"],
+    operation: "read",
+  }),
   authorization: createFilePathPermission({ parameter: "file_path", access: "read" }),
   execution: { kind: "host" },
   timeout: { kind: "none" },

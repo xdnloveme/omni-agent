@@ -16,9 +16,36 @@ export interface PermissionPresentation {
   reason: string;
 }
 
+export type PersistentApprovalScopeKind =
+  | "tool_routine"
+  | "bash_executable"
+  | "filesystem_read_directory"
+  | "filesystem_read_file"
+  | "filesystem_write_directory";
+
+export interface PersistentApprovalScope {
+  key: string;
+  kind: PersistentApprovalScopeKind;
+  label: string;
+}
+
+export interface PersistentApprovalRequirement {
+  approval: PersistentApprovalScope;
+  satisfiedBy: readonly string[];
+}
+
+export interface PermissionGrant {
+  toolIdentity: string;
+  toolName: string;
+  scopeKey: string;
+  scopeKind: PersistentApprovalScopeKind;
+  label: string;
+}
+
 export interface PermissionAssessment {
   risk: PermissionRisk;
   operationClass: "routine" | "sensitive";
+  persistentApprovalRequirements?: readonly PersistentApprovalRequirement[];
   enforcement: "policy" | "hard_deny";
   reasons: readonly string[];
   presentation: PermissionPresentation;
@@ -68,7 +95,7 @@ export interface ApprovalRequest {
   toolName: string;
   risk: PermissionRisk;
   presentation: PermissionPresentation;
-  canAllowAlways: boolean;
+  persistentApprovals?: readonly Pick<PersistentApprovalScope, "kind" | "label">[];
 }
 
 export type ApprovalResponse = "allow_once" | "allow_always" | "deny";

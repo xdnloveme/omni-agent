@@ -1,13 +1,15 @@
 import { DESTRUCTIVE_FILE_COMMANDS, WRITE_COMMANDS } from "../rules/command-rules";
 import { classification, type ShellClassifier } from "./types";
-import { commandName } from "./command-utils";
 
 export const filesystemCommandClassifier: ShellClassifier = {
   priority: 20,
-  classify(words, segment) {
-    const primary = commandName(words);
+  classify(command) {
+    const primary = command.executableName;
+    const args = command.argumentValues;
     if (primary === "rm") {
-      return /(?:^|\s)-(?:[^\s]*[rf][^\s]*)(?:\s|$)|--recursive|--force/.test(segment)
+      return args.some(
+        (arg) => arg === "--recursive" || arg === "--force" || /^-[^-]*[rf]/.test(arg),
+      )
         ? classification(
             "destructive",
             "Recursively or forcibly deletes files",
@@ -15,7 +17,7 @@ export const filesystemCommandClassifier: ShellClassifier = {
           )
         : classification("write", "Deletes filesystem entries", "shell.write.rm");
     }
-    if (primary === "find" && /(?:^|\s)-(?:delete|exec|execdir)\b/.test(segment)) {
+    if (primary === "find" && args.some((arg) => ["-delete", "-exec", "-execdir"].includes(arg))) {
       return classification(
         "destructive",
         "find deletes files or delegates execution",
@@ -24,7 +26,7 @@ export const filesystemCommandClassifier: ShellClassifier = {
     }
     if (["kill", "pkill", "killall"].includes(primary)) {
       const destructive =
-        /(?:^|\s)(?:-9|-KILL|-SIGKILL)(?:\s|$)/i.test(segment) || primary === "killall";
+        args.some((arg) => /^(?:-9|-KILL|-SIGKILL)$/i.test(arg)) || primary === "killall";
       return destructive
         ? classification(
             "destructive",
@@ -41,8 +43,7 @@ export const filesystemCommandClassifier: ShellClassifier = {
       );
     }
     if (!WRITE_COMMANDS.has(primary)) return null;
-    const destructive =
-      /(?:^|\s)-R(?:\s|$)/.test(segment) || (primary === "chmod" && /\b777\b/.test(segment));
+    const destructive = args.includes("-R") || (primary === "chmod" && args.includes("777"));
     return destructive
       ? classification(
           "destructive",

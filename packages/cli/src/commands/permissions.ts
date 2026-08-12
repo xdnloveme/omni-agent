@@ -5,11 +5,11 @@ import type { AgentApplication } from "@omni-agent/app";
 export function createPermissionsCommand(app: AgentApplication): Command {
   return {
     name: "permissions",
-    description: "Manage permission mode and automatic tool approvals",
+    description: "Manage permission mode and persistent approvals",
     async execute(ctx) {
       if (!ctx.tui.select) throw new Error("Permission settings require an interactive TUI");
       const mode = await app.getPermissionMode();
-      const approvals = await app.listAlwaysApprovedTools();
+      const approvals = await app.listPersistentApprovals();
       const actionResult = await ctx.tui.select({
         title: "Permissions",
         detail: `Agent: ${app.agentId}\nMode: ${mode}`,
@@ -19,10 +19,10 @@ export function createPermissionsCommand(app: AgentApplication): Command {
             label: "Change mode",
             description: "Choose standard or supervised behavior",
           },
-          ...approvals.map((tool) => ({
-            value: `revoke:${tool.toolIdentity}`,
-            label: `Revoke ${tool.toolName}`,
-            description: tool.toolIdentity,
+          ...approvals.map((grant) => ({
+            value: `revoke:${grant.id}`,
+            label: `Revoke ${grant.label}`,
+            description: `${grant.toolName} · ${grant.scopeKind}`,
           })),
           ...(approvals.length
             ? [
@@ -60,11 +60,11 @@ export function createPermissionsCommand(app: AgentApplication): Command {
           ctx.tui.sink.line(chalk.green(`Permission mode changed to ${selected}.`));
         }
       } else if (action === "clear") {
-        await app.clearAlwaysApprovedTools();
-        ctx.tui.sink.line(chalk.green("Automatic tool approvals cleared."));
+        await app.clearPersistentApprovals();
+        ctx.tui.sink.line(chalk.green("Persistent approvals cleared."));
       } else if (action.startsWith("revoke:")) {
-        await app.revokeAlwaysApprovedTool(action.slice("revoke:".length));
-        ctx.tui.sink.line(chalk.green("Automatic tool approval revoked."));
+        await app.revokePersistentApproval(action.slice("revoke:".length));
+        ctx.tui.sink.line(chalk.green("Persistent approval revoked."));
       }
       ctx.tui.sink.spacer();
     },

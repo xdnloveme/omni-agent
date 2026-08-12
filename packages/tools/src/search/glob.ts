@@ -8,12 +8,18 @@ import {
 } from "@omni-agent/core";
 import { formatFileSize, loadFileSizes } from "./file-metadata";
 import { createSearchPathPermission } from "./permission/create-search-path-permission";
+import { createSearchPathPreflight } from "./permission/create-search-path-preflight";
 import type { GlobResultMeta } from "./types";
 
 const MAX_RESULTS = 200;
 
 export const globTool: AgentToolDefinition = {
   name: "glob",
+  preflight: createSearchPathPreflight({
+    parameter: "dir_path",
+    defaultToCwd: true,
+    acceptedKinds: ["directory"],
+  }),
   authorization: createSearchPathPermission("dir_path"),
   execution: { kind: "host" },
   timeout: { kind: "none" },

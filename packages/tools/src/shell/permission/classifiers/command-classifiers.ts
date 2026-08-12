@@ -6,7 +6,7 @@ import { infrastructureClassifier } from "./infrastructure-classifier";
 import { packageManagerClassifier } from "./package-manager-classifier";
 import { privilegedCommandClassifier } from "./privileged-command-classifier";
 import { classification, type ShellClassification, type ShellClassifier } from "./types";
-import { commandName } from "./command-utils";
+import type { ShellCommandView } from "../parser";
 
 const classifiers: readonly ShellClassifier[] = [
   privilegedCommandClassifier,
@@ -18,11 +18,11 @@ const classifiers: readonly ShellClassifier[] = [
   genericCommandClassifier,
 ].sort((left, right) => left.priority - right.priority);
 
-export function classifyCommand(words: readonly string[], segment: string): ShellClassification {
+export function classifyCommand(command: ShellCommandView): ShellClassification {
   for (const classifier of classifiers) {
-    const result = classifier.classify(words, segment);
+    const result = classifier.classify(command);
     if (result) return result;
   }
-  const primary = commandName(words);
+  const primary = command.executableName;
   return classification("unknown", `Unknown executable: ${primary || "(empty)"}`, "shell.unknown");
 }

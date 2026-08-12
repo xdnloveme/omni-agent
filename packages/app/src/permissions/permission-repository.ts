@@ -7,7 +7,7 @@ import {
   isPersistedPermissions,
   type PersistedPermissions,
 } from "./persisted-types";
-import { migratePermissionsV1ToV2 } from "./migrations/migrate-permissions-v1-to-v2";
+import { migratePermissionsToV3 } from "./migrations/migrate-permissions-to-v3";
 
 export interface PermissionRepositoryOptions {
   globalDirectory?: string;
@@ -32,12 +32,12 @@ export class PermissionRepository {
     const value = await new AtomicJsonFile<unknown>(this.path).read();
     if (value === undefined) return undefined;
     if (isPersistedPermissions(value)) return value;
-    const migration = migratePermissionsV1ToV2(value);
+    const migration = migratePermissionsToV3(value);
     if (!migration) throw new Error("Permission configuration format is invalid");
     return this.lock.runExclusive(async () => {
       const latest = await new AtomicJsonFile<unknown>(this.path).read();
       if (isPersistedPermissions(latest)) return latest;
-      const currentMigration = migratePermissionsV1ToV2(latest);
+      const currentMigration = migratePermissionsToV3(latest);
       if (!currentMigration) throw new Error("Permission configuration format is invalid");
       this.recordMigrationDiagnostics(currentMigration.droppedIdentities);
       await new AtomicJsonFile<PersistedPermissions>(this.path).write(currentMigration.value);
@@ -63,14 +63,14 @@ export class PermissionRepository {
 
   private recordMigrationDiagnostics(droppedIdentities: readonly string[]): void {
     for (const identity of droppedIdentities) {
-      this.diagnostics.push(`Dropped unrecognized v1 tool identity: ${identity}`);
+      this.diagnostics.push(`Dropped unrecognized legacy tool identity: ${identity}`);
     }
   }
 
   private toWritablePermissions(raw: unknown): PersistedPermissions {
     if (raw === undefined) return structuredClone(EMPTY_PERMISSIONS);
     if (isPersistedPermissions(raw)) return raw;
-    const migration = migratePermissionsV1ToV2(raw);
+    const migration = migratePermissionsToV3(raw);
     if (!migration) throw new Error("Permission configuration format is invalid");
     this.recordMigrationDiagnostics(migration.droppedIdentities);
     return migration.value;

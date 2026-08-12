@@ -73,10 +73,10 @@ function createCoordinator() {
       async getMode() {
         return "standard";
       },
-      async isToolAlwaysApproved() {
-        return false;
+      async getGrantedScopeKeys() {
+        return [];
       },
-      async approveTool() {},
+      async saveGrants() {},
     },
     broker: {
       async request() {

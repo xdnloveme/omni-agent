@@ -5,7 +5,8 @@ import {
   GIT_WRITE,
 } from "../rules/subcommand-rules";
 import { classification, type ShellClassifier } from "./types";
-import { commandArguments, commandName, findPositionalArgument } from "./command-utils";
+import { findPositionalArgument } from "./command-utils";
+import type { ShellCommandView } from "../parser";
 
 const GIT_GLOBAL_OPTIONS_WITH_VALUE = new Set([
   "-C",
@@ -17,16 +18,16 @@ const GIT_GLOBAL_OPTIONS_WITH_VALUE = new Set([
 
 export const gitCommandClassifier: ShellClassifier = {
   priority: 30,
-  classify(words) {
-    if (commandName(words) !== "git") return null;
-    const action = resolveGitAction(words);
+  classify(command) {
+    if (command.executableName !== "git") return null;
+    const action = resolveGitAction(command);
     if (GIT_READ.has(action)) {
       return classification("read", `git ${action} is read-only`, "shell.read.git");
     }
     if (
       GIT_DESTRUCTIVE.has(action) ||
-      (action === "reset" && commandArguments(words).includes("--hard")) ||
-      isDestructivePush(action, words)
+      (action === "reset" && command.argumentValues.includes("--hard")) ||
+      isDestructivePush(action, command)
     ) {
       return classification(
         "destructive",
@@ -39,7 +40,7 @@ export const gitCommandClassifier: ShellClassifier = {
         operationClass: "routine",
       });
     }
-    if (action === "remote") return classifyRemote(words);
+    if (action === "remote") return classifyRemote(command);
     if (GIT_WRITE.has(action) || action === "reset") {
       return classification("write", `git ${action} changes local state`, "shell.write.git");
     }
@@ -51,9 +52,9 @@ export const gitCommandClassifier: ShellClassifier = {
   },
 };
 
-function isDestructivePush(action: string, words: readonly string[]): boolean {
+function isDestructivePush(action: string, command: ShellCommandView): boolean {
   if (action !== "push") return false;
-  return commandArguments(words).some((argument) => {
+  return command.argumentValues.some((argument) => {
     if (
       ["-f", "--force", "--force-with-lease", "--delete", "--mirror", "--prune"].includes(argument)
     )
@@ -63,14 +64,14 @@ function isDestructivePush(action: string, words: readonly string[]): boolean {
   });
 }
 
-function resolveGitAction(words: readonly string[]): string {
+function resolveGitAction(command: ShellCommandView): string {
   return (
-    findPositionalArgument(commandArguments(words), 0, GIT_GLOBAL_OPTIONS_WITH_VALUE)?.value ?? ""
+    findPositionalArgument(command.argumentValues, 0, GIT_GLOBAL_OPTIONS_WITH_VALUE)?.value ?? ""
   );
 }
 
-function classifyRemote(words: readonly string[]) {
-  const args = commandArguments(words);
+function classifyRemote(command: ShellCommandView) {
+  const args = command.argumentValues;
   const remoteIndex = args.indexOf("remote");
   const action = findPositionalArgument(args, remoteIndex + 1)?.value;
   if (!action || action === "get-url") {
