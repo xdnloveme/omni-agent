@@ -9,6 +9,7 @@ import {
   ToolInputValidator,
   ToolInvocationRunner,
   type AgentConfig,
+  type AgentMessage,
   type ModelRuntimePort,
 } from "@omni-agent/core";
 import { AgentApplication } from "../application/agent-application";
@@ -82,6 +83,7 @@ async function fixture() {
     configService,
     dispose,
     isConfigured,
+    sessions,
   };
 }
 
@@ -126,5 +128,56 @@ describe("AgentApplication model selection", () => {
     const { app, dispose } = await fixture();
     await app.dispose();
     expect(dispose).toHaveBeenCalledOnce();
+  });
+});
+
+describe("AgentApplication session persistence", () => {
+  it("persists produced messages when the turn limit is reached", async () => {
+    const { app, sessions } = await fixture();
+    const produced: AgentMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "toolCall",
+            id: "call_1",
+            name: "test_tool",
+            arguments: {},
+          },
+        ],
+        api: "test",
+        provider: "test",
+        model: "test-model",
+        stopReason: "toolUse",
+        usage: { input: 10, output: 5, cacheRead: 0, cacheWrite: 0 },
+        timestamp: Date.now(),
+      },
+      {
+        role: "toolResult",
+        toolCallId: "call_1",
+        toolName: "test_tool",
+        content: [{ type: "text", text: "tool result" }],
+        isError: false,
+        timestamp: Date.now(),
+      },
+    ];
+
+    vi.spyOn(app.runner, "run").mockReturnValue(
+      (async function* () {
+        yield {
+          type: "error" as const,
+          error: "Max turns reached (30)",
+          code: "max_turns_reached" as const,
+          produced,
+          turnCount: 30,
+          maxTurns: 30,
+        };
+      })(),
+    );
+
+    await app.run("keep working", {});
+
+    expect(sessions.messages).toHaveLength(3);
+    expect(sessions.messages.slice(1)).toEqual(produced);
   });
 });

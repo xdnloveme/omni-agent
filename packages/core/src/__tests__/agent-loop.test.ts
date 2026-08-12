@@ -498,7 +498,204 @@ describe("runAgentLoop", () => {
     const events = await collectEvents(executeLoop(config, makeMessages("Loop forever")));
 
     const lastEvent = events[events.length - 1];
-    expect(lastEvent).toEqual({ type: "error", error: "Max turns reached" });
+    expect(lastEvent).toEqual({
+      type: "error",
+      error: "Max turns reached (1)",
+      code: "max_turns_reached",
+      produced: expect.arrayContaining([
+        expect.objectContaining({ role: "assistant", stopReason: "toolUse" }),
+        expect.objectContaining({ role: "toolResult", toolCallId: "call_1" }),
+      ]),
+      usage: expect.objectContaining({ contextWindow: 128_000 }),
+      turnCount: 1,
+      maxTurns: 1,
+    });
+  });
+
+  it("injects loop guidance into the next model request without persisting it", async () => {
+    const tool = makeTool("file_read");
+    const config = makeConfig({ tools: [tool] });
+    let modelCall = 0;
+    streamModel.mockImplementation(() => {
+      modelCall += 1;
+      if (modelCall <= 2) {
+        return fakeStream([
+          {
+            type: "done",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "toolCall",
+                  id: `call_${modelCall}`,
+                  name: "file_read",
+                  arguments: { path: "same.ts" },
+                },
+              ],
+              stopReason: "toolUse",
+              timestamp: Date.now(),
+            },
+          },
+        ]) as ReturnType<ModelRuntimePort["stream"]>;
+      }
+      return fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+            stopReason: "stop",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as ReturnType<ModelRuntimePort["stream"]>;
+    });
+
+    const events = await collectEvents(executeLoop(config, makeMessages("read twice")));
+    const firstPrompt = streamModel.mock.calls[0]?.[1].systemPrompt;
+    const thirdPrompt = streamModel.mock.calls[2]?.[1].systemPrompt;
+    expect(firstPrompt).toContain("# Runtime Tool Loop Policy");
+    expect(firstPrompt).not.toContain("<runtime-guidance");
+    expect(thirdPrompt).toContain('<runtime-guidance source="loop-protection" severity="soft">');
+
+    const done = events.at(-1);
+    expect(done?.type).toBe("done");
+    if (done?.type === "done") {
+      expect(JSON.stringify(done.produced)).not.toContain("runtime-guidance");
+    }
+  });
+
+  it("halts only after every tool result in the repeated batch is produced", async () => {
+    const read = makeTool("file_read");
+    const grep = makeTool("grep");
+    const config = makeConfig({ tools: [read, grep] });
+    let modelCall = 0;
+    streamModel.mockImplementation(() => {
+      modelCall += 1;
+      return fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: `read_${modelCall}`,
+                name: "file_read",
+                arguments: { path: "same.ts" },
+              },
+              {
+                type: "toolCall",
+                id: `grep_${modelCall}`,
+                name: "grep",
+                arguments: { pattern: "same" },
+              },
+            ],
+            stopReason: "toolUse",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as ReturnType<ModelRuntimePort["stream"]>;
+    });
+
+    const events = await collectEvents(executeLoop(config, makeMessages("loop")));
+    const terminal = events.at(-1);
+    expect(streamModel).toHaveBeenCalledTimes(4);
+    expect(read.execute).toHaveBeenCalledTimes(4);
+    expect(grep.execute).toHaveBeenCalledTimes(4);
+    expect(terminal).toMatchObject({
+      type: "error",
+      code: "tool_loop_detected",
+      loop: { kind: "repeated_batch", count: 4, period: 1 },
+      produced: expect.any(Array),
+    });
+    if (terminal?.type === "error") {
+      expect(terminal.produced).toHaveLength(12);
+    }
+  });
+
+  it("lets a confirmed alternating cycle finish its fourth period before halting", async () => {
+    const read = makeTool("file_read");
+    const grep = makeTool("grep");
+    const config = makeConfig({ tools: [read, grep] });
+    let modelCall = 0;
+    streamModel.mockImplementation(() => {
+      modelCall += 1;
+      const isRead = modelCall % 2 === 1;
+      return fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "toolCall",
+                id: `call_${modelCall}`,
+                name: isRead ? "file_read" : "grep",
+                arguments: isRead ? { path: "same.ts" } : { pattern: "same" },
+              },
+            ],
+            stopReason: "toolUse",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as ReturnType<ModelRuntimePort["stream"]>;
+    });
+
+    const events = await collectEvents(executeLoop(config, makeMessages("alternate")));
+    const terminal = events.at(-1);
+    expect(streamModel).toHaveBeenCalledTimes(8);
+    expect(read.execute).toHaveBeenCalledTimes(4);
+    expect(grep.execute).toHaveBeenCalledTimes(4);
+    expect(terminal).toMatchObject({
+      type: "error",
+      code: "tool_loop_detected",
+      loop: { kind: "alternating_batch", count: 4, period: 2 },
+    });
+  });
+
+  it("allows an unbounded agent to continue beyond thirty model calls", async () => {
+    const tool = makeTool("bash");
+    const config = makeConfig({ tools: [tool], maxTurns: undefined });
+    let modelCall = 0;
+    streamModel.mockImplementation(() => {
+      modelCall += 1;
+      if (modelCall <= 31) {
+        return fakeStream([
+          {
+            type: "done",
+            message: {
+              role: "assistant",
+              content: [
+                {
+                  type: "toolCall",
+                  id: `call_${modelCall}`,
+                  name: "bash",
+                  arguments: { input: `step-${modelCall}` },
+                },
+              ],
+              stopReason: "toolUse",
+              timestamp: Date.now(),
+            },
+          },
+        ]) as ReturnType<ModelRuntimePort["stream"]>;
+      }
+      return fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "finished" }],
+            stopReason: "stop",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as ReturnType<ModelRuntimePort["stream"]>;
+    });
+
+    const events = await collectEvents(executeLoop(config, makeMessages("long task")));
+    expect(streamModel).toHaveBeenCalledTimes(32);
+    expect(events.at(-1)?.type).toBe("done");
   });
 
   it("should throw AbortError immediately when signal is already aborted", async () => {

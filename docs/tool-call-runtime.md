@@ -17,6 +17,7 @@ cancellation, and the future sandbox boundary.
 
 ```text
 AgentLoop
+  -> LoopProtection              run-scoped repeat/cycle policy and prompt guidance
   -> ToolCallCoordinator          resolve, validate, events, lifecycle, metrics
        -> ToolAuthorizationRouter choose trusted or permission-controlled route
             -> PermissionGate     assessment, policy, grants, approval
@@ -27,6 +28,8 @@ Ownership by package:
 
 ```text
 packages/core
+  loop-protection/ repeat signatures, rule objects, batch-cycle decisions, prompt policy
+  system-prompt/   stable runtime sections and one-shot prompt overlays
   tool-calls/   coordinator, authorization router, schema validators, metrics
   permissions/  contracts, gate, ports, sanitizer
   execution/    authorized-call capability, runner, abort helpers, sandbox port
@@ -141,7 +144,10 @@ resolve registered tool
 -> run afterExecute middleware
 -> emit lifecycle end events
 -> emit tool_end with structured result and metrics
--> append tool result to the conversation
+-> let LoopProtection observe the raw result
+-> complete the model-produced tool batch
+-> append every tool result to the conversation
+-> continue with runtime guidance or halt the run
 ```
 
 Schema errors and permission denials emit paired `tool_start` and `tool_end` events,
@@ -153,6 +159,53 @@ prevents the next model turn.
 default executor, direct tool invocation from the loop, or another host-specific
 execution branch. Its authorizer, invocation runner, and input validator are required
 constructor dependencies and must be supplied by the composition root.
+
+## Tool Loop Protection And Runtime Guidance
+
+`LoopProtection` is a run-scoped Core interceptor. It observes results only after they
+have crossed resolution, validation, authorization, execution, and lifecycle handling.
+It never invokes a tool, changes authorization, modifies a `ToolResult`, or creates an
+alternate coordinator path.
+
+The result signature is SHA-256 over stable JSON containing the registered
+`toolIdentity`, recursively key-sorted arguments, and the complete LLM-facing result
+content plus `isError`. Array order is preserved, result metadata is excluded, and raw
+arguments/results are never exposed by diagnostics. Batch fingerprints hash sorted
+result signatures, so tool completion order does not affect cycle detection.
+Serialization failures skip loop observation instead of failing the Agent run.
+
+The default rules are:
+
+- an identical result signature in the last ten tool calls warns on occurrences two and
+  three and halts on occurrence four;
+- the same tool returning the same error three times consecutively produces strong
+  guidance and resets that error streak, but does not itself halt;
+- repeated multi-tool batches and alternating two-batch cycles warn after two and three
+  complete cycles and halt after four; single-tool period-one repetition remains owned
+  by the result-signature rule.
+
+Once an alternating cycle is confirmed, its first and second phases are anchored in
+run-scoped state. Generic repeated-result decisions from those member batches are deferred
+until the cycle completes or breaks, so the fourth complete cycle owns the halt and its
+diagnostic. A mismatching batch clears the active cycle and restores normal repeated-result
+enforcement.
+
+A halt is deferred until every tool call from the current assistant response has a
+result. The Agent loop then emits `tool_loop_detected` with the complete `produced`
+messages and skips the next model request. This preserves valid tool-call/result history
+and lets the application persist completed work.
+
+Warnings are not appended to tool output or durable messages. Tool-enabled Agents receive
+a stable runtime loop-policy section, and warnings create a one-shot runtime prompt
+overlay for the next model request. The effective prompt is composed without mutating the
+Agent-owned base prompt and includes the overlay in request token estimation. Once the
+model stream begins successfully, the overlay lease is consumed. Merely constructing an
+async stream does not consume it, so a pre-dispatch cancellation or initialization failure
+leaves the guidance pending.
+
+`maxTurns` is an independent, optional safeguard. An omitted value means unlimited model
+turns; an explicitly configured limit still emits `max_turns_reached` with `produced` and
+usage. Targeted loop protection remains active in either case.
 
 ## Schema Validation
 

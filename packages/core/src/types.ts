@@ -1,4 +1,5 @@
 import type { ToolLifecycleAdapter } from "./tool-lifecycle";
+import type { ToolLoopDiagnostic } from "./loop-protection";
 import type { ExtensionEvent } from "./extension-events";
 import type { AgentMessage } from "./models/messages";
 import type { ModelRuntimePort, RuntimeModelSelection } from "./models/runtime";
@@ -69,7 +70,16 @@ export type AgentEvent =
       metrics?: import("./tool-calls/types").ToolCallMetrics;
     }
   | ExtensionEvent
-  | { type: "error"; error: string }
+  | {
+      type: "error";
+      error: string;
+      code?: "max_turns_reached" | "tool_loop_detected";
+      produced?: AgentMessage[];
+      usage?: TokenUsage;
+      turnCount?: number;
+      maxTurns?: number;
+      loop?: ToolLoopDiagnostic;
+    }
   | { type: "done"; produced?: AgentMessage[]; usage?: TokenUsage };
 
 export type { AgentMessage };

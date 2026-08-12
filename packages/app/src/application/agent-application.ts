@@ -137,7 +137,7 @@ export class AgentApplication {
   }
 
   private async persistProduced(event: AgentEvent): Promise<void> {
-    if (event.type === "done" && event.produced) {
+    if ((event.type === "done" || event.type === "error") && event.produced?.length) {
       await this.sessions.append(this.requireSessionId(), event.produced);
     }
   }

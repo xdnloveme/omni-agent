@@ -14,6 +14,7 @@ describe("coding extension", () => {
 
     const bundle = createCodingExtension(skills, cwd);
     const tools = bundle.extension.contributions.tools ?? [];
+    const codingAgent = bundle.extension.contributions.agents?.[0];
 
     expect(tools.map((tool) => tool.name)).toEqual([
       "bash",
@@ -27,5 +28,6 @@ describe("coding extension", () => {
       "skill_read",
     ]);
     expect(await bundle.buildSystemPrompt()).toContain(CODING_SYSTEM_PROMPT.trim());
+    expect(codingAgent?.definition.maxTurns).toBeUndefined();
   });
 });

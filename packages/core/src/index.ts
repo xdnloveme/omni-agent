@@ -1,5 +1,7 @@
 export { runAgentLoop } from "./agent-loop";
 export type { AgentLoopOptions } from "./agent-loop";
+export { createLoopProtection } from "./loop-protection/index";
+export type { LoopProtection, ToolLoopDiagnostic } from "./loop-protection/index";
 export { AgentRunner, defineAgent } from "./agent/index";
 export type { AgentDefinition, AgentRunContext, AgentRunResult } from "./agent/index";
 export {
@@ -63,6 +65,8 @@ export type {
   ToolPermissionDescriptor,
 } from "./permissions/index";
 export type { RunMiddleware, RuntimeMiddleware, ToolExecutionMiddleware } from "./middleware/index";
+export { RuntimePromptComposer } from "./system-prompt/index";
+export type { RuntimePromptLease, RuntimePromptSection } from "./system-prompt/index";
 export { collectLifecycleEndEvents, collectLifecycleStartEvents } from "./tool-lifecycle";
 export type {
   ToolLifecycleAdapter,

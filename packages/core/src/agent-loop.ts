@@ -8,8 +8,8 @@ import type {
 import type { AgentConfig, AgentEvent, AgentLoopInput, TokenUsage } from "./types";
 import type { StreamSession } from "./stream/index";
 import { throwIfAborted } from "./execution";
+import { createLoopProtection } from "./loop-protection";
 
-const DEFAULT_MAX_TURNS = 10;
 const APPROX_CHARS_PER_TOKEN = 4;
 
 export interface AgentLoopOptions {
@@ -30,16 +30,17 @@ function textContentLength(content: AgentMessage["content"]): number {
 }
 
 function estimateRequestInputTokens(
-  config: AgentConfig,
+  systemPrompt: string,
+  tools: AgentConfig["tools"],
   messages: readonly AgentMessage[],
 ): number {
-  const systemChars = config.systemPrompt.length;
+  const systemChars = systemPrompt.length;
   const messageChars = messages.reduce(
     (total, message) => total + textContentLength(message.content),
     0,
   );
   const toolChars = JSON.stringify(
-    config.tools.map((tool) => ({
+    tools.map((tool) => ({
       name: tool.name,
       description: tool.description,
       parameters: tool.schema,
@@ -88,8 +89,9 @@ function toTokenUsage(
  */
 export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<AgentEvent> {
   const { config, messages, modelRuntime, signal, options } = input;
-  const maxTurns = config.maxTurns ?? DEFAULT_MAX_TURNS;
+  const maxTurns = config.maxTurns;
   const session = options?.session;
+  const loopProtection = createLoopProtection();
 
   // Work on a mutable copy so we don't mutate the caller's array
   const conversation: AgentMessage[] = [...messages];
@@ -100,28 +102,41 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
   const contextWindow = config.model.contextWindow;
   const toolCallCoordinator = input.toolCallCoordinator;
 
-  for (let turn = 0; turn < maxTurns; turn++) {
+  for (let turn = 0; maxTurns === undefined || turn < maxTurns; turn++) {
     throwIfAborted(signal);
 
     // Call LLM
     let assistantMessage: AssistantAgentMessage | null = null;
 
-    const estimatedInputTokens = estimateRequestInputTokens(config, conversation);
     for (const middleware of config.middleware ?? []) {
       await middleware.beforeModel?.(config, conversation);
     }
     throwIfAborted(signal);
+    const promptLease = loopProtection.leaseSystemPrompt(
+      config.systemPrompt,
+      config.tools.length > 0,
+    );
+    const estimatedInputTokens = estimateRequestInputTokens(
+      promptLease.systemPrompt,
+      config.tools,
+      conversation,
+    );
     const eventStream = modelRuntime.stream(
       config.model,
       {
-        systemPrompt: config.systemPrompt,
+        systemPrompt: promptLease.systemPrompt,
         messages: toContextMessages(conversation),
         tools: config.tools,
       },
       { signal },
     );
+    let promptDispatchObserved = false;
 
     for await (const event of eventStream) {
+      if (!promptDispatchObserved) {
+        loopProtection.markPromptDispatched(promptLease.id);
+        promptDispatchObserved = true;
+      }
       throwIfAborted(signal);
       if (event.type === "text_delta") {
         const agentEvent: AgentEvent = { type: "text_delta", delta: event.delta };
@@ -138,6 +153,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         return;
       }
     }
+    if (!promptDispatchObserved) loopProtection.markPromptDispatched(promptLease.id);
     throwIfAborted(signal);
 
     if (!assistantMessage) {
@@ -169,6 +185,8 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     const toolCalls = assistantMessage.content.filter(
       (block): block is ToolCallContent => block.type === "toolCall",
     );
+    loopProtection.beginToolBatch(toolCalls);
+    const toolResultMessages: AgentMessage[] = [];
 
     for (const call of toolCalls) {
       throwIfAborted(signal);
@@ -207,6 +225,11 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       }
       throwIfAborted(signal);
       if (!result) throw new Error(`Tool call completed without a result: ${call.name}`);
+      loopProtection.observeToolResult({
+        call,
+        toolIdentity: config.tools.find((tool) => tool.name === call.name)?.toolIdentity,
+        result,
+      });
 
       // Push tool result message
       const toolResultMsg: AgentMessage = {
@@ -217,13 +240,39 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         isError: result.isError,
         timestamp: Date.now(),
       };
-      conversation.push(toolResultMsg);
-      produced.push(toolResultMsg);
+      toolResultMessages.push(toolResultMsg);
+    }
+
+    const loopDecision = loopProtection.completeToolBatch();
+    conversation.push(...toolResultMessages);
+    produced.push(...toolResultMessages);
+    if (loopDecision.type === "halt") {
+      session?.handle({ type: "error", error: loopDecision.error });
+      yield {
+        type: "error",
+        error: loopDecision.error,
+        code: "tool_loop_detected",
+        loop: loopDecision.diagnostic,
+        produced,
+        usage: lastUsage,
+      };
+      return;
     }
 
     // Continue loop for next LLM turn
   }
 
-  session?.handle({ type: "error", error: "Max turns reached" });
-  yield { type: "error", error: "Max turns reached" };
+  if (maxTurns !== undefined) {
+    const error = `Max turns reached (${maxTurns})`;
+    session?.handle({ type: "error", error });
+    yield {
+      type: "error",
+      error,
+      code: "max_turns_reached",
+      produced,
+      usage: lastUsage,
+      turnCount: maxTurns,
+      maxTurns,
+    };
+  }
 }

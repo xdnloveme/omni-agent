@@ -161,6 +161,21 @@ requested. Model providers, catalogs, and credentials remain shared
 infrastructure; model selection may be overridden per Agent. Prompts, tools,
 capabilities, Runner, Session, and mutable runtime state remain instance-local.
 
+Core composes model prompts in three layers: the Agent-owned base prompt, stable
+runtime-owned policy sections, and one-shot runtime guidance. The runtime composer never
+mutates the base prompt or durable conversation. Tool-enabled Agents receive the stable
+tool-loop policy; detected repetition produces ephemeral guidance for the next request.
+Loop rules, prompt wording, and enforcement remain separate responsibilities under
+`packages/core/src/loop-protection` and `packages/core/src/system-prompt`.
+
+Loop protection is created per `runAgentLoop` call and covers every tool routed through
+the coordinator, including extension tools and structured validation or authorization
+errors. It uses stable result signatures and trailing batch-cycle rules without knowing
+concrete tool names. A hard halt waits for the full tool batch, emits a structured error,
+and returns all produced messages for persistence. Coding has no fixed model-turn limit;
+`maxTurns` is unlimited when omitted and remains available to Agents such as financial
+analysis that deliberately configure a finite bound.
+
 Keytar is the credential source of truth. Its non-secret credential index is
 derived state; writes use provider-scoped serialization and compensation, while a
 corrupt index is quarantined and reconciled from known active provider IDs.
