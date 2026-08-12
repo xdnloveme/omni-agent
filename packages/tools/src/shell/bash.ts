@@ -26,7 +26,7 @@ export const bashTool: AgentToolDefinition = {
   authorization: { kind: "dynamic", assess: assessBashPermission },
   execution: { kind: "sandbox_eligible", profile: "shell" },
   description:
-    "Execute Bash source from the current workspace and return its stdout/stderr.\n\n" +
+    "Execute Bash source from the current execution directory and return its stdout/stderr.\n\n" +
     "Usage:\n" +
     "- Use for running shell commands: git operations, package management (npm/pnpm), " +
     "running tests, building projects, installing dependencies, and other CLI tasks.\n" +
@@ -51,7 +51,7 @@ export const bashTool: AgentToolDefinition = {
         type: "string",
         minLength: 1,
         maxLength: 32_768,
-        description: "Bash source to execute from the current workspace directory.",
+        description: "Bash source to execute from the current execution directory.",
       },
       timeout_ms: {
         type: "integer",
@@ -64,13 +64,6 @@ export const bashTool: AgentToolDefinition = {
   },
   execute: async (params, context): Promise<ToolResult> => {
     const command = params.command as string;
-    if (!command) {
-      return {
-        content: [{ type: "text", text: "Error: command is required" }],
-        isError: true,
-      };
-    }
-
     try {
       const { stdout, stderr, stdoutTruncated, stderrTruncated, exitCode, signal } =
         await runHostProcess({

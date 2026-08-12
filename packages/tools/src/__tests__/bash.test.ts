@@ -49,20 +49,6 @@ describe("bashTool", () => {
     await expect(promise).rejects.toMatchObject({ name: "AbortError" });
   });
 
-  it("should return error when command is empty", async () => {
-    const result = await invokeToolImplementation(bashTool, { command: "" });
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("command is required");
-  });
-
-  it("should return error when command param is missing", async () => {
-    const result = await invokeToolImplementation(bashTool, {});
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("command is required");
-  });
-
   it("should truncate very long output", async () => {
     // Generate output longer than MAX_OUTPUT_BYTES (10240)
     const result = await invokeToolImplementation(bashTool, {
