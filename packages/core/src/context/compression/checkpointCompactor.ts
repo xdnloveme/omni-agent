@@ -68,6 +68,8 @@ export class CheckpointCompactor {
         }
         const summaryModelCallId = `${input.options.modelCallId}:checkpoint:${attempt + 1}`;
         const result = await this.summaries.generate({
+          agentId: input.options.agentId,
+          sessionId: input.options.sessionId,
           systemPrompt: CHECKPOINT_SYSTEM_PROMPT,
           userPrompt: createCheckpointUserPrompt({
             previousSummary: input.checkpoint?.summary,

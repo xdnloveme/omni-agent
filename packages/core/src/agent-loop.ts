@@ -106,7 +106,17 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     };
     session?.handle(contextEvent);
     yield contextEvent;
-    const eventStream = modelRuntime.stream(config.model, preparedContext, { signal });
+    const eventStream = modelRuntime.stream(config.model, preparedContext, {
+      identity: {
+        agentId: input.agentId,
+        sessionId: conversationSnapshot.sessionId,
+        modelCallId: preparedContext.manifest.modelCallId,
+        contextSnapshotId: preparedContext.snapshotId,
+        purpose: "primary",
+      },
+      cache: { retention: "default" },
+      signal,
+    });
     let promptDispatchObserved = false;
 
     for await (const event of eventStream) {
@@ -119,6 +129,14 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         const agentEvent: AgentEvent = { type: "text_delta", delta: event.delta };
         session?.handle({ type: "text_delta", delta: event.delta });
         yield agentEvent;
+      }
+      if (event.type === "cache_report") {
+        const cacheEvent: AgentEvent = {
+          type: "model_cache_report",
+          report: cloneData(event.report),
+        };
+        session?.handle(cacheEvent);
+        yield cacheEvent;
       }
       if (event.type === "done") {
         assistantMessage = cloneTranscriptMessage(event.message);

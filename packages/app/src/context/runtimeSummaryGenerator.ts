@@ -21,7 +21,17 @@ export class RuntimeContextSummaryGenerator implements ContextSummaryGeneratorPo
         messages: [{ role: "user", content: request.userPrompt }],
         tools: [],
       },
-      { signal: request.signal, maxOutputTokens: request.maxOutputTokens },
+      {
+        identity: {
+          agentId: request.agentId,
+          sessionId: request.sessionId,
+          modelCallId: request.modelCallId,
+          purpose: "auxiliary",
+        },
+        cache: { retention: "none" },
+        signal: request.signal,
+        maxOutputTokens: request.maxOutputTokens,
+      },
     )) {
       if (event.type === "error") {
         throw new Error(event.error.errorMessage ?? "Context summary model call failed");

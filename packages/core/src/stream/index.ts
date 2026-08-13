@@ -4,6 +4,7 @@ export type {
   StreamEvent,
   TextDeltaEvent,
   ModelContextPreparedEvent,
+  ModelCacheReportEvent,
   ToolUseStartEvent,
   ToolUseEndEvent,
   DoneEvent,

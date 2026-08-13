@@ -38,6 +38,9 @@ export class StreamSession {
       case "model_context_prepared":
         this._callbacks.onModelContextPrepared?.(event.manifest);
         break;
+      case "model_cache_report":
+        this._callbacks.onModelCacheReport?.(event.report);
+        break;
       case "tool_use_start":
         this.handleToolStart(event.toolName, event.toolCallId, event.input);
         break;

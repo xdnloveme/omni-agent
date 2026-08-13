@@ -3,6 +3,7 @@ import type { ToolLoopDiagnostic } from "./loop-protection";
 import type { ExtensionEvent } from "./extension-events";
 import type { TranscriptMessage } from "./messages";
 import type { ModelRuntimePort, RuntimeModelSelection } from "./models/runtime";
+import type { ModelCacheReport } from "./models/cache";
 import type { ToolAuthorizationDescriptor } from "./permissions";
 import type { ToolExecutionContext, ToolExecutionStrategy, ToolTimeoutPolicy } from "./execution";
 import type { ToolPreflightDescriptor } from "./tool-calls/tool-preflight";
@@ -71,6 +72,7 @@ export interface AgentLoopInput {
 export type AgentEvent =
   | { type: "text_delta"; delta: string }
   | { type: "model_context_prepared"; manifest: ModelContextSnapshotManifest }
+  | { type: "model_cache_report"; report: ModelCacheReport }
   | { type: "tool_start"; toolName: string; toolCallId: string; input: Record<string, unknown> }
   | {
       type: "tool_end";

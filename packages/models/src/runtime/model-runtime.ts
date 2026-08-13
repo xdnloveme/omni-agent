@@ -1,9 +1,8 @@
 import { createModels, type AuthInteraction, type MutableModels } from "@earendil-works/pi-ai";
 import type {
+  ModelCacheCapability,
   ModelEvent,
   ModelRequest,
-  ModelRequestOptions,
-  ModelRuntimePort,
   RuntimeModelSelection,
 } from "@omni-agent/core";
 import { FileModelsStore } from "../catalog/file-models-store";
@@ -23,6 +22,8 @@ import { getProviderAuthMethods, installProvider } from "../vendors/provider-con
 import type { ProviderContribution } from "../vendors/provider-contribution-type";
 import type { VendorRegistry } from "../vendors/registry";
 import { fromBackendMessage, toBackendContext } from "./message-mapper";
+import type { ModelRuntimeExecutionOptions } from "../cache/cacheAwareRuntime";
+import { resolveModelCacheCapability } from "../cache/capability";
 
 export interface ModelRuntimeOptions {
   cwd?: string;
@@ -45,7 +46,7 @@ export interface CredentialStatus {
   type: "api_key" | "oauth";
 }
 
-export class ModelRuntime implements ModelRuntimePort {
+export class ModelRuntime {
   private readonly credentials: CredentialStore;
   private readonly credentialAliases?: CredentialAliasRegistry;
   private readonly credentialIndex?: CredentialIndexReconciler;
@@ -140,10 +141,20 @@ export class ModelRuntime implements ModelRuntimePort {
     await this.models.refresh({ providers: [providerId], ...options });
   }
 
+  getCacheCapability(selection: RuntimeModelSelection): ModelCacheCapability {
+    const model = this.models.getModel(selection.providerId, selection.modelId);
+    if (!model)
+      throw new Error(`Model is not registered: ${selection.providerId}/${selection.modelId}`);
+    return resolveModelCacheCapability(
+      model.api,
+      this.providers.get(selection.providerId)?.cacheCapability,
+    );
+  }
+
   async *stream(
     selection: RuntimeModelSelection,
     request: ModelRequest,
-    options: ModelRequestOptions = {},
+    options: ModelRuntimeExecutionOptions,
   ): AsyncIterable<ModelEvent> {
     const catalogModel = this.models.getModel(selection.providerId, selection.modelId);
     if (!catalogModel)
@@ -157,6 +168,8 @@ export class ModelRuntime implements ModelRuntimePort {
       maxRetries: options.maxRetries,
       apiKey: options.credential?.key,
       headers: selection.requestHeaders,
+      sessionId: options.providerCache.sessionId,
+      cacheRetention: options.providerCache.cacheRetention,
       maxTokens:
         options.maxOutputTokens === undefined
           ? undefined

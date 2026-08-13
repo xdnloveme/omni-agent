@@ -2,7 +2,11 @@ import { createProvider, envApiKeyAuth } from "@earendil-works/pi-ai";
 import { createProviderContribution } from "../../vendors/provider-contribution";
 import type { VendorSettingsSchema } from "../../vendors/types";
 import { createTransportStreams } from "../custom/stream-adapter";
-import type { CompatibleModelDefinition, ModelTransport } from "../custom/types";
+import type {
+  CompatibleModelDefinition,
+  CustomModelCacheCapability,
+  ModelTransport,
+} from "../custom/types";
 import { toProviderModel } from "../shared/model-mapper";
 import type { ConnectionProviderFactory, VendorConnectionSpec } from "./types";
 
@@ -14,6 +18,7 @@ export interface TransportConnectionConfig {
   readonly credentialAliases?: readonly string[];
   readonly models: readonly CompatibleModelDefinition[];
   readonly transport: ModelTransport;
+  readonly cacheCapability?: CustomModelCacheCapability;
 }
 
 export interface TransportConnectionOptions extends TransportConnectionConfig {
@@ -40,6 +45,7 @@ export const transportProviderFactory: ConnectionProviderFactory<TransportConnec
           api: createTransportStreams(config.transport),
         }),
         config.credentialAliases,
+        config.cacheCapability,
       ),
     ];
   },

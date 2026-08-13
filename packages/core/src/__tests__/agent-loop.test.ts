@@ -193,6 +193,43 @@ describe("runAgentLoop", () => {
     ]);
   });
 
+  it("forwards cache reports without adding them to the conversation", async () => {
+    const report = {
+      outcome: "success" as const,
+      modelCallId: "cache-call",
+      scopeId: "cache-scope",
+      requestedRetention: "default" as const,
+      appliedRetention: "short" as const,
+      capability: {
+        mode: "automatic_prefix" as const,
+        retentions: ["none", "short"] as const,
+        supportsStableScopeKey: true,
+      },
+      lifecycle: "cold" as const,
+      commonPrefixMessageCount: 0,
+      previousMessageCount: 0,
+      currentMessageCount: 1,
+      cacheReadTokens: 0,
+      cacheWriteTokens: 10,
+      createdAt: 1,
+    };
+    streamModel.mockReturnValue(
+      fakeStream([
+        { type: "cache_report", report },
+        {
+          type: "done",
+          message: { content: [{ type: "text", text: "done" }] },
+        },
+      ]) as never,
+    );
+
+    const events = await collectEvents(executeLoop(makeConfig({ tools: [] }), makeMessages("Hi")));
+
+    expect(events).toContainEqual({ type: "model_cache_report", report });
+    const done = events.find((event) => event.type === "done");
+    expect(done?.type === "done" ? done.produced : undefined).toHaveLength(1);
+  });
+
   it("should return produced messages on done event", async () => {
     const assistantMsg = {
       role: "assistant",

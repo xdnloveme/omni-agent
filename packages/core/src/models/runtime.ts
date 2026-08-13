@@ -1,5 +1,6 @@
 import type { DeepReadonly, JsonValue } from "../data";
 import type { AssistantTranscriptMessage, ModelContextMessage } from "../messages";
+import type { ModelCacheIntent, ModelCacheReport, ModelCallIdentity } from "./cache";
 
 export interface ModelToolSpec {
   readonly name: string;
@@ -28,15 +29,18 @@ export interface ModelRequest {
 }
 
 export interface ModelRequestOptions {
-  signal?: AbortSignal;
-  timeoutMs?: number;
-  maxRetries?: number;
-  maxOutputTokens?: number;
-  credential?: { type: "api_key"; key: string };
+  readonly identity: ModelCallIdentity;
+  readonly cache: ModelCacheIntent;
+  readonly signal?: AbortSignal;
+  readonly timeoutMs?: number;
+  readonly maxRetries?: number;
+  readonly maxOutputTokens?: number;
+  readonly credential?: { readonly type: "api_key"; readonly key: string };
 }
 
 export type ModelEvent =
   | { type: "text_delta"; delta: string }
+  | { type: "cache_report"; report: ModelCacheReport }
   | { type: "done"; message: AssistantTranscriptMessage }
   | { type: "error"; error: AssistantTranscriptMessage };
 
@@ -44,6 +48,6 @@ export interface ModelRuntimePort {
   stream(
     selection: RuntimeModelSelection,
     request: ModelRequest,
-    options?: ModelRequestOptions,
+    options: ModelRequestOptions,
   ): AsyncIterable<ModelEvent>;
 }

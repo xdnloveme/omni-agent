@@ -151,6 +151,20 @@ export type {
   ModelToolSpec,
   RuntimeModelSelection,
 } from "./models";
+export type {
+  ModelCacheCapability,
+  ModelCacheDirective,
+  ModelCacheFingerprint,
+  ModelCacheIntent,
+  ModelCacheLifecycle,
+  ModelCacheMode,
+  ModelCachePolicyDecision,
+  ModelCachePolicyInput,
+  ModelCachePolicyPort,
+  ModelCacheReport,
+  ModelCacheRetention,
+  ModelCallIdentity,
+} from "./models";
 export { CommandRegistry } from "./commands/index";
 export type {
   Command,

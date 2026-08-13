@@ -10,6 +10,23 @@ import { defineVendor } from "../vendors/define-vendor";
 import { compatibleConnection } from "../providers/factories/compatible";
 import { transportConnection } from "../providers/factories/transport";
 import type { CredentialStore, StoredCredential } from "../credentials/types";
+import type { ModelRuntimeExecutionOptions } from "../cache/cacheAwareRuntime";
+
+function executionOptions(
+  overrides: Partial<ModelRuntimeExecutionOptions> = {},
+): ModelRuntimeExecutionOptions {
+  return {
+    identity: {
+      agentId: "test-agent",
+      sessionId: "test-session",
+      modelCallId: "test-call",
+      purpose: "primary",
+    },
+    cache: { retention: "none" },
+    providerCache: { cacheRetention: "none" },
+    ...overrides,
+  };
+}
 
 function memoryCredentials(): CredentialStore {
   const values = new Map<string, StoredCredential>();
@@ -31,9 +48,13 @@ describe("ModelRuntime", () => {
   it("maps backend events to the stable Omni model event stream", async () => {
     const faux = fauxProvider({ provider: "test-vendor", models: [{ id: "test-model" }] });
     let seenMaxTokens: number | undefined;
+    let seenCacheRetention: string | undefined;
+    let seenSessionId: string | undefined;
     faux.setResponses([
       (_context, options) => {
         seenMaxTokens = options?.maxTokens;
+        seenCacheRetention = options?.cacheRetention;
+        seenSessionId = options?.sessionId;
         return fauxAssistantMessage("hello");
       },
     ]);
@@ -66,13 +87,18 @@ describe("ModelRuntime", () => {
         messages: [{ role: "user", content: "hi" }],
         tools: [],
       },
-      { maxOutputTokens: 512 },
+      executionOptions({
+        maxOutputTokens: 512,
+        providerCache: { cacheRetention: "short", sessionId: "cache-scope" },
+      }),
     ))
       events.push(event);
 
     expect(events.some((event) => event.type === "text_delta")).toBe(true);
     expect(events.at(-1)).toEqual(expect.objectContaining({ type: "done" }));
     expect(seenMaxTokens).toBe(512);
+    expect(seenCacheRetention).toBe("short");
+    expect(seenSessionId).toBe("cache-scope");
     await manager.dispose();
   });
 
@@ -111,6 +137,7 @@ describe("ModelRuntime", () => {
         maxOutputTokens: 4_096,
       },
       { systemPrompt: "test", messages: [], tools: [] },
+      executionOptions(),
     ))
       events.push(event);
 
@@ -183,10 +210,10 @@ describe("ModelRuntime", () => {
         systemPrompt: "test",
         messages: [{ role: "user", content: "hi" }],
       },
-      {
+      executionOptions({
         credential: { type: "api_key", key: "request-key" },
         maxOutputTokens: 512,
-      },
+      }),
     ))
       events.push(event);
 

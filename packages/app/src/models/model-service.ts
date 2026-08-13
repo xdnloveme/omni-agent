@@ -1,5 +1,7 @@
 import type { RuntimeModelSelection } from "@omni-agent/core";
 import {
+  CacheAwareModelRuntime,
+  DefaultModelCachePolicy,
   KeytarCredentialStore,
   ProviderRepository,
   ModelRuntime,
@@ -38,7 +40,8 @@ export interface ModelServiceDiagnostic {
 
 export class ModelService {
   constructor(
-    readonly runtime: ModelRuntime,
+    private readonly transportRuntime: ModelRuntime,
+    readonly runtime: CacheAwareModelRuntime,
     readonly providerPlugins: VendorPluginManager,
     readonly providers: ProviderRepository,
     readonly diagnostics: readonly ModelServiceDiagnostic[] = [],
@@ -49,22 +52,22 @@ export class ModelService {
   }
 
   isConfigured(providerId: string): Promise<CredentialStatus | undefined> {
-    return this.runtime.isConfigured(providerId);
+    return this.transportRuntime.isConfigured(providerId);
   }
 
   getAuthMethods(providerId: string): ModelAuthMethod[] {
-    return this.runtime.getAuthMethods(providerId);
+    return this.transportRuntime.getAuthMethods(providerId);
   }
 
   login(providerId: string, type: ModelAuthType, interaction: ModelAuthInteraction): Promise<void> {
-    return this.runtime.login(providerId, type, interaction);
+    return this.transportRuntime.login(providerId, type, interaction);
   }
 
   async listModels(providerId: string): Promise<AvailableModel[]> {
-    let models = this.runtime.listModels(providerId);
+    let models = this.transportRuntime.listModels(providerId);
     if (models.length === 0) {
-      await this.runtime.refreshProvider(providerId);
-      models = this.runtime.listModels(providerId);
+      await this.transportRuntime.refreshProvider(providerId);
+      models = this.transportRuntime.listModels(providerId);
     }
     return models;
   }
@@ -78,6 +81,7 @@ export class ModelService {
   }
 
   async dispose(): Promise<void> {
+    this.runtime.clear();
     await this.providerPlugins.dispose();
   }
 }
@@ -127,7 +131,12 @@ export async function createModelService(options: ModelServiceOptions = {}): Pro
         message: error instanceof Error ? error.message : String(error),
       });
     }
-    return new ModelService(runtime, plugins, providers, diagnostics);
+    const cacheAwareRuntime = new CacheAwareModelRuntime(
+      runtime,
+      new DefaultModelCachePolicy(),
+      (selection) => runtime.getCacheCapability(selection),
+    );
+    return new ModelService(runtime, cacheAwareRuntime, plugins, providers, diagnostics);
   } catch (error) {
     await plugins.dispose();
     throw error;

@@ -1,5 +1,10 @@
 import type { StoredCredential } from "../../credentials/types";
-import type { ModelContextMessage, ModelEvent } from "@omni-agent/core";
+import type {
+  ModelCacheCapability,
+  ModelCacheRetention,
+  ModelContextMessage,
+  ModelEvent,
+} from "@omni-agent/core";
 
 export interface CompatibleModelDefinition {
   readonly id: string;
@@ -45,6 +50,8 @@ export interface ModelTransportOptions {
   readonly signal?: AbortSignal;
   readonly apiKey?: string;
   readonly headers?: Readonly<Record<string, string | null>>;
+  readonly sessionId?: string;
+  readonly cacheRetention: ModelCacheRetention;
 }
 
 export interface ModelTransport {
@@ -52,5 +59,7 @@ export interface ModelTransport {
     model: ModelTransportModel,
     request: ModelTransportRequest,
     options: ModelTransportOptions,
-  ): AsyncIterable<ModelEvent>;
+  ): AsyncIterable<Exclude<ModelEvent, { type: "cache_report" }>>;
 }
+
+export type CustomModelCacheCapability = ModelCacheCapability;

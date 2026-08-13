@@ -3,6 +3,29 @@ import { StreamSession } from "../stream/stream-session";
 import { createStreamSession } from "../stream/factory";
 import type { StreamCallbacks, StreamEvent } from "../stream/types";
 
+function cacheReport() {
+  return {
+    outcome: "success" as const,
+    modelCallId: "call",
+    contextSnapshotId: "snapshot",
+    scopeId: "scope",
+    requestedRetention: "default" as const,
+    appliedRetention: "short" as const,
+    capability: {
+      mode: "automatic_prefix" as const,
+      retentions: ["none", "short"] as const,
+      supportsStableScopeKey: true,
+    },
+    lifecycle: "cold" as const,
+    commonPrefixMessageCount: 0,
+    previousMessageCount: 0,
+    currentMessageCount: 1,
+    cacheReadTokens: 0,
+    cacheWriteTokens: 10,
+    createdAt: 1,
+  };
+}
+
 describe("StreamSession", () => {
   let callbacks: Required<StreamCallbacks>;
   let session: StreamSession;
@@ -11,6 +34,7 @@ describe("StreamSession", () => {
     callbacks = {
       onTextChunk: vi.fn(),
       onModelContextPrepared: vi.fn(),
+      onModelCacheReport: vi.fn(),
       onToolStart: vi.fn(),
       onToolEnd: vi.fn(),
       onExtensionEvent: vi.fn(),
@@ -88,6 +112,18 @@ describe("StreamSession", () => {
       session.handle({ type: "model_context_prepared", manifest });
 
       expect(callbacks.onModelContextPrepared).toHaveBeenCalledWith(manifest);
+      expect(session.getAccumulatedMessages()).toEqual([]);
+      expect(session.state).toBe("idle");
+    });
+  });
+
+  describe("model cache events", () => {
+    it("notifies observers without accumulating a conversation message", () => {
+      const report = cacheReport();
+
+      session.handle({ type: "model_cache_report", report });
+
+      expect(callbacks.onModelCacheReport).toHaveBeenCalledWith(report);
       expect(session.getAccumulatedMessages()).toEqual([]);
       expect(session.state).toBe("idle");
     });

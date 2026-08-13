@@ -1,4 +1,6 @@
 export interface ContextSummaryRequest {
+  readonly agentId: string;
+  readonly sessionId: string;
   readonly systemPrompt: string;
   readonly userPrompt: string;
   readonly maxOutputTokens: number;

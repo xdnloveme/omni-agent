@@ -143,7 +143,9 @@ timestamp and zero-usage placeholders on fresh copies.
 The internal summary call invokes `ModelRuntimePort` directly and does not re-enter the
 Context Engine, append to Working Conversation, run tools, or invoke ordinary
 `afterModel`. `ModelRequestOptions.maxOutputTokens` limits this individual call without
-changing normal requests.
+changing normal requests. It is identified as an auxiliary model call and explicitly
+disables prompt caching. Cache lifecycle belongs to the decorated Model Runtime; Context
+does not read TTLs, place Provider cache markers, or retain cache fingerprints.
 
 Every successful preparation emits `model_context_prepared`. Its manifest records stage
 order, before/after estimates, decisions, checkpoint lineage, artifact IDs, identities,

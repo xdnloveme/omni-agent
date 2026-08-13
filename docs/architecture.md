@@ -66,6 +66,7 @@ library or individual model name:
 
 ```text
 packages/models/src/
+  cache/        prompt-cache policy, semantic fingerprints, bounded state, and runtime decorator
   runtime/      ModelRuntime and message/event conversion
   providers/    one directory per vendor; custom protocols and shared provider mechanics
     openai/ anthropic/ google/ mistral/ deepseek/ qwen/ openrouter/ moonshot/
@@ -86,6 +87,48 @@ Provider implementations must live in their owning vendor directory. The
 plugins but must not contain provider construction, model definitions, or
 vendor-specific request logic. Providers are never split into directories by
 individual model name.
+
+## Prompt cache ownership
+
+Prompt cache content is remote Provider state. Omni Agent owns only cache intent,
+stable scope, semantic fingerprints, lifecycle classification, and usage observation.
+It does not persist prompt bodies or treat Session JSONL as a cache store.
+
+```text
+PreparedModelContext
+  -> CacheAwareModelRuntime
+       -> capability resolution
+       -> default cache policy
+       -> semantic request fingerprint
+       -> bounded in-memory state
+       -> concrete ModelRuntime
+  -> pi-ai Provider adapter
+  -> remote Provider prompt cache
+```
+
+`CacheAwareModelRuntime` decorates the transport runtime at the App composition
+boundary. The Agent loop supplies only model-call identity and a cache intent. It does
+not create scope IDs, inspect TTLs, compare request prefixes, or persist cache state.
+The concrete Models runtime maps the resolved scope and retention to `pi-ai`
+`sessionId` and `cacheRetention`; Provider-specific `cache_control` and
+`prompt_cache_key` fields remain backend implementation details.
+
+Cache state contains only SHA-256 digests, message counts, identity, retention, and
+known expiry. It is bounded to 256 scopes, is cleared with the Models runtime, and is
+never written to Session or Context sidecars. Lifecycle classification is deterministic:
+incompatible request semantics, known expiry, static-prefix rebase, append-only history,
+last-message replacement, whole-history rebase, then other prefix rewrites.
+
+Primary model calls request short retention by default. Auxiliary calls are cache-disabled
+unless they explicitly request a supported retention. Unknown custom transports are
+cache-disabled; a custom transport may declare a capability explicitly. Cache reports are
+read-only stream events correlated by model-call and Context snapshot IDs. Context and
+Session modules do not import cache runtime implementations.
+
+This foundation deliberately does not capture complete requests or implement cache-safe
+compression. Cache breakpoints, cache-expiry-aware Micro compression, and cache-safe Full
+compression are later consumers of this boundary rather than responsibilities of the
+base cache runtime. See [`docs/model-cache.md`](model-cache.md).
 
 ## Extensions
 

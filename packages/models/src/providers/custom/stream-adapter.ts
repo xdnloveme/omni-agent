@@ -51,6 +51,9 @@ export function createTransportStreams(transport: ModelTransport): ProviderStrea
       let text = "";
       let textStarted = false;
       try {
+        if (options.cacheRetention === undefined) {
+          throw new Error("Custom model transport requires resolved cache retention");
+        }
         const events = transport.stream(
           transportModel,
           {
@@ -62,7 +65,13 @@ export function createTransportStreams(transport: ModelTransport): ProviderStrea
               schema: { ...tool.parameters },
             })),
           },
-          { signal: options.signal, apiKey: options.apiKey, headers: options.headers },
+          {
+            signal: options.signal,
+            apiKey: options.apiKey,
+            headers: options.headers,
+            sessionId: options.sessionId,
+            cacheRetention: options.cacheRetention,
+          },
         );
         for await (const event of events) {
           if (event.type === "text_delta") {
