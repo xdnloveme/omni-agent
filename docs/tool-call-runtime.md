@@ -319,11 +319,11 @@ The default policy is:
 | other `unknown`                                | ask      | ask        | forbidden        |
 | `enforcement: hard_deny`                       | deny     | deny       | forbidden        |
 
-Persistent approval is scoped to Agent ID, stable tool identity, and an opaque scope key
-from the current assessment. `approval` is the only scope persisted after an Always choice;
-`satisfiedBy` lists the existing scope keys that may satisfy that one requirement and is never
-stored. One matching key satisfies a requirement, while multiple independent requirements use
-all-of matching. Routine scopes answer eligible `write`, `execute`,
+Persistent approval is scoped to Agent ID and an opaque scope. Most scopes retain the stable tool
+identity boundary; filesystem capability scopes are shared by compatible tools. `approval` is the
+only scope persisted after an Always choice; `satisfiedBy` lists typed scope references that may
+satisfy that one requirement and is never stored. One matching reference satisfies a requirement,
+while multiple independent requirements use all-of matching. Routine scopes answer eligible `write`, `execute`,
 `external_read`, and routine `external` prompts. Bash instead uses one executable scope:
 after approval, eligible calls to the same literal executable can consume it regardless of
 subcommand classification. A compound command identifies each literal executable,
@@ -372,9 +372,10 @@ Filesystem and search tools use path-owned persistent scopes after canonicalizat
 path outside the workspace proposes one parent-directory read or write scope. A fresh assessment
 matches that scope against the target's canonical ancestor directory keys. Sensitive files,
 including credential files inside the workspace, propose only an exact-file scope and never
-consume a parent-directory grant. Read and write scopes are distinct, and tool identity keeps
-`file_read`, `grep`, `file_write`, and `file_edit` grants isolated. Sensitive writes, virtual
-system paths, and devices never receive persistent approval. This
+consume a parent-directory grant. A read-directory scope recursively covers descendants and is
+shared across `file_read`, `glob`, and `grep`; a write-directory scope is shared across
+`file_write` and `file_edit`. Read and write capabilities remain distinct and never authorize
+Bash. Sensitive writes, virtual system paths, and devices never receive persistent approval. This
 keeps `.env`, credential directories, system paths, and symlink targets subject to fresh
 sensitive-path classification before any stored grant is considered.
 

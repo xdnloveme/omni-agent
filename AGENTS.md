@@ -97,9 +97,10 @@ Local ESM extensions are trusted local code. Do not imply that
   `sandbox_eligible`), plus an explicit timeout policy (`none`, `fixed`, or
   schema-bound `input`). There is no metadata fallback.
 - Dynamic authorization must keep operational `risk` separate from `operationClass`.
-  Persistent approvals are Agent/tool/scope specific. Every call must be reassessed
-  before its opaque scope candidates are consulted, and only policy-eligible assessments may
-  consume a grant.
+  Persistent approvals are Agent/scope specific and default to a tool boundary; filesystem
+  capability scopes are deliberately shared by tools with the same read or write capability.
+  Every call must be reassessed before its opaque scope candidates are consulted, and only
+  policy-eligible assessments may consume a grant.
 - Optional tool preflight validates domain readiness before authorization. It must return a
   structured domain error without performing permission policy, UI, or execution work; tools
   must still revalidate mutable state at execution time.
@@ -120,7 +121,9 @@ Local ESM extensions are trusted local code. Do not imply that
   effects inside the unified analysis pipeline so assignment and pipeline boundaries cannot erase
   known download, decode, or credential-read flows.
 - Filesystem persistence is path-scoped. Ordinary external files may use a canonical
-  parent-directory read or write grant; sensitive reads may use only an exact-file grant. Reassess
+  parent-directory read or write grant. A directory grant recursively covers canonical
+  descendants and is shared across `file_read`/`glob`/`grep` for reads or
+  `file_write`/`file_edit` for writes. Sensitive reads may use only an exact-file grant. Reassess
   sensitivity before matching grants so directory approval never covers `.env`, credentials,
   system paths, or symlinks resolving into them. Read grants never authorize writes or Bash.
 - Keep tool-domain assessment with the tool owner. Do not add a central
