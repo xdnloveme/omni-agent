@@ -109,12 +109,13 @@ PreparedModelContext
 `CacheAwareModelRuntime` decorates the transport runtime at the App composition
 boundary. The Agent loop supplies only model-call identity and a cache intent. It does
 not create scope IDs, inspect TTLs, compare request prefixes, or persist cache state.
-The concrete Models runtime maps the resolved scope and retention to `pi-ai`
-`sessionId` and `cacheRetention`; Provider-specific `cache_control` and
-`prompt_cache_key` fields remain backend implementation details.
+The concrete Models runtime receives only transport execution options and maps the
+resolved scope and retention to `pi-ai` `sessionId` and `cacheRetention`; Provider-specific `cache_control` and
+`prompt_cache_key` fields remain backend implementation details. Only the cache
+decorator can emit `cache_report`; the inner transport event contract excludes it.
 
-Cache state contains only SHA-256 digests, message counts, identity, retention, and
-known expiry. It is bounded to 256 scopes, is cleared with the Models runtime, and is
+Cache state contains only SHA-256 digests and known expiry. It is bounded to 256 scopes,
+is cleared with the Models runtime, and is
 never written to Session or Context sidecars. Lifecycle classification is deterministic:
 incompatible request semantics, known expiry, static-prefix rebase, append-only history,
 last-message replacement, whole-history rebase, then other prefix rewrites.
@@ -124,6 +125,11 @@ unless they explicitly request a supported retention. Unknown custom transports 
 cache-disabled; a custom transport may declare a capability explicitly. Cache reports are
 read-only stream events correlated by model-call and Context snapshot IDs. Context and
 Session modules do not import cache runtime implementations.
+
+Capability resolution uses the catalog model's API, base URL, and compatibility flags,
+not its Vendor name. Capability validation and copying have one Models-layer owner.
+Fingerprints, bounded state, and transport execution contracts are internal implementation
+details rather than Models package exports.
 
 This foundation deliberately does not capture complete requests or implement cache-safe
 compression. Cache breakpoints, cache-expiry-aware Micro compression, and cache-safe Full

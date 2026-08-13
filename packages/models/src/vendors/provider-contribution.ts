@@ -1,6 +1,7 @@
 import type { MutableModels, Provider } from "@earendil-works/pi-ai";
 import type { ModelCacheCapability } from "@omni-agent/core";
 import type { ModelAuthMethod } from "../credentials/types";
+import { normalizeModelCacheCapability } from "../cache/capability";
 import { providerContributionBrand, type ProviderContribution } from "./provider-contribution-type";
 
 const providers = new WeakMap<ProviderContribution, Provider>();
@@ -14,40 +15,17 @@ export function createProviderContribution(
   if (!provider.auth.apiKey && !provider.auth.oauth) {
     throw new Error(`Provider has no auth: ${provider.id}`);
   }
-  if (cacheCapability) validateCacheCapability(cacheCapability);
+  const normalizedCacheCapability = cacheCapability
+    ? normalizeModelCacheCapability(cacheCapability)
+    : undefined;
   const contribution = {
     id: provider.id,
     credentialAliases: [...new Set(credentialAliases)],
-    ...(cacheCapability
-      ? { cacheCapability: { ...cacheCapability, retentions: [...cacheCapability.retentions] } }
-      : {}),
+    ...(normalizedCacheCapability ? { cacheCapability: normalizedCacheCapability } : {}),
     [providerContributionBrand]: true as const,
   };
   providers.set(contribution, provider);
   return contribution;
-}
-
-function validateCacheCapability(capability: ModelCacheCapability): void {
-  if (!["none", "automatic_prefix", "explicit_breakpoint"].includes(capability.mode)) {
-    throw new Error(`Invalid model cache mode: ${String(capability.mode)}`);
-  }
-  if (
-    !Array.isArray(capability.retentions) ||
-    capability.retentions.length === 0 ||
-    !capability.retentions.includes("none") ||
-    capability.retentions.some((retention) => !["none", "short", "long"].includes(retention)) ||
-    new Set(capability.retentions).size !== capability.retentions.length
-  ) {
-    throw new Error("Invalid model cache retentions");
-  }
-  if (typeof capability.supportsStableScopeKey !== "boolean") {
-    throw new Error("Invalid model cache stable-scope capability");
-  }
-  for (const ttl of [capability.shortTtlMs, capability.longTtlMs]) {
-    if (ttl !== undefined && (!Number.isFinite(ttl) || ttl <= 0)) {
-      throw new Error("Invalid model cache TTL");
-    }
-  }
 }
 
 function providerOf(contribution: ProviderContribution): Provider {

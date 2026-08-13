@@ -10,19 +10,12 @@ import { defineVendor } from "../vendors/define-vendor";
 import { compatibleConnection } from "../providers/factories/compatible";
 import { transportConnection } from "../providers/factories/transport";
 import type { CredentialStore, StoredCredential } from "../credentials/types";
-import type { ModelRuntimeExecutionOptions } from "../cache/cacheAwareRuntime";
+import type { ModelTransportExecutionOptions } from "../cache/contracts";
 
 function executionOptions(
-  overrides: Partial<ModelRuntimeExecutionOptions> = {},
-): ModelRuntimeExecutionOptions {
+  overrides: Partial<ModelTransportExecutionOptions> = {},
+): ModelTransportExecutionOptions {
   return {
-    identity: {
-      agentId: "test-agent",
-      sessionId: "test-session",
-      modelCallId: "test-call",
-      purpose: "primary",
-    },
-    cache: { retention: "none" },
     providerCache: { cacheRetention: "none" },
     ...overrides,
   };

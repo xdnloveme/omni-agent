@@ -1,10 +1,5 @@
 import { createModels, type AuthInteraction, type MutableModels } from "@earendil-works/pi-ai";
-import type {
-  ModelCacheCapability,
-  ModelEvent,
-  ModelRequest,
-  RuntimeModelSelection,
-} from "@omni-agent/core";
+import type { ModelCacheCapability, ModelRequest, RuntimeModelSelection } from "@omni-agent/core";
 import { FileModelsStore } from "../catalog/file-models-store";
 import { createNodeAuthContext } from "../credentials/environment";
 import { KeytarCredentialStore } from "../credentials/keytar-store";
@@ -22,7 +17,7 @@ import { getProviderAuthMethods, installProvider } from "../vendors/provider-con
 import type { ProviderContribution } from "../vendors/provider-contribution-type";
 import type { VendorRegistry } from "../vendors/registry";
 import { fromBackendMessage, toBackendContext } from "./message-mapper";
-import type { ModelRuntimeExecutionOptions } from "../cache/cacheAwareRuntime";
+import type { ModelTransportEvent, ModelTransportExecutionOptions } from "../cache/contracts";
 import { resolveModelCacheCapability } from "../cache/capability";
 
 export interface ModelRuntimeOptions {
@@ -145,17 +140,19 @@ export class ModelRuntime {
     const model = this.models.getModel(selection.providerId, selection.modelId);
     if (!model)
       throw new Error(`Model is not registered: ${selection.providerId}/${selection.modelId}`);
-    return resolveModelCacheCapability(
-      model.api,
-      this.providers.get(selection.providerId)?.cacheCapability,
-    );
+    return resolveModelCacheCapability({
+      api: model.api,
+      baseUrl: model.baseUrl,
+      compat: model.compat,
+      explicit: this.providers.get(selection.providerId)?.cacheCapability,
+    });
   }
 
   async *stream(
     selection: RuntimeModelSelection,
     request: ModelRequest,
-    options: ModelRuntimeExecutionOptions,
-  ): AsyncIterable<ModelEvent> {
+    options: ModelTransportExecutionOptions,
+  ): AsyncIterable<ModelTransportEvent> {
     const catalogModel = this.models.getModel(selection.providerId, selection.modelId);
     if (!catalogModel)
       throw new Error(`Model is not registered: ${selection.providerId}/${selection.modelId}`);

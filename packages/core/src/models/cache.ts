@@ -1,16 +1,9 @@
 import type { DeepReadonly } from "../data";
+import type { ModelCallIdentity } from "./call";
 
 export type ModelCacheRetention = "none" | "short" | "long";
 
 export type ModelCacheMode = "none" | "automatic_prefix" | "explicit_breakpoint";
-
-export interface ModelCallIdentity {
-  readonly agentId: string;
-  readonly sessionId: string;
-  readonly modelCallId: string;
-  readonly contextSnapshotId?: string;
-  readonly purpose: "primary" | "auxiliary";
-}
 
 export interface ModelCacheIntent {
   readonly retention: "default" | ModelCacheRetention;
@@ -19,7 +12,6 @@ export interface ModelCacheIntent {
 export interface ModelCacheDirective {
   readonly scopeId: string;
   readonly retention: ModelCacheRetention;
-  readonly semanticsVersion: number;
 }
 
 export interface ModelCacheCapability {
@@ -28,13 +20,6 @@ export interface ModelCacheCapability {
   readonly supportsStableScopeKey: boolean;
   readonly shortTtlMs?: number;
   readonly longTtlMs?: number;
-}
-
-export interface ModelCacheFingerprint {
-  readonly staticPrefixDigest: string;
-  readonly messageDigests: readonly string[];
-  readonly requestSemanticsDigest: string;
-  readonly requestDigest: string;
 }
 
 export type ModelCacheLifecycle =

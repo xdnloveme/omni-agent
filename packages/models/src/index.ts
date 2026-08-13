@@ -1,12 +1,6 @@
 export { ModelRuntime } from "./runtime/model-runtime";
 export { CacheAwareModelRuntime } from "./cache/cacheAwareRuntime";
 export { DefaultModelCachePolicy } from "./cache/policy";
-export { ModelCacheFingerprinter } from "./cache/fingerprint";
-export { RuntimeModelCacheState } from "./cache/state";
-export type {
-  ModelRuntimeExecutionOptions,
-  ModelTransportRuntimePort,
-} from "./cache/cacheAwareRuntime";
 export type {
   AvailableModel,
   CredentialStatus,
@@ -48,7 +42,6 @@ export type {
 
 export { builtinVendorPlugins } from "./providers";
 export type {
-  CustomModelCacheCapability,
   ModelTransport,
   ModelTransportModel,
   ModelTransportOptions,

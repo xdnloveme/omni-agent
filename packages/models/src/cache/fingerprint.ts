@@ -1,10 +1,12 @@
 import { createHash } from "node:crypto";
-import type { ModelCacheFingerprint, ModelRequest, RuntimeModelSelection } from "@omni-agent/core";
+import type { ModelRequest, RuntimeModelSelection } from "@omni-agent/core";
+import type { ModelCacheFingerprint } from "./contracts";
 
 export const MODEL_CACHE_SEMANTICS_VERSION = 1;
 
 export class ModelCacheFingerprinter {
   fingerprint(selection: RuntimeModelSelection, request: ModelRequest): ModelCacheFingerprint {
+    // This is Provider-independent semantic evidence, not a byte-level Provider cache key.
     const staticPrefixDigest = digestCacheValue({
       systemPrompt: request.systemPrompt,
       tools: request.tools ?? [],
@@ -22,11 +24,6 @@ export class ModelCacheFingerprinter {
       staticPrefixDigest,
       messageDigests,
       requestSemanticsDigest,
-      requestDigest: digestCacheValue({
-        staticPrefixDigest,
-        messageDigests,
-        requestSemanticsDigest,
-      }),
     };
   }
 }

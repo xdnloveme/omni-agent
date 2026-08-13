@@ -1,18 +1,22 @@
 import { describe, expect, it } from "vitest";
+import { fauxProvider } from "@earendil-works/pi-ai";
 import type {
   AssistantTranscriptMessage,
   ModelEvent,
   ModelRequest,
   RuntimeModelSelection,
 } from "@omni-agent/core";
-import {
-  CacheAwareModelRuntime,
-  type ModelRuntimeExecutionOptions,
-  type ModelTransportRuntimePort,
-} from "../cache/cacheAwareRuntime";
-import { resolveModelCacheCapability } from "../cache/capability";
+import { CacheAwareModelRuntime } from "../cache/cacheAwareRuntime";
+import { normalizeModelCacheCapability, resolveModelCacheCapability } from "../cache/capability";
+import type {
+  ModelTransportEvent,
+  ModelTransportExecutionOptions,
+  ModelTransportRuntimePort,
+} from "../cache/contracts";
 import { ModelCacheFingerprinter } from "../cache/fingerprint";
 import { DefaultModelCachePolicy } from "../cache/policy";
+import { toProviderCacheOptions } from "../cache/providerAdapter";
+import { createProviderContribution } from "../vendors/provider-contribution";
 import {
   compareModelCacheState,
   RuntimeModelCacheState,
@@ -36,11 +40,11 @@ const request: ModelRequest = {
 
 describe("model cache infrastructure", () => {
   it("keeps a stable scope and classifies appended messages deterministically", async () => {
-    const seen: ModelRuntimeExecutionOptions[] = [];
+    const seen: ModelTransportExecutionOptions[] = [];
     const runtime = new CacheAwareModelRuntime(
       successfulTransport(seen),
       new DefaultModelCachePolicy(),
-      () => resolveModelCacheCapability("anthropic-messages"),
+      () => capability("anthropic-messages", { sendSessionAffinityHeaders: true }),
     );
 
     const first = await collect(runtime.stream(selection, request, primaryOptions("call-1")));
@@ -66,11 +70,11 @@ describe("model cache infrastructure", () => {
   });
 
   it("keeps auxiliary calls cache-disabled and out of runtime cache state", async () => {
-    const seen: ModelRuntimeExecutionOptions[] = [];
+    const seen: ModelTransportExecutionOptions[] = [];
     const runtime = new CacheAwareModelRuntime(
       successfulTransport(seen),
       new DefaultModelCachePolicy(),
-      () => resolveModelCacheCapability("anthropic-messages"),
+      () => capability("anthropic-messages", { sendSessionAffinityHeaders: true }),
     );
     const options = {
       ...primaryOptions("summary-1"),
@@ -88,6 +92,7 @@ describe("model cache infrastructure", () => {
 
     expect(reportOf(first).appliedRetention).toBe("none");
     expect(reportOf(second).lifecycle).toBe("cold");
+    expect(seen.every((entry) => entry.providerCache.sessionId === undefined)).toBe(true);
     expect(seen).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ providerCache: { cacheRetention: "none" } }),
@@ -99,7 +104,7 @@ describe("model cache infrastructure", () => {
     let call = 0;
     const runtime = new CacheAwareModelRuntime(
       {
-        async *stream(): AsyncIterable<ModelEvent> {
+        async *stream(): AsyncIterable<ModelTransportEvent> {
           call++;
           if (call === 2) {
             yield { type: "error", error: { ...assistant("failed"), stopReason: "error" } };
@@ -109,7 +114,7 @@ describe("model cache infrastructure", () => {
         },
       },
       new DefaultModelCachePolicy(),
-      () => resolveModelCacheCapability("anthropic-messages"),
+      () => capability("anthropic-messages"),
     );
     const changed = { ...request, messages: [{ role: "user" as const, content: "changed" }] };
 
@@ -125,7 +130,10 @@ describe("model cache infrastructure", () => {
 
   it("changes scope with the Session and never downgrades unsupported long retention", () => {
     const policy = new DefaultModelCachePolicy();
-    const capability = resolveModelCacheCapability("google-generative-ai");
+    const capability = resolveModelCacheCapability({
+      api: "google-generative-ai",
+      baseUrl: "https://google.test",
+    });
     const first = policy.resolve({
       identity: primaryOptions("call-1").identity,
       intent: { retention: "long" },
@@ -182,24 +190,127 @@ describe("model cache infrastructure", () => {
   });
 
   it("treats unknown custom transports as cache-disabled unless explicitly declared", () => {
-    expect(resolveModelCacheCapability("omni-custom")).toEqual({
+    expect(
+      resolveModelCacheCapability({ api: "omni-custom", baseUrl: "https://custom.test" }),
+    ).toEqual({
       mode: "none",
       retentions: ["none"],
       supportsStableScopeKey: false,
     });
     expect(
-      resolveModelCacheCapability("omni-custom", {
-        mode: "automatic_prefix",
-        retentions: ["none", "short"],
-        supportsStableScopeKey: true,
+      resolveModelCacheCapability({
+        api: "omni-custom",
+        baseUrl: "https://custom.test",
+        explicit: {
+          mode: "automatic_prefix",
+          retentions: ["none", "short"],
+          supportsStableScopeKey: true,
+        },
       }),
     ).toMatchObject({ mode: "automatic_prefix", supportsStableScopeKey: true });
   });
+
+  it("derives capability from protocol, base URL, and compat flags", () => {
+    expect(capability("anthropic-messages")).toMatchObject({
+      retentions: ["none", "short", "long"],
+      supportsStableScopeKey: false,
+      shortTtlMs: 300_000,
+      longTtlMs: 3_600_000,
+    });
+    expect(capability("anthropic-messages", { supportsLongCacheRetention: false })).toEqual({
+      mode: "explicit_breakpoint",
+      retentions: ["none", "short"],
+      supportsStableScopeKey: false,
+      shortTtlMs: 300_000,
+    });
+    expect(
+      capability("anthropic-messages", {
+        supportsLongCacheRetention: false,
+        sendSessionAffinityHeaders: true,
+      }),
+    ).toMatchObject({ retentions: ["none", "short"], supportsStableScopeKey: true });
+    expect(capability("openai-responses")).toMatchObject({
+      retentions: ["none", "short", "long"],
+      supportsStableScopeKey: true,
+      longTtlMs: 86_400_000,
+    });
+    expect(capability("openai-responses", { supportsLongCacheRetention: false })).toEqual({
+      mode: "automatic_prefix",
+      retentions: ["none", "short"],
+      supportsStableScopeKey: true,
+    });
+    expect(capability("openai-completions")).toMatchObject({
+      retentions: ["none", "short", "long"],
+      supportsStableScopeKey: true,
+      longTtlMs: 86_400_000,
+    });
+    expect(capability("openai-completions", { supportsLongCacheRetention: false })).toEqual({
+      mode: "automatic_prefix",
+      retentions: ["none", "short"],
+      supportsStableScopeKey: false,
+    });
+    expect(
+      capability("openai-completions", {
+        supportsLongCacheRetention: false,
+        sendSessionAffinityHeaders: true,
+      }),
+    ).toMatchObject({ retentions: ["none", "short"], supportsStableScopeKey: true });
+    expect(
+      resolveModelCacheCapability({
+        api: "openai-completions",
+        baseUrl: "https://api.openai.com/v1",
+        compat: { supportsLongCacheRetention: false },
+      }),
+    ).toMatchObject({ supportsStableScopeKey: true });
+    expect(capability("google-generative-ai")).toMatchObject({
+      mode: "automatic_prefix",
+      supportsStableScopeKey: false,
+    });
+    expect(capability("mistral-conversations")).toMatchObject({
+      mode: "automatic_prefix",
+      supportsStableScopeKey: true,
+    });
+  });
+
+  it("rejects inconsistent capabilities and suppresses scope when cache is disabled", () => {
+    expect(() =>
+      normalizeModelCacheCapability({
+        mode: "none",
+        retentions: ["none", "short"],
+        supportsStableScopeKey: false,
+      }),
+    ).toThrow("Disabled model cache capability");
+    expect(() =>
+      normalizeModelCacheCapability({
+        mode: "automatic_prefix",
+        retentions: ["none", "short"],
+        supportsStableScopeKey: true,
+        longTtlMs: 1,
+      }),
+    ).toThrow("requires long retention support");
+    expect(
+      toProviderCacheOptions(
+        { scopeId: "scope", retention: "none" },
+        capability("openai-responses"),
+      ),
+    ).toEqual({ cacheRetention: "none" });
+    expect(() =>
+      createProviderContribution(
+        fauxProvider({ provider: "invalid-cache", models: [{ id: "model" }] }).provider,
+        [],
+        {
+          mode: "none",
+          retentions: ["none", "short"],
+          supportsStableScopeKey: false,
+        },
+      ),
+    ).toThrow("Disabled model cache capability");
+  });
 });
 
-function successfulTransport(seen: ModelRuntimeExecutionOptions[]): ModelTransportRuntimePort {
+function successfulTransport(seen: ModelTransportExecutionOptions[]): ModelTransportRuntimePort {
   return {
-    async *stream(_selection, _request, options): AsyncIterable<ModelEvent> {
+    async *stream(_selection, _request, options): AsyncIterable<ModelTransportEvent> {
       seen.push(options);
       yield { type: "text_delta", delta: "ok" };
       yield { type: "done", message: assistant("ok") };
@@ -234,12 +345,11 @@ function assistant(text: string): AssistantTranscriptMessage {
 }
 
 function cacheEntry(fingerprint: RuntimeModelCacheEntry["fingerprint"]): RuntimeModelCacheEntry {
-  return {
-    identity: primaryOptions("call").identity,
-    directive: { scopeId: "scope", retention: "short", semanticsVersion: 1 },
-    fingerprint,
-    createdAt: 0,
-  };
+  return { fingerprint };
+}
+
+function capability(api: string, compat?: Record<string, unknown>) {
+  return resolveModelCacheCapability({ api, baseUrl: "https://provider.test", compat });
 }
 
 async function collect(events: AsyncIterable<ModelEvent>): Promise<ModelEvent[]> {

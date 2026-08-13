@@ -1,15 +1,8 @@
-import type {
-  ModelCacheDirective,
-  ModelCacheFingerprint,
-  ModelCacheLifecycle,
-  ModelCallIdentity,
-} from "@omni-agent/core";
+import type { ModelCacheDirective, ModelCacheLifecycle } from "@omni-agent/core";
+import type { ModelCacheFingerprint } from "./contracts";
 
 export interface RuntimeModelCacheEntry {
-  readonly identity: ModelCallIdentity;
-  readonly directive: ModelCacheDirective;
   readonly fingerprint: ModelCacheFingerprint;
-  readonly createdAt: number;
   readonly expiresAt?: number;
 }
 
@@ -63,6 +56,8 @@ export function compareModelCacheState(
   current: ModelCacheFingerprint,
   now: number,
 ): ModelCacheComparison {
+  // Ordering is part of the lifecycle contract: semantic incompatibility and known expiry
+  // take precedence over structural prefix comparisons.
   const previousCount = previous?.fingerprint.messageDigests.length ?? 0;
   const currentCount = current.messageDigests.length;
   if (!previous) return comparison("cold", 0, previousCount, currentCount);
@@ -99,6 +94,7 @@ export function resolveCacheExpiry(
       : directive.retention === "long"
         ? capability.longTtlMs
         : undefined;
+  // Unknown Provider TTL stays unknown; the runtime never guesses expiration.
   return ttl === undefined ? undefined : createdAt + ttl;
 }
 
@@ -129,13 +125,10 @@ function isPrefix(prefix: readonly string[], value: readonly string[]): boolean 
 
 function cloneEntry(entry: RuntimeModelCacheEntry): RuntimeModelCacheEntry {
   return {
-    identity: { ...entry.identity },
-    directive: { ...entry.directive },
     fingerprint: {
       ...entry.fingerprint,
       messageDigests: [...entry.fingerprint.messageDigests],
     },
-    createdAt: entry.createdAt,
     expiresAt: entry.expiresAt,
   };
 }

@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 const repositoryRoot = join(import.meta.dirname, "..", "..", "..", "..");
 const coreSource = join(repositoryRoot, "packages", "core", "src");
+const modelsSource = join(repositoryRoot, "packages", "models", "src");
 const cacheSource = join(repositoryRoot, "packages", "models", "src", "cache");
 
 describe("model cache architecture", () => {
@@ -50,6 +51,27 @@ describe("model cache architecture", () => {
     expect(combined.match(/function\s+createScopeId\s*\(/g)).toHaveLength(1);
     expect(combined.match(/class\s+ModelCacheFingerprinter\b/g)).toHaveLength(1);
     expect(combined).not.toMatch(/cache_control|prompt_cache_key/);
+  });
+
+  it("keeps transport-only contracts internal and gives cache reports one producer", async () => {
+    const publicIndex = await readFile(join(modelsSource, "index.ts"), "utf8");
+    const coreCacheContract = await readFile(join(coreSource, "models", "cache.ts"), "utf8");
+    expect(publicIndex).not.toMatch(
+      /ModelCacheFingerprinter|RuntimeModelCacheState|ModelTransportExecutionOptions|ModelTransportRuntimePort|CustomModelCacheCapability/,
+    );
+    expect(coreCacheContract).not.toMatch(
+      /interface\s+ModelCacheFingerprint|interface\s+ModelCallIdentity/,
+    );
+
+    const producers: string[] = [];
+    for (const file of await sourceFiles(modelsSource)) {
+      if (file.includes("/__tests__/")) continue;
+      const source = await readFile(file, "utf8");
+      if (/yield\s+\{\s*type:\s*["']cache_report["']/.test(source)) {
+        producers.push(relative(modelsSource, file));
+      }
+    }
+    expect(producers).toEqual(["cache/cacheAwareRuntime.ts"]);
   });
 });
 

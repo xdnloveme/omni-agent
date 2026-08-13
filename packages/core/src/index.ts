@@ -154,7 +154,6 @@ export type {
 export type {
   ModelCacheCapability,
   ModelCacheDirective,
-  ModelCacheFingerprint,
   ModelCacheIntent,
   ModelCacheLifecycle,
   ModelCacheMode,

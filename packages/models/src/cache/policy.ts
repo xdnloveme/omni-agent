@@ -16,7 +16,6 @@ export class DefaultModelCachePolicy implements ModelCachePolicyPort {
       directive: {
         scopeId: createScopeId(input),
         retention,
-        semanticsVersion: MODEL_CACHE_SEMANTICS_VERSION,
       },
       ...(!supported
         ? {

@@ -6,10 +6,10 @@ export type {
   ModelToolSpec,
   RuntimeModelSelection,
 } from "./runtime";
+export type { ModelCallIdentity } from "./call";
 export type {
   ModelCacheCapability,
   ModelCacheDirective,
-  ModelCacheFingerprint,
   ModelCacheIntent,
   ModelCacheLifecycle,
   ModelCacheMode,
@@ -18,5 +18,4 @@ export type {
   ModelCachePolicyPort,
   ModelCacheReport,
   ModelCacheRetention,
-  ModelCallIdentity,
 } from "./cache";

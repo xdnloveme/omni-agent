@@ -8,25 +8,12 @@ import type {
   ModelRuntimePort,
   RuntimeModelSelection,
 } from "@omni-agent/core";
+import type { ModelTransportExecutionOptions, ModelTransportRuntimePort } from "./contracts";
 import { ModelCacheFingerprinter } from "./fingerprint";
-import { toProviderCacheOptions, type ProviderCacheOptions } from "./providerAdapter";
+import { toProviderCacheOptions } from "./providerAdapter";
 import { compareModelCacheState, resolveCacheExpiry, RuntimeModelCacheState } from "./state";
 
-export interface ModelRuntimeExecutionOptions extends ModelRequestOptions {
-  readonly providerCache: ProviderCacheOptions;
-}
-
-export interface ModelTransportRuntimePort {
-  stream(
-    selection: RuntimeModelSelection,
-    request: ModelRequest,
-    options: ModelRuntimeExecutionOptions,
-  ): AsyncIterable<ModelEvent>;
-}
-
-export type ModelCacheCapabilityResolver = (
-  selection: RuntimeModelSelection,
-) => ModelCacheCapability;
+type ModelCacheCapabilityResolver = (selection: RuntimeModelSelection) => ModelCacheCapability;
 
 export class CacheAwareModelRuntime implements ModelRuntimePort {
   constructor(
@@ -56,8 +43,12 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
         ? undefined
         : this.state.get(decision.directive.scopeId, now);
     const comparison = compareModelCacheState(previous, fingerprint, now);
-    const executionOptions: ModelRuntimeExecutionOptions = {
-      ...options,
+    const executionOptions: ModelTransportExecutionOptions = {
+      signal: options.signal,
+      timeoutMs: options.timeoutMs,
+      maxRetries: options.maxRetries,
+      maxOutputTokens: options.maxOutputTokens,
+      credential: options.credential,
       providerCache: toProviderCacheOptions(decision.directive, capability),
     };
     let terminalObserved = false;
@@ -66,9 +57,6 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
         if (event.type === "text_delta") {
           yield event;
           continue;
-        }
-        if (event.type === "cache_report") {
-          throw new Error("Transport runtime emitted a cache report before decoration");
         }
         terminalObserved = true;
         const outcome =
@@ -89,11 +77,9 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
         });
         if (outcome === "success" && decision.directive.retention !== "none") {
           const createdAt = Date.now();
+          // Failed and cancelled requests must never replace the last successful baseline.
           this.state.set(decision.directive.scopeId, {
-            identity: { ...options.identity },
-            directive: { ...decision.directive },
             fingerprint,
-            createdAt,
             expiresAt: resolveCacheExpiry(decision.directive, capability, createdAt),
           });
         }

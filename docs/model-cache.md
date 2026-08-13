@@ -27,10 +27,19 @@ The stable scope hashes Agent, Session, Provider, catalog model, request model, 
 semantics version. A new Session or model selection therefore creates a new scope, while
 ReAct calls in one Session reuse it. Raw identity values are not exposed as Provider keys.
 
-Known protocols resolve their capability centrally. Anthropic Messages uses explicit
-breakpoints supplied by `pi-ai`; OpenAI APIs use automatic prefix caching; other known
-protocols use their supported automatic behavior. An unknown custom transport is cache
-disabled unless its connection explicitly declares a capability.
+Known protocols resolve their capability centrally from the catalog model's API, base URL,
+and compatibility flags:
+
+| API protocol                 | Mode                | Retention and scope facts                                                                      |
+| ---------------------------- | ------------------- | ---------------------------------------------------------------------------------------------- |
+| Anthropic Messages           | explicit breakpoint | 5-minute short; optional 1-hour long; affinity scope only when compat enables it               |
+| OpenAI Responses/Completions | automatic prefix    | short; optional 24-hour long according to compat; stable key according to concrete API mapping |
+| Google Generative AI         | automatic prefix    | short, no stable Provider scope, unknown TTL                                                   |
+| Mistral Conversations        | automatic prefix    | short with stable prompt-cache key, unknown TTL                                                |
+| Custom/unknown               | none by default     | an explicit, validated capability may opt in                                                   |
+
+Capability normalization, cross-field validation, and copying have one owner. Disabled
+capabilities can declare only `none`; a TTL is legal only when its retention is supported.
 
 ## Fingerprints and lifecycle
 
@@ -49,6 +58,11 @@ Only successful cache-enabled calls replace state. Failed and cancelled calls em
 report without destroying the previous baseline. The LRU stores at most 256 small digest
 entries, lazily removes known-expired entries, and clears on runtime disposal. It never
 stores request bodies, credentials, or raw headers.
+
+The fingerprint, LRU entry, Provider cache DTO, and inner transport event/options are
+Models implementation details. The transport event contract excludes cache reports, so
+only `CacheAwareModelRuntime` can publish cache lifecycle observations. When retention is
+`none`, Provider scope metadata is omitted as well as caching being disabled.
 
 ## Extension boundary
 

@@ -1,6 +1,7 @@
 import type { DeepReadonly, JsonValue } from "../data";
 import type { AssistantTranscriptMessage, ModelContextMessage } from "../messages";
-import type { ModelCacheIntent, ModelCacheReport, ModelCallIdentity } from "./cache";
+import type { ModelCacheIntent, ModelCacheReport } from "./cache";
+import type { ModelCallIdentity } from "./call";
 
 export interface ModelToolSpec {
   readonly name: string;
