@@ -28,12 +28,14 @@ describe("permissions command", () => {
     }));
     const context = {
       args: "",
-      agentConfig: {},
-      tui: {
+      interaction: {
         select,
-        sink: { line: vi.fn(), spacer: vi.fn() },
+        pause: vi.fn(),
+        resume: vi.fn(),
+        line: vi.fn(),
+        spacer: vi.fn(),
       },
-    } as unknown as CommandContext;
+    } satisfies CommandContext;
 
     await createPermissionsCommand(app).execute(context);
 

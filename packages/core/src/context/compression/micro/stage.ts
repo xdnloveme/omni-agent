@@ -165,6 +165,8 @@ export class StableMicroCompressionStage implements ContextPolicyStagePort {
         continue;
       }
       throwIfAborted(options.signal);
+      options.compression.begin(strategy.compressionKind);
+      const previousRecordCount = state.strategies[strategy.key]!.records.length;
       const result = await strategy.advance(current, state.strategies[strategy.key]!, {
         agentId: options.agentId,
         sessionId: options.sessionId,
@@ -177,6 +179,13 @@ export class StableMicroCompressionStage implements ContextPolicyStagePort {
       state = withStrategyState(state, strategy.key, result.state);
       estimate = this.dependencies.estimator.estimate(current);
       changed ||= result.changed;
+      if (result.changed) {
+        options.compression.record({
+          kind: strategy.compressionKind,
+          affectedCount:
+            result.affectedCount ?? Math.max(0, result.state.records.length - previousRecordCount),
+        });
+      }
       artifacts.push(...result.artifacts.map((artifact) => ({ ...artifact })));
       advanceDetails.push({
         strategy: strategy.name,

@@ -88,3 +88,18 @@ usage.
 Future cache breakpoint strategies and complete request snapshots must be added as
 separate consumers. They must not move Provider semantics into Context or durable cache
 state into Session.
+
+## Cache hit display metric
+
+Models Cache is the sole owner of the user-visible Provider token cache hit calculation:
+
+```text
+totalPromptTokens = inputTokens + cacheReadTokens + cacheWriteTokens
+cacheHitRate       = cacheReadTokens / totalPromptTokens
+```
+
+Cache writes contribute to the denominator but are not hits. Cache-disabled calls,
+auxiliary calls, failed/cancelled calls, and zero or unreliable usage report an unknown
+rate. The CLI correlates a successful report to `contextSnapshotId` and displays only the
+last successful primary model call beside the matching Context occupancy. It never
+estimates cache hit from common-prefix message counts.

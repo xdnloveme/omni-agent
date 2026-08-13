@@ -61,6 +61,7 @@ export class HeavyCheckpointGateStage implements ContextFinalGatePort {
       };
     }
 
+    options.compression.begin("heavy_checkpoint");
     const result = await this.compactor.compact({
       frame: restored,
       estimate,
@@ -71,6 +72,7 @@ export class HeavyCheckpointGateStage implements ContextFinalGatePort {
       gateName: this.name,
       gateVersion: this.version,
     });
+    options.compression.record({ kind: "heavy_checkpoint", ...result.operation });
     return { frame: result.frame, decisions: [result.decision] };
   }
 }

@@ -60,6 +60,7 @@ export class DefaultContextEngine implements ContextEnginePort {
       sessionRevision: request.identity.sessionRevision,
       middlewareDigest: digestContextValue(middlewareManifest),
       sourceMessages: cloneTranscriptMessages(current.messages),
+      progress: request.progress,
     });
     assertContextPolicyResult(result);
     throwIfAborted(request.signal);

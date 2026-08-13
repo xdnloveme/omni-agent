@@ -11,6 +11,7 @@ import type {
   ContextEnginePort,
   ContextMiddlewarePort,
   ModelContextSnapshotManifest,
+  ContextProgressEvent,
 } from "./context";
 import type { SessionTranscriptSnapshot } from "./session";
 
@@ -34,7 +35,20 @@ export interface RegisteredAgentTool extends AgentToolDefinition {
 export interface ToolResult {
   content: Array<{ type: "text"; text: string }>;
   isError: boolean;
-  meta?: Record<string, unknown>;
+  meta?: ToolResultMetadata;
+}
+
+export interface ToolResourceReference {
+  readonly kind: "file";
+  readonly path: string;
+}
+
+export interface ToolResultPresentationData {
+  readonly resource?: ToolResourceReference;
+}
+
+export interface ToolResultMetadata extends Record<string, unknown> {
+  readonly presentation?: ToolResultPresentationData;
 }
 
 /** Token usage information from the LLM response */
@@ -73,6 +87,7 @@ export type AgentEvent =
   | { type: "text_delta"; delta: string }
   | { type: "model_context_prepared"; manifest: ModelContextSnapshotManifest }
   | { type: "model_cache_report"; report: ModelCacheReport }
+  | { type: "context_progress"; event: ContextProgressEvent }
   | { type: "tool_start"; toolName: string; toolCallId: string; input: Record<string, unknown> }
   | {
       type: "tool_end";

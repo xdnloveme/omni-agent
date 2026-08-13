@@ -56,6 +56,12 @@ export type {
   ContextSummaryRequest,
   ContextSummaryResult,
   ContextTokenEstimate,
+  ContextCompressionKind,
+  ContextCompressionOperationSummary,
+  ContextCompressionReport,
+  ContextCompressionReporterPort,
+  ContextProgressEvent,
+  ContextProgressSinkPort,
   ContextTokenEstimatorPort,
   ModelCallCompletedContext,
   ModelContextSnapshotManifest,
@@ -119,6 +125,7 @@ export {
   sanitizePermissionLabel,
   sanitizePermissionPresentation,
   sanitizeSensitiveValue,
+  sanitizeSensitiveText,
 } from "./permissions/index";
 export type {
   ApprovalBroker,
@@ -162,6 +169,9 @@ export type {
   RegisteredAgentTool,
   TokenUsage,
   ToolResult,
+  ToolResourceReference,
+  ToolResultMetadata,
+  ToolResultPresentationData,
 } from "./types";
 export type { ExtensionEvent } from "./extension-events";
 export type {
@@ -195,7 +205,7 @@ export type {
   CommandContext,
   CommandSelectionOptions,
   CommandSelectionResult,
-  CommandTui,
+  CommandInteractionPort,
 } from "./commands/index";
 export { createSkillsContributor, defaultContributors } from "./system-prompt/index";
 export type { SystemPromptContributor } from "./system-prompt/index";

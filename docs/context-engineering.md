@@ -244,3 +244,25 @@ This version does not implement retrieval, durable memory, artifact garbage coll
 cross-Session checkpoints, fork/revert, checkpoint UI, cache breakpoint placement,
 Provider token-limit retry, hard truncation, image/Plan compression, or a second
 compression path.
+
+## Compression progress observation
+
+Every preparation receives a required `ContextProgressSinkPort`. The Context Policy
+Pipeline creates one `ContextCompressionProgressCollector` using the initial detached
+frame estimate. A Micro strategy calls `begin()` immediately before its first actual
+advance and records a typed operation only after a real change. The Heavy gate calls
+`begin()` before summary generation and records its create/extend operation only after
+checkpoint persistence succeeds.
+
+```text
+first actual rewrite -> compression_started
+successful pipeline  -> compression_completed
+failed/cancelled path -> compression_failed
+```
+
+Micro and Heavy activity in the same preparation share the collector and therefore one
+compression ID. The completed report uses the same Context token estimator as policy
+thresholds and contains only counts, token totals, ratio, duration, and operation kinds.
+It contains no Transcript body, Thinking text, Tool Result body, or Checkpoint summary.
+Sink failures are isolated from preparation, and AgentLoop forwards events byte-for-byte
+without inspecting their kinds.

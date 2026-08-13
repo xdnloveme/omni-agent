@@ -1,6 +1,7 @@
 import type { StreamEvent, StreamCallbacks, StreamState, AccumulatedMessage } from "./types";
 import type { ExtensionEvent } from "../extension-events";
 import type { TokenUsage } from "../types";
+import { cloneData } from "../dataCopy";
 
 /**
  * StreamSession — a lightweight state machine for managing streaming output.
@@ -36,10 +37,13 @@ export class StreamSession {
         this.handleTextDelta(event.delta);
         break;
       case "model_context_prepared":
-        this._callbacks.onModelContextPrepared?.(event.manifest);
+        this.notify(() => this._callbacks.onModelContextPrepared?.(cloneData(event.manifest)));
         break;
       case "model_cache_report":
-        this._callbacks.onModelCacheReport?.(event.report);
+        this.notify(() => this._callbacks.onModelCacheReport?.(cloneData(event.report)));
+        break;
+      case "context_progress":
+        this.notify(() => this._callbacks.onContextProgress?.(cloneData(event.event)));
         break;
       case "tool_use_start":
         this.handleToolStart(event.toolName, event.toolCallId, event.input);
@@ -93,7 +97,7 @@ export class StreamSession {
       content: delta,
       timestamp: Date.now(),
     });
-    this._callbacks.onTextChunk?.(delta);
+    this.notify(() => this._callbacks.onTextChunk?.(delta));
   }
 
   private handleToolStart(
@@ -108,7 +112,7 @@ export class StreamSession {
       timestamp: Date.now(),
       meta: { toolCallId, input },
     });
-    this._callbacks.onToolStart?.(toolName, toolCallId, input);
+    this.notify(() => this._callbacks.onToolStart?.(toolName, toolCallId, cloneData(input)));
   }
 
   private handleToolEnd(
@@ -128,7 +132,9 @@ export class StreamSession {
       timestamp: Date.now(),
       meta: { toolCallId, toolName, isError: result.isError, durationMs, resultMeta: result.meta },
     });
-    this._callbacks.onToolEnd?.(toolName, toolCallId, result, durationMs);
+    this.notify(() =>
+      this._callbacks.onToolEnd?.(toolName, toolCallId, cloneData(result), durationMs),
+    );
   }
 
   private handleExtensionEvent(event: ExtensionEvent): void {
@@ -139,12 +145,12 @@ export class StreamSession {
       timestamp: Date.now(),
       meta: { ...event },
     });
-    this._callbacks.onExtensionEvent?.(event);
+    this.notify(() => this._callbacks.onExtensionEvent?.(cloneData(event)));
   }
 
   private handleDone(usage?: TokenUsage): void {
     this.transitionTo("done");
-    this._callbacks.onDone?.(usage);
+    this.notify(() => this._callbacks.onDone?.(usage ? cloneData(usage) : undefined));
   }
 
   private handleError(error: string): void {
@@ -155,7 +161,15 @@ export class StreamSession {
       timestamp: Date.now(),
       meta: { error },
     });
-    this._callbacks.onError?.(error);
+    this.notify(() => this._callbacks.onError?.(error));
+  }
+
+  private notify(callback: () => void): void {
+    try {
+      callback();
+    } catch {
+      // Stream consumers are observers and cannot alter runtime or persistence semantics.
+    }
   }
 
   /**

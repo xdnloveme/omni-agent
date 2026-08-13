@@ -13,6 +13,7 @@ import {
   assertPolicyStageResult,
   InvalidContextPolicyResultError,
 } from "./validator";
+import { ContextCompressionProgressCollector } from "./compressionProgress";
 
 export { InvalidContextPolicyResultError, assertContextPolicyResult } from "./validator";
 
@@ -29,78 +30,93 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
   ): Promise<ContextPolicyResult> {
     let current = cloneContextFrame(frame);
     let estimate = this.estimator.estimate(current);
+    const compression = new ContextCompressionProgressCollector(
+      options.modelCallId,
+      options.progress,
+      estimate,
+    );
     const decisions: ContextDecision[] = [];
     const manifests: ContextPolicyResult["stages"][number][] = [];
 
-    for (const stage of this.stages) {
+    try {
+      for (const stage of this.stages) {
+        throwIfAborted(options.signal);
+        assertPolicyComponent(stage);
+        const before = estimate;
+        const input = cloneContextFrame(current);
+        const result = await stage.apply(input, {
+          agentId: options.agentId,
+          sessionId: options.sessionId,
+          modelCallId: options.modelCallId,
+          estimate: { ...before },
+          compression,
+          signal: options.signal,
+        });
+        if (result.frame === input) {
+          throw new InvalidContextPolicyResultError(
+            `Context policy stage must return a new frame: ${stage.name}`,
+          );
+        }
+        assertPolicyStageResult(result, stage.name);
+        current = cloneContextFrame(result.frame);
+        estimate = this.estimator.estimate(current);
+        decisions.push(...cloneContextDecisions(result.decisions));
+        manifests.push({
+          name: stage.name,
+          version: stage.version,
+          ...(stage.configurationDigest
+            ? { configurationDigest: stage.configurationDigest() }
+            : {}),
+          before,
+          after: estimate,
+        });
+      }
+
       throwIfAborted(options.signal);
-      assertPolicyComponent(stage);
+      assertPolicyComponent(this.finalGate);
       const before = estimate;
-      const input = cloneContextFrame(current);
-      const result = await stage.apply(input, {
+      const gateInput = cloneContextFrame(current);
+      const gateResult = await this.finalGate.apply(gateInput, {
         agentId: options.agentId,
         sessionId: options.sessionId,
         modelCallId: options.modelCallId,
+        sessionRevision: options.sessionRevision,
+        middlewareDigest: options.middlewareDigest,
+        sourceMessages: cloneTranscriptMessages(options.sourceMessages),
+        precedingStages: manifests.map(({ name, version, configurationDigest }) => ({
+          name,
+          version,
+          ...(configurationDigest ? { configurationDigest } : {}),
+        })),
         estimate: { ...before },
+        compression,
         signal: options.signal,
       });
-      if (result.frame === input) {
+      if (gateResult.frame === gateInput) {
         throw new InvalidContextPolicyResultError(
-          `Context policy stage must return a new frame: ${stage.name}`,
+          `Context final gate must return a new frame: ${this.finalGate.name}`,
         );
       }
-      assertPolicyStageResult(result, stage.name);
-      current = cloneContextFrame(result.frame);
+      assertPolicyStageResult(gateResult, this.finalGate.name);
+      current = cloneContextFrame(gateResult.frame);
       estimate = this.estimator.estimate(current);
-      decisions.push(...cloneContextDecisions(result.decisions));
+      decisions.push(...cloneContextDecisions(gateResult.decisions));
       manifests.push({
-        name: stage.name,
-        version: stage.version,
-        ...(stage.configurationDigest ? { configurationDigest: stage.configurationDigest() } : {}),
+        name: this.finalGate.name,
+        version: this.finalGate.version,
+        ...(this.finalGate.configurationDigest
+          ? { configurationDigest: this.finalGate.configurationDigest() }
+          : {}),
         before,
         after: estimate,
       });
-    }
 
-    throwIfAborted(options.signal);
-    assertPolicyComponent(this.finalGate);
-    const before = estimate;
-    const gateInput = cloneContextFrame(current);
-    const gateResult = await this.finalGate.apply(gateInput, {
-      agentId: options.agentId,
-      sessionId: options.sessionId,
-      modelCallId: options.modelCallId,
-      sessionRevision: options.sessionRevision,
-      middlewareDigest: options.middlewareDigest,
-      sourceMessages: cloneTranscriptMessages(options.sourceMessages),
-      precedingStages: manifests.map(({ name, version, configurationDigest }) => ({
-        name,
-        version,
-        ...(configurationDigest ? { configurationDigest } : {}),
-      })),
-      estimate: { ...before },
-      signal: options.signal,
-    });
-    if (gateResult.frame === gateInput) {
-      throw new InvalidContextPolicyResultError(
-        `Context final gate must return a new frame: ${this.finalGate.name}`,
-      );
+      throwIfAborted(options.signal);
+      compression.complete(estimate);
+      return { frame: current, decisions, stages: manifests, estimate };
+    } catch (error) {
+      compression.fail(error);
+      throw error;
     }
-    assertPolicyStageResult(gateResult, this.finalGate.name);
-    current = cloneContextFrame(gateResult.frame);
-    estimate = this.estimator.estimate(current);
-    decisions.push(...cloneContextDecisions(gateResult.decisions));
-    manifests.push({
-      name: this.finalGate.name,
-      version: this.finalGate.version,
-      ...(this.finalGate.configurationDigest
-        ? { configurationDigest: this.finalGate.configurationDigest() }
-        : {}),
-      before,
-      after: estimate,
-    });
-
-    throwIfAborted(options.signal);
-    return { frame: current, decisions, stages: manifests, estimate };
   }
 }

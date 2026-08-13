@@ -30,6 +30,7 @@ const PRESERVED_RECENT_RESULTS = 3;
 export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
   readonly key = "artifact" as const;
   readonly name = "artifact_projection";
+  readonly compressionKind = "artifact_projection" as const;
   readonly version = 1;
   private readonly configurationDigest: string;
 
@@ -194,6 +195,7 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
       frame: { ...output, entries },
       state: createStrategyState(this, this.configurationDigest, records),
       changed: true,
+      affectedCount: selectedIds.size,
       artifacts,
       details: {
         advancedCount: selectedIds.size,

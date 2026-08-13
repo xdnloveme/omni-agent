@@ -28,6 +28,7 @@ export interface SkillProjectionConfiguration {
 export class SkillProjectionStrategy implements MicroProjectionStrategyPort {
   readonly key = "skill" as const;
   readonly name = "skill_projection";
+  readonly compressionKind = "skill_projection" as const;
   readonly version = 1;
   private readonly configurationDigest: string;
 
@@ -136,6 +137,7 @@ export class SkillProjectionStrategy implements MicroProjectionStrategyPort {
       frame: { ...output, entries },
       state: createStrategyState(this, this.configurationDigest, records),
       changed: true,
+      affectedCount: selectedIds.size,
       artifacts: [],
       details: { advancedCount: selectedIds.size },
     };

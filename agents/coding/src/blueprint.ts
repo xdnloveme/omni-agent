@@ -14,7 +14,6 @@ export const agentBlueprint = {
       capabilities: {
         skills: {
           runtime,
-          buildSystemPrompt: coding.buildSystemPrompt,
         },
         context: {
           artifactRecovery: {

@@ -15,6 +15,7 @@ export {
   sanitizePermissionLabel,
   sanitizePermissionPresentation,
   sanitizeSensitiveValue,
+  sanitizeSensitiveText,
 } from "./presentation";
 export { DenyApprovalBroker } from "./ports";
 export type {

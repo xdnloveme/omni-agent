@@ -31,6 +31,10 @@ const SUMMARY_INPUT_SAFETY_BUFFER_TOKENS = 1_024;
 export interface CheckpointCompactionResult {
   readonly frame: ContextFrame;
   readonly decision: ContextDecision;
+  readonly operation: {
+    readonly action: "create" | "extend";
+    readonly affectedCount: number;
+  };
 }
 
 export class CheckpointCompactor {
@@ -135,6 +139,11 @@ export class CheckpointCompactor {
     }
     return {
       frame: prepared.frame,
+      operation: {
+        action: input.checkpoint ? "extend" : "create",
+        affectedCount:
+          prepared.checkpoint.coveredMessageCount - (input.checkpoint?.coveredMessageCount ?? 0),
+      },
       decision: {
         type: input.checkpoint ? "checkpoint_extended" : "checkpoint_created",
         details: {

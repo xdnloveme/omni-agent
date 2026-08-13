@@ -97,7 +97,10 @@ export const fileEditTool: AgentToolDefinition = {
           },
         ],
         isError: false,
-        meta: result,
+        meta: {
+          ...result,
+          presentation: { resource: { kind: "file", path } },
+        },
       };
     } catch (error) {
       if (isAbortError(error, context.signal)) throw createAbortError(context.signal);

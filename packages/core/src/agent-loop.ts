@@ -13,6 +13,7 @@ import { cloneData } from "./dataCopy";
 import { cloneTranscriptMessage } from "./messages";
 import { createContextPreparationRequest } from "./agent/contextInput";
 import { WorkingConversation } from "./agent/workingConversation";
+import { createContextPreparationStream } from "./agent/contextPreparationStream";
 
 export interface AgentLoopOptions {
   /** Optional StreamSession for state-machine-driven event dispatch */
@@ -79,7 +80,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       config.tools.length > 0,
     );
     const conversationSnapshot = conversation.snapshot();
-    const preparedContext = await contextEngine.prepare(
+    const preparation = createContextPreparationStream(contextEngine, (progress) =>
       createContextPreparationRequest({
         identity: {
           agentId: input.agentId,
@@ -96,9 +97,16 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
           maxOutputTokens: config.model.maxOutputTokens,
         },
         middleware: contextMiddleware,
+        progress,
         signal,
       }),
     );
+    for await (const event of preparation.progress) {
+      const progressEvent: AgentEvent = { type: "context_progress", event: cloneData(event) };
+      session?.handle(progressEvent);
+      yield progressEvent;
+    }
+    const preparedContext = await preparation.result();
     const estimatedInputTokens = preparedContext.manifest.estimatedInputTokens;
     const contextEvent: AgentEvent = {
       type: "model_context_prepared",
@@ -232,7 +240,9 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         toolCallId: call.id,
         toolName: call.name,
         content: result.content,
-        ...(result.meta === undefined ? {} : { details: cloneData(result.meta) }),
+        ...(result.transcriptDetails === undefined
+          ? {}
+          : { details: cloneData(result.transcriptDetails) }),
         isError: result.isError,
         timestamp: Date.now(),
       };

@@ -13,44 +13,44 @@ export function createSkillsCommand(
       if (subcommand === "reload") {
         const result = await skillRegistry.reload();
         await onReload?.();
-        ctx.tui.sink.line(chalk.green(`Reloaded ${result.skills.length} skills.`));
+        ctx.interaction.line(chalk.green(`Reloaded ${result.skills.length} skills.`));
         if (result.diagnostics.length > 0) {
-          ctx.tui.sink.line(
+          ctx.interaction.line(
             chalk.yellow(
               `${result.diagnostics.length} diagnostics. Run /skills diagnostics for details.`,
             ),
           );
         }
-        ctx.tui.sink.spacer();
+        ctx.interaction.spacer();
         return;
       }
 
       if (subcommand === "diagnostics") {
         const diagnostics = skillRegistry.diagnostics();
         if (diagnostics.length === 0) {
-          ctx.tui.sink.line(chalk.green("No skill diagnostics."));
-          ctx.tui.sink.spacer();
+          ctx.interaction.line(chalk.green("No skill diagnostics."));
+          ctx.interaction.spacer();
           return;
         }
-        ctx.tui.sink.line(chalk.bold("Skill diagnostics"));
+        ctx.interaction.line(chalk.bold("Skill diagnostics"));
         for (const diagnostic of diagnostics) {
-          ctx.tui.sink.line(
+          ctx.interaction.line(
             `${diagnostic.type === "error" ? chalk.red("error") : chalk.yellow("warning")} ${diagnostic.code}: ${diagnostic.message}`,
           );
-          ctx.tui.sink.line(chalk.dim(`  ${diagnostic.path}`));
+          ctx.interaction.line(chalk.dim(`  ${diagnostic.path}`));
         }
-        ctx.tui.sink.spacer();
+        ctx.interaction.spacer();
         return;
       }
 
       const skills = skillRegistry.list();
       if (skills.length === 0) {
-        ctx.tui.sink.line(chalk.dim("No skills loaded."));
-        ctx.tui.sink.spacer();
+        ctx.interaction.line(chalk.dim("No skills loaded."));
+        ctx.interaction.spacer();
         return;
       }
 
-      ctx.tui.sink.line(chalk.bold("Available skills"));
+      ctx.interaction.line(chalk.bold("Available skills"));
       for (const skill of skills) {
         const flags = [
           skill.source.scope,
@@ -59,10 +59,10 @@ export function createSkillsCommand(
         ]
           .filter(Boolean)
           .join(", ");
-        ctx.tui.sink.line(`${chalk.cyan(skill.name)} ${chalk.dim(`[${flags}]`)}`);
-        ctx.tui.sink.line(chalk.dim(`  ${skill.description}`));
+        ctx.interaction.line(`${chalk.cyan(skill.name)} ${chalk.dim(`[${flags}]`)}`);
+        ctx.interaction.line(chalk.dim(`  ${skill.description}`));
       }
-      ctx.tui.sink.spacer();
+      ctx.interaction.spacer();
     },
   };
 }

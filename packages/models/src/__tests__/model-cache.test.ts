@@ -155,6 +155,7 @@ describe("model cache infrastructure", () => {
     );
 
     expect(reportOf(first).appliedRetention).toBe("none");
+    expect(reportOf(first).cacheHitRate).toBeUndefined();
     expect(reportOf(second).lifecycle).toBe("cold");
     expect(seen.every((entry) => entry.providerCache.sessionId === undefined)).toBe(true);
     expect(seen).toEqual(
@@ -162,6 +163,30 @@ describe("model cache infrastructure", () => {
         expect.objectContaining({ providerCache: { cacheRetention: "none" } }),
       ]),
     );
+  });
+
+  it("reports real provider token cache hit rate without counting cache writes as hits", async () => {
+    const runtime = new CacheAwareModelRuntime(
+      {
+        async *stream(): AsyncIterable<ModelTransportEvent> {
+          yield {
+            type: "done",
+            message: {
+              ...assistant("ok"),
+              usage: { input: 40, output: 1, cacheRead: 50, cacheWrite: 10 },
+            },
+          };
+        },
+      },
+      new DefaultModelCachePolicy(),
+      () => capability("anthropic-messages"),
+    );
+
+    const report = reportOf(
+      await collect(runtime.stream(selection, request, primaryOptions("hit"))),
+    );
+    expect(report.inputTokens).toBe(40);
+    expect(report.cacheHitRate).toBe(0.5);
   });
 
   it("keeps the last successful baseline when a later request fails", async () => {

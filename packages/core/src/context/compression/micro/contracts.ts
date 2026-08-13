@@ -1,5 +1,6 @@
 import type { DeepReadonly, JsonValue } from "../../../data";
 import type { ContextFrame, ContextTokenEstimate } from "../../contracts/types";
+import type { ContextCompressionKind } from "../../contracts/progress";
 import type { ThinkingHistoryPolicy } from "../../../models/runtime";
 
 export interface MicroProjectionRecord {
@@ -55,6 +56,7 @@ export interface MicroProjectionResult {
   readonly frame: ContextFrame;
   readonly state: MicroStrategyProjectionState;
   readonly changed: boolean;
+  readonly affectedCount?: number;
   readonly artifacts: readonly PendingContextArtifact[];
   readonly details?: DeepReadonly<Record<string, JsonValue>>;
 }
@@ -63,6 +65,7 @@ export interface MicroProjectionStrategyPort {
   readonly key: string;
   readonly name: string;
   readonly version: number;
+  readonly compressionKind: ContextCompressionKind;
   createState(): MicroStrategyProjectionState;
   canAdvance(
     frame: DeepReadonly<ContextFrame>,

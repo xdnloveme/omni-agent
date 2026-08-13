@@ -187,7 +187,12 @@ function endEvent(
 function validateToolResult(result: ToolResult, toolName: string): ValidatedToolResult {
   if (result.meta === undefined) return { content: result.content, isError: result.isError };
   assertJsonObject(result.meta, `Tool result metadata: ${toolName}`);
-  return { ...result, meta: result.meta };
+  const { presentation: _presentation, ...transcriptDetails } = result.meta;
+  return {
+    ...result,
+    meta: result.meta,
+    ...(Object.keys(transcriptDetails).length > 0 ? { transcriptDetails } : {}),
+  };
 }
 
 function errorResult(message: string, meta?: Record<string, unknown>): ToolResult {

@@ -108,7 +108,10 @@ export const fileReadTool: AgentToolDefinition = {
       return {
         content: [{ type: "text", text: result.text }],
         isError: false,
-        meta: { pagination: result.pagination },
+        meta: {
+          presentation: { resource: { kind: "file", path } },
+          pagination: result.pagination,
+        },
       };
     } catch (error) {
       if (isAbortError(error, context.signal)) throw createAbortError(context.signal);

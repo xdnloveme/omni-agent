@@ -22,6 +22,8 @@ function cacheReport() {
     currentMessageCount: 1,
     cacheReadTokens: 0,
     cacheWriteTokens: 10,
+    inputTokens: 90,
+    cacheHitRate: 0,
     createdAt: 1,
   };
 }
@@ -35,6 +37,7 @@ describe("StreamSession", () => {
       onTextChunk: vi.fn(),
       onModelContextPrepared: vi.fn(),
       onModelCacheReport: vi.fn(),
+      onContextProgress: vi.fn(),
       onToolStart: vi.fn(),
       onToolEnd: vi.fn(),
       onExtensionEvent: vi.fn(),
@@ -129,6 +132,39 @@ describe("StreamSession", () => {
     });
   });
 
+  describe("context progress events", () => {
+    it("notifies observers without accumulating a conversation message", () => {
+      const event = {
+        type: "compression_started" as const,
+        compressionId: "compression",
+        modelCallId: "call",
+        beforeTokens: 100,
+        startedKind: "artifact_projection" as const,
+      };
+      session.handle({ type: "context_progress", event });
+      expect(callbacks.onContextProgress).toHaveBeenCalledWith(event);
+      expect(session.getAccumulatedMessages()).toEqual([]);
+    });
+
+    it("isolates observer failures", () => {
+      vi.mocked(callbacks.onContextProgress).mockImplementation(() => {
+        throw new Error("renderer failed");
+      });
+      expect(() =>
+        session.handle({
+          type: "context_progress",
+          event: {
+            type: "compression_started",
+            compressionId: "compression",
+            modelCallId: "call",
+            beforeTokens: 100,
+            startedKind: "heavy_checkpoint",
+          },
+        }),
+      ).not.toThrow();
+    });
+  });
+
   describe("tool_use_start events", () => {
     it("transitions to streaming", () => {
       session.handle({
@@ -190,6 +226,27 @@ describe("StreamSession", () => {
       expect(msgs).toHaveLength(1);
       expect(msgs[0].type).toBe("tool_result");
       expect(msgs[0].content).toBe("output");
+    });
+
+    it("detaches callback data from the runtime event", () => {
+      const result = {
+        content: [{ type: "text" as const, text: "original" }],
+        isError: false,
+        meta: { presentation: { resource: { kind: "file" as const, path: "/workspace/a.ts" } } },
+      };
+      vi.mocked(callbacks.onToolEnd).mockImplementation((_tool, _call, received) => {
+        received.content[0].text = "mutated";
+        (received.meta!.presentation!.resource as { path: string }).path = "/mutated";
+      });
+      session.handle({
+        type: "tool_use_end",
+        toolName: "file_read",
+        toolCallId: "call_1",
+        result,
+        durationMs: 1,
+      });
+      expect(result.content[0].text).toBe("original");
+      expect(result.meta.presentation.resource.path).toBe("/workspace/a.ts");
     });
   });
 

@@ -17,6 +17,7 @@ import {
   DefaultContextEngine,
   ApproximateContextTokenEstimator,
   ContextPolicyPipeline,
+  type ContextEnginePort,
   type ContextMiddlewarePort,
 } from "../context";
 
@@ -65,6 +66,7 @@ function executeLoop(
   messages: TranscriptMessage[],
   signal?: AbortSignal,
   contextMiddleware: readonly ContextMiddlewarePort[] = [],
+  contextEngine: ContextEnginePort = createContextEngine(),
 ) {
   return runAgentLoop({
     config,
@@ -73,19 +75,7 @@ function executeLoop(
       revision: 1,
       messages,
     },
-    contextEngine: new DefaultContextEngine(
-      new ContextPolicyPipeline(
-        [],
-        {
-          name: "test_final_gate",
-          version: 1,
-          async apply(frame) {
-            return { frame: structuredClone(frame) as never, decisions: [] };
-          },
-        },
-        new ApproximateContextTokenEstimator(),
-      ),
-    ),
+    contextEngine,
     contextMiddleware,
     modelRuntime,
     agentId: "test",
@@ -93,6 +83,22 @@ function executeLoop(
     toolCallCoordinator: createCoordinator(),
     signal,
   });
+}
+
+function createContextEngine(): ContextEnginePort {
+  return new DefaultContextEngine(
+    new ContextPolicyPipeline(
+      [],
+      {
+        name: "test_final_gate",
+        version: 1,
+        async apply(frame) {
+          return { frame: structuredClone(frame) as never, decisions: [] };
+        },
+      },
+      new ApproximateContextTokenEstimator(),
+    ),
+  );
 }
 
 function createCoordinator() {
@@ -211,6 +217,8 @@ describe("runAgentLoop", () => {
       currentMessageCount: 1,
       cacheReadTokens: 0,
       cacheWriteTokens: 10,
+      inputTokens: 90,
+      cacheHitRate: 0,
       createdAt: 1,
     };
     streamModel.mockReturnValue(
@@ -228,6 +236,50 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual({ type: "model_cache_report", report });
     const done = events.find((event) => event.type === "done");
     expect(done?.type === "done" ? done.produced : undefined).toHaveLength(1);
+  });
+
+  it("yields context compression progress before the prepared context", async () => {
+    const delegate = createContextEngine();
+    const contextEngine: ContextEnginePort = {
+      async prepare(request) {
+        request.progress.publish({
+          type: "compression_started",
+          compressionId: "compression-1",
+          modelCallId: request.identity.modelCallId,
+          beforeTokens: 100,
+          startedKind: "heavy_checkpoint",
+        });
+        await Promise.resolve();
+        request.progress.publish({
+          type: "compression_completed",
+          compressionId: "compression-1",
+          modelCallId: request.identity.modelCallId,
+          report: {
+            beforeTokens: 100,
+            afterTokens: 50,
+            tokenDelta: 50,
+            reductionRatio: 0.5,
+            operations: [{ kind: "heavy_checkpoint", affectedCount: 10, action: "create" }],
+            durationMs: 1,
+          },
+        });
+        return delegate.prepare(request);
+      },
+    };
+    streamModel.mockReturnValue(
+      fakeStream([
+        { type: "done", message: { content: [{ type: "text", text: "done" }] } },
+      ]) as never,
+    );
+
+    const events = await collectEvents(
+      executeLoop(makeConfig({ tools: [] }), makeMessages("Hi"), undefined, [], contextEngine),
+    );
+    expect(events.slice(0, 3).map((event) => event.type)).toEqual([
+      "context_progress",
+      "context_progress",
+      "model_context_prepared",
+    ]);
   });
 
   it("should return produced messages on done event", async () => {

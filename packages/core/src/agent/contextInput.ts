@@ -4,6 +4,7 @@ import type {
   ContextMiddlewarePort,
   ContextModelLimits,
   ContextPreparationRequest,
+  ContextProgressSinkPort,
 } from "../context";
 import type { ModelToolSpec } from "../models/runtime";
 import type { RegisteredAgentTool } from "../types";
@@ -16,6 +17,7 @@ export interface CreateContextPreparationRequestInput {
   readonly tools: readonly RegisteredAgentTool[];
   readonly model: ContextModelLimits;
   readonly middleware: readonly ContextMiddlewarePort[];
+  readonly progress: ContextProgressSinkPort;
   readonly signal?: AbortSignal;
 }
 
@@ -29,6 +31,7 @@ export function createContextPreparationRequest(
     tools: input.tools.map(toModelToolSpec),
     model: { ...input.model },
     middleware: [...input.middleware],
+    progress: input.progress,
     signal: input.signal,
   };
 }

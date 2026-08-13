@@ -7,7 +7,7 @@
 
 import type { ExtensionEvent } from "../extension-events";
 import type { TokenUsage } from "../types";
-import type { ModelContextSnapshotManifest } from "../context";
+import type { ContextProgressEvent, ModelContextSnapshotManifest } from "../context";
 import type { ModelCacheReport } from "../models/cache";
 
 /** Text chunk streamed from the LLM */
@@ -49,6 +49,11 @@ export interface ModelCacheReportEvent {
   report: ModelCacheReport;
 }
 
+export interface ContextProgressStreamEvent {
+  type: "context_progress";
+  event: ContextProgressEvent;
+}
+
 /** Stream encountered an error */
 export interface ErrorEvent {
   type: "error";
@@ -60,6 +65,7 @@ export type StreamEvent =
   | TextDeltaEvent
   | ModelContextPreparedEvent
   | ModelCacheReportEvent
+  | ContextProgressStreamEvent
   | ToolUseStartEvent
   | ToolUseEndEvent
   | ExtensionEvent
@@ -70,7 +76,7 @@ export type StreamEvent =
 export interface ToolResultPayload {
   content: Array<{ type: "text"; text: string }>;
   isError: boolean;
-  meta?: Record<string, unknown>;
+  meta?: import("../types").ToolResultMetadata;
 }
 
 /**
@@ -83,6 +89,7 @@ export interface StreamCallbacks {
   onTextChunk?: (delta: string) => void;
   onModelContextPrepared?: (manifest: ModelContextSnapshotManifest) => void;
   onModelCacheReport?: (report: ModelCacheReport) => void;
+  onContextProgress?: (event: ContextProgressEvent) => void;
   onToolStart?: (toolName: string, toolCallId: string, input: Record<string, unknown>) => void;
   onToolEnd?: (
     toolName: string,

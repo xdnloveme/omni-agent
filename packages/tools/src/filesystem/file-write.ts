@@ -73,7 +73,11 @@ export const fileWriteTool: AgentToolDefinition = {
           { type: "text", text: `Successfully wrote ${result.bytesWritten} bytes to ${canonical}` },
         ],
         isError: false,
-        meta: { bytesWritten: result.bytesWritten, path: canonical },
+        meta: {
+          bytesWritten: result.bytesWritten,
+          path: canonical,
+          presentation: { resource: { kind: "file", path: canonical } },
+        },
       };
     } catch (error) {
       if (isAbortError(error, context.signal)) throw createAbortError(context.signal);

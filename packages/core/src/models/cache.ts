@@ -46,6 +46,8 @@ export interface ModelCacheReport {
   readonly currentMessageCount: number;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
+  readonly inputTokens: number;
+  readonly cacheHitRate?: number;
   readonly reason?: string;
   readonly createdAt: number;
 }

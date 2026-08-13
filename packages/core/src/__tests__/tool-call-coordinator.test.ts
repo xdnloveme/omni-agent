@@ -163,6 +163,27 @@ describe("ToolCallCoordinator", () => {
     });
   });
 
+  it("keeps presentation metadata transient while preserving transcript details", async () => {
+    const value = fixture();
+    value.tool.execute = vi.fn(async () => ({
+      content: [{ type: "text" as const, text: "ok" }],
+      isError: false,
+      meta: {
+        presentation: { resource: { kind: "file" as const, path: "/workspace/a.ts" } },
+        pagination: { startLine: 1, endLine: 10 },
+      },
+    }));
+
+    const result = await events(value, { value: "ok" });
+    expect(result.at(-1)).toMatchObject({
+      type: "tool_end",
+      result: {
+        meta: { presentation: { resource: { path: "/workspace/a.ts" } } },
+        transcriptDetails: { pagination: { startLine: 1, endLine: 10 } },
+      },
+    });
+  });
+
   it("does not run middleware or tool after denial", async () => {
     const value = fixture({ allow: false });
     const result = await events(value, { value: "ok" });

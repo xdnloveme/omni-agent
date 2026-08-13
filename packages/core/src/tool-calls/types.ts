@@ -26,6 +26,7 @@ export interface ToolCallMetrics {
 
 export interface ValidatedToolResult extends Omit<ToolResult, "meta"> {
   readonly meta?: Record<string, JsonValue>;
+  readonly transcriptDetails?: Record<string, JsonValue>;
 }
 
 type BaseToolCallEvent = Extract<

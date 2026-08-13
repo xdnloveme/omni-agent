@@ -18,6 +18,7 @@ import type {
   ContextTokenEstimate,
   PreparedModelContext,
 } from "./types";
+import type { ContextProgressSinkPort } from "./progress";
 
 export interface ContextMiddlewarePort {
   readonly name: string;
@@ -78,6 +79,7 @@ export interface ContextPreparationRequest {
   readonly tools: readonly ModelToolSpec[];
   readonly model: ContextModelLimits;
   readonly middleware: readonly ContextMiddlewarePort[];
+  readonly progress: ContextProgressSinkPort;
   readonly signal?: AbortSignal;
 }
 

@@ -7,11 +7,11 @@ export function createHelpCommand(registry: CommandRegistry): Command {
     name: "help",
     description: "List all available commands",
     async execute(ctx) {
-      ctx.tui.sink.line(chalk.bold("Available commands:"));
+      ctx.interaction.line(chalk.bold("Available commands:"));
       for (const cmd of registry.list()) {
-        ctx.tui.sink.line(`  ${chalk.cyan("/" + cmd.name)} — ${cmd.description}`);
+        ctx.interaction.line(`  ${chalk.cyan("/" + cmd.name)} — ${cmd.description}`);
       }
-      ctx.tui.sink.spacer();
+      ctx.interaction.spacer();
     },
   };
 }

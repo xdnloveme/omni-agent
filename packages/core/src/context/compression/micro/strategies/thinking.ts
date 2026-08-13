@@ -24,6 +24,7 @@ const PRESERVED_RECENT_THINKING = 3;
 export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
   readonly key = "thinking" as const;
   readonly name = "thinking_projection";
+  readonly compressionKind = "thinking_projection" as const;
   readonly version = 1;
   constructor(private readonly policy: () => ThinkingHistoryPolicy) {
     this.currentPolicy();
@@ -118,6 +119,7 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
         createStrategyState(this, this.configurationDigest(), records),
       );
     const output = cloneContextFrame(frame);
+    let affectedCount = 0;
     const entries = output.entries.map((entry): ContextEntry => {
       throwIfAborted(options.signal);
       if (
@@ -127,6 +129,9 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
       ) {
         return entry;
       }
+      affectedCount += entry.message.content.filter(
+        (block) => block.type === "thinking" && block.thinking.length > 0,
+      ).length;
       const projected = projectThinkingEntry(entry);
       records.push({
         kind: "thinking",
@@ -141,6 +146,7 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
       frame: { ...output, entries },
       state: createStrategyState(this, this.configurationDigest(), records),
       changed: true,
+      affectedCount,
       artifacts: [],
       details: { advancedCount: selectedIds.size },
     };

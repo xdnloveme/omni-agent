@@ -1,16 +1,4 @@
-import {
-  SKILL_TOOL_NAME,
-  SkillEventName,
-  SkillEventNamespace,
-  SkillReadStatus,
-  SkillSourceScope,
-  type AgentConfig,
-  type CommandRegistry,
-  type ExtensionEvent,
-  type SkillSource,
-  type SkillRuntime,
-  type StreamCallbacks,
-} from "@omni-agent/core";
+import { type CommandRegistry, type SkillRuntime } from "@omni-agent/core";
 import type { OmniTui, SlashCommand } from "../interaction/tui/tui";
 import { createSkillsCommand } from "../commands/skills";
 import { renderSkillReadEnd, renderSkillReadStart } from "./skill-renderer";
@@ -19,29 +7,26 @@ export interface SkillCliControllerOptions {
   skillRuntime: SkillRuntime;
   commandRegistry: CommandRegistry;
   tui: OmniTui;
-  agentConfig: AgentConfig;
-  buildSystemPrompt: () => Promise<string>;
+  refreshInstructions: () => Promise<void>;
 }
 
 export class SkillCliController {
   private readonly skillRuntime: SkillRuntime;
   private readonly commandRegistry: CommandRegistry;
   private readonly tui: OmniTui;
-  private readonly agentConfig: AgentConfig;
-  private readonly buildSystemPrompt: () => Promise<string>;
+  private readonly refreshInstructions: () => Promise<void>;
 
   constructor(options: SkillCliControllerOptions) {
     this.skillRuntime = options.skillRuntime;
     this.commandRegistry = options.commandRegistry;
     this.tui = options.tui;
-    this.agentConfig = options.agentConfig;
-    this.buildSystemPrompt = options.buildSystemPrompt;
+    this.refreshInstructions = options.refreshInstructions;
   }
 
   registerCommands(): void {
     this.commandRegistry.register(
       createSkillsCommand(this.skillRuntime.registry, async () => {
-        this.agentConfig.systemPrompt = await this.buildSystemPrompt();
+        await this.refreshInstructions();
         this.refreshAutocomplete();
       }),
     );
@@ -83,73 +68,4 @@ export class SkillCliController {
       modelInput: preload.modelInput,
     };
   }
-
-  shouldSuppressToolPreview(toolName: string): boolean {
-    return toolName === SKILL_TOOL_NAME;
-  }
-
-  streamCallbacks(): Pick<StreamCallbacks, "onExtensionEvent"> {
-    return {
-      onExtensionEvent: (event) => this.handleExtensionEvent(event),
-    };
-  }
-
-  private handleExtensionEvent(event: ExtensionEvent): void {
-    if (event.namespace !== SkillEventNamespace.Skill) return;
-
-    if (event.event === SkillEventName.ReadStart) {
-      const skillName = getString(event.payload, "skillName");
-      this.tui.sink.line();
-      renderSkillReadStart(this.tui.sink, skillName);
-      this.tui.setStatus(`reading skill: ${skillName}...`);
-      return;
-    }
-
-    if (event.event === SkillEventName.ReadEnd) {
-      renderSkillReadEnd(this.tui.sink, {
-        skillName: getString(event.payload, "skillName"),
-        status: getSkillReadStatus(event.payload),
-        source: getSkillSource(event.payload.source),
-        filePath: getOptionalString(event.payload, "filePath"),
-        durationMs: getOptionalNumber(event.payload, "durationMs"),
-        tokenEstimate: getOptionalNumber(event.payload, "tokenEstimate"),
-        error: getOptionalString(event.payload, "error"),
-      });
-      this.tui.setStatus("thinking...");
-    }
-  }
-}
-
-function getString(payload: Record<string, unknown>, key: string): string {
-  const value = payload[key];
-  return typeof value === "string" ? value : "";
-}
-
-function getOptionalString(payload: Record<string, unknown>, key: string): string | undefined {
-  const value = payload[key];
-  return typeof value === "string" ? value : undefined;
-}
-
-function getOptionalNumber(payload: Record<string, unknown>, key: string): number | undefined {
-  const value = payload[key];
-  return typeof value === "number" ? value : undefined;
-}
-
-function getSkillReadStatus(payload: Record<string, unknown>): "loaded" | "cached" | "failed" {
-  const status = payload.status;
-  if (status === SkillReadStatus.Cached || status === SkillReadStatus.Failed) return status;
-  return SkillReadStatus.Loaded;
-}
-
-function getSkillSource(value: unknown): SkillSource | undefined {
-  if (!value || typeof value !== "object") return undefined;
-  const scope = (value as { scope?: unknown }).scope;
-  if (
-    scope !== SkillSourceScope.Project &&
-    scope !== SkillSourceScope.User &&
-    scope !== SkillSourceScope.Plugin
-  ) {
-    return undefined;
-  }
-  return value as SkillSource;
 }

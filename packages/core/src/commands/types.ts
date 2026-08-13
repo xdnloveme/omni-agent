@@ -1,17 +1,9 @@
-import type { AgentConfig } from "../types";
-
-/**
- * Minimal TUI interface that commands can use.
- * The full OmniTui in cli satisfies this contract.
- */
-export interface CommandTui {
+export interface CommandInteractionPort {
   pause(): void;
   resume(): void;
-  select?(options: CommandSelectionOptions, signal?: AbortSignal): Promise<CommandSelectionResult>;
-  sink: {
-    line(text?: string): void;
-    spacer(): void;
-  };
+  select(options: CommandSelectionOptions, signal?: AbortSignal): Promise<CommandSelectionResult>;
+  line(text?: string): void;
+  spacer(): void;
 }
 
 export interface CommandSelectionOptions {
@@ -35,8 +27,7 @@ export type CommandSelectionResult =
 
 export interface CommandContext {
   args: string;
-  agentConfig: AgentConfig;
-  tui: CommandTui;
+  interaction: CommandInteractionPort;
 }
 
 export interface Command {

@@ -507,3 +507,41 @@ grep parses ripgrep JSON into file size, line, column, and bounded preview facts
 publish the facts in structured metadata and LLM-visible text. The coding Agent chooses
 file-read ranges from those facts; search tools do not invoke file reads, and file reads
 do not consume hidden search state.
+
+## Stream presentation boundary
+
+User-visible streaming follows one direction:
+
+```text
+Tool / Context / Model Cache
+  -> immutable Core event DTO
+  -> StreamSession callbacks
+  -> CLI StreamPresentationRouter
+  -> feature presenters
+  -> pure ViewModel
+  -> generic TUI component
+```
+
+Core owns event facts and never terminal wording. The CLI presenters own correlation,
+labels, sanitization, bounded formatting, and responsive metrics. `DisclosureMessage`
+only renders `DisclosureViewModel`; it does not import Agent packages, App services,
+Context decisions, tool names, or compression kinds. AgentLoop only bridges Context
+progress through an asynchronous queue while `prepare()` is pending. It neither
+classifies compression nor calculates cache metrics.
+
+File tools publish a generic canonical resource reference in transient tool-result
+presentation metadata. The ToolCall boundary removes that presentation field before
+forming Transcript details, preserving the Session JSONL contract. A collapsed tool card
+therefore needs only a path; its bounded, sanitized input and captured result are formatted
+only on first expansion. Expansion never reads the filesystem again.
+
+Context compression publishes a single lifecycle per Context preparation. Micro and Heavy
+stages report only domain operations to a Pipeline-owned collector; the collector emits one
+started event and one terminal completed/failed event. Stable replay, threshold skips,
+cache deferral, and no-candidate paths emit nothing. These events are observation-only and
+never enter Session, Model Context, or checkpoint storage.
+
+Commands depend on Core's `CommandInteractionPort`, not a TUI type or `AgentConfig`.
+Skill reload asks `AgentApplication.refreshInstructions()` to rebuild instructions; CLI
+code does not mutate runtime configuration. Skill tool-event claiming lives exclusively
+in `SkillStreamPresenter`, so generic Tool presentation contains no Skill special case.

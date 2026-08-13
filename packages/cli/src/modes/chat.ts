@@ -1,6 +1,6 @@
 import chalk from "chalk";
 
-import type { StreamCallbacks, TokenUsage } from "@omni-agent/core";
+import type { CommandInteractionPort } from "@omni-agent/core";
 import { AgentFactory, ConfigService, createModelService } from "@omni-agent/app";
 import { loadAgentBlueprint } from "../agents/agent-blueprint-loader";
 import { createOmniTui } from "../interaction/tui/tui";
@@ -8,6 +8,8 @@ import { persistOnboardingSelection, runOnboarding } from "../onboarding";
 import { createCommandRegistry } from "../commands/index";
 import { SkillCliController } from "../skills";
 import { TuiApprovalBroker } from "../permissions/tui-approval-broker";
+import { SkillStreamPresenter } from "../presentation/skill-stream-presenter";
+import { StreamPresentationRouter } from "../presentation/stream-presentation-router";
 
 export async function runChatMode(agentId: string): Promise<void> {
   const configService = new ConfigService();
@@ -46,28 +48,19 @@ export async function runChatMode(agentId: string): Promise<void> {
       approvalBroker: new TuiApprovalBroker(tui),
     }).create(blueprint);
     const app = instance.application;
-    const agentConfig = app.agentConfig;
     const skillCapability = instance.capabilities.skills;
 
     const registry = createCommandRegistry(app);
     let activeAbort: AbortController | null = null;
     let running = false;
 
-    /** Format context usage line with color */
-    function formatContextLine(usage: TokenUsage): string {
-      const pct = Math.round((usage.inputTokens / usage.contextWindow) * 100);
-      const inputStr = `${usage.estimated ? "~" : ""}${usage.inputTokens.toLocaleString()}`;
-      const windowStr = usage.contextWindow.toLocaleString();
-      const text = `Context: ${inputStr} / ${windowStr} tokens (${pct}%)`;
-
-      if (pct > 80) {
-        return chalk.red(text);
-      } else if (pct >= 50) {
-        return chalk.yellow(text);
-      } else {
-        return chalk.dim(text);
-      }
-    }
+    const commandInteraction: CommandInteractionPort = {
+      pause: () => tui.pause(),
+      resume: () => tui.resume(),
+      select: (options, signal) => tui.select(options, signal),
+      line: (text) => tui.sink.line(text),
+      spacer: () => tui.sink.spacer(),
+    };
 
     // Register /new command
     registry.register({
@@ -75,8 +68,8 @@ export async function runChatMode(agentId: string): Promise<void> {
       description: "Start a new conversation session",
       async execute(ctx) {
         await app.newSession();
-        ctx.tui.sink.line(chalk.green("New session started."));
-        ctx.tui.sink.spacer();
+        ctx.interaction.line(chalk.green("New session started."));
+        ctx.interaction.spacer();
       },
     });
 
@@ -86,8 +79,8 @@ export async function runChatMode(agentId: string): Promise<void> {
       description: "Clear current session history",
       async execute(ctx) {
         await app.clearSession();
-        ctx.tui.sink.line(chalk.green("Session history cleared."));
-        ctx.tui.sink.spacer();
+        ctx.interaction.line(chalk.green("Session history cleared."));
+        ctx.interaction.spacer();
       },
     });
 
@@ -96,8 +89,7 @@ export async function runChatMode(agentId: string): Promise<void> {
           skillRuntime: skillCapability.runtime,
           commandRegistry: registry,
           tui,
-          agentConfig,
-          buildSystemPrompt: skillCapability.buildSystemPrompt,
+          refreshInstructions: () => app.refreshInstructions(),
         })
       : undefined;
     skillController?.registerCommands();
@@ -138,7 +130,7 @@ export async function runChatMode(agentId: string): Promise<void> {
         if (command) {
           tui.appendUserMessage(input);
           try {
-            await command.execute({ args, agentConfig, tui });
+            await command.execute({ args, interaction: commandInteraction });
           } catch (error) {
             if (!(error instanceof Error && error.name === "AbortError")) {
               tui.sink.line(
@@ -192,45 +184,18 @@ export async function runChatMode(agentId: string): Promise<void> {
       tui.appendUserMessage(displayInput);
       tui.setStatus(chalk.cyan("thinking..."));
 
-      // Build TUI callbacks for the application event stream
-      const tuiCallbacks: StreamCallbacks = {
-        onTextChunk(delta) {
-          tui.sink.writeMarkdown(delta);
-        },
-        onToolStart(toolName, toolCallId, toolInput) {
-          if (skillController?.shouldSuppressToolPreview(toolName)) return;
-          tui.sink.toolStart(toolName, toolCallId, toolInput);
-          tui.setStatus(chalk.cyan(`running: ${toolName}...`));
-        },
-        onToolEnd(toolName, toolCallId, result, durationMs) {
-          if (skillController?.shouldSuppressToolPreview(toolName)) return;
-          tui.sink.toolEnd(toolCallId, result, durationMs);
-          tui.sink.spacer();
-          tui.setStatus(chalk.cyan("thinking..."));
-        },
-        onDone(usage) {
-          tui.sink.line();
-          if (usage) {
-            tui.sink.line(formatContextLine(usage));
-          }
-          tui.sink.spacer();
-        },
-        onError(error) {
-          tui.sink.line();
-          tui.sink.line(chalk.red(`Error: ${error}`));
-          tui.sink.spacer();
-        },
-        ...skillController?.streamCallbacks(),
-      };
+      const skillPresenter = skillController ? new SkillStreamPresenter(tui) : undefined;
+      const streamPresenter = new StreamPresentationRouter(tui, skillPresenter);
 
       try {
-        await app.run(modelInput, tuiCallbacks, activeAbort.signal);
+        await app.run(modelInput, streamPresenter.callbacks(), activeAbort.signal);
       } catch (err) {
         if (!(err instanceof Error && err.name === "AbortError")) {
           tui.sink.line(chalk.red(`Error: ${err instanceof Error ? err.message : String(err)}`));
           tui.sink.spacer();
         }
       } finally {
+        streamPresenter.cancelPending();
         running = false;
         activeAbort = null;
         tui.setStatus(chalk.dim("omni-agent | Ctrl+C to exit"));

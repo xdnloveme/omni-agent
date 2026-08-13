@@ -26,7 +26,8 @@ import {
 } from "@omni-agent/core";
 import { InlineSelect } from "./inline-select";
 import { MarkdownMessage } from "./markdown-message";
-import { ToolMessage, type ToolMessageResult } from "./tool-message";
+import { DisclosureMessage } from "./disclosure-message";
+import type { DisclosureViewModel, RunMetricsViewModel } from "../../presentation/view-models";
 
 const selectListTheme: SelectListTheme = {
   selectedPrefix: (text) => chalk.bold(chalk.blue(`> ${text}`)),
@@ -60,16 +61,15 @@ const markdownTheme: MarkdownTheme = {
 };
 
 const MARKDOWN_THROTTLE_MS = 50;
-const TOOL_RESULT_PREVIEW_MS = 1200;
-
+const DISCLOSURE_TICK_MS = 1_000;
 export interface TuiSink {
   write(text: string): void;
   writeMarkdown(text: string): void;
   line(text?: string): void;
   spacer(): void;
   flush(): void;
-  toolStart(toolName: string, toolCallId: string, input: Record<string, unknown>): void;
-  toolEnd(toolCallId: string, result: ToolMessageResult, durationMs: number): void;
+  disclosure(viewModel: DisclosureViewModel): void;
+  metrics(viewModel: RunMetricsViewModel): void;
 }
 
 export interface SlashCommand {
@@ -132,8 +132,9 @@ export function createOmniTui(): OmniTui {
   let markdownTimer: NodeJS.Timeout | null = null;
   let activeText: Text | null = null;
   let textBuffer = "";
-  const toolMessages = new Map<string, ToolMessage>();
-  const toolPreviewTimers = new Set<NodeJS.Timeout>();
+  const disclosureMessages = new Map<string, DisclosureMessage>();
+  const runningDisclosures = new Set<string>();
+  let disclosureTimer: NodeJS.Timeout | null = null;
 
   // Exit confirmation
   let exitPending = false;
@@ -247,32 +248,52 @@ export function createOmniTui(): OmniTui {
     flush() {
       flushMarkdown();
     },
-    toolStart(toolName: string, toolCallId: string, input: Record<string, unknown>) {
+    disclosure(viewModel: DisclosureViewModel) {
+      updateDisclosureTicker(viewModel);
+      const existing = disclosureMessages.get(viewModel.id);
+      if (existing) {
+        existing.update(viewModel);
+        ui.requestRender(true);
+        return;
+      }
       sink.line();
-      const linkUrl = `omni-agent://tool/${encodeURIComponent(toolCallId)}`;
-      const message = new ToolMessage(toolName, input, linkUrl);
-      toolMessages.set(toolCallId, message);
+      const linkUrl = `omni-agent://disclosure/${encodeURIComponent(viewModel.id)}`;
+      const message = new DisclosureMessage(viewModel, linkUrl);
+      disclosureMessages.set(viewModel.id, message);
       internalLinks.set(linkUrl, () => {
-        message.toggleDetails();
+        message.toggle();
         ui.requestRender(true);
       });
       messageContainer.addChild(message);
       ui.requestRender();
     },
-    toolEnd(toolCallId: string, result: ToolMessageResult, durationMs: number) {
-      const message = toolMessages.get(toolCallId);
-      if (!message) return;
-      const shouldAutoCollapse = message.finish(result, durationMs);
-      ui.requestRender();
-      if (!shouldAutoCollapse) return;
-      const timer = setTimeout(() => {
-        toolPreviewTimers.delete(timer);
-        message.collapsePreview();
-        ui.requestRender(true);
-      }, TOOL_RESULT_PREVIEW_MS);
-      toolPreviewTimers.add(timer);
+    metrics(viewModel: RunMetricsViewModel) {
+      const width = ui.terminal.columns || 80;
+      const text =
+        width >= 90 ? viewModel.full : width >= 55 ? viewModel.compact : viewModel.minimal;
+      sink.line(
+        viewModel.usagePercent > 80
+          ? chalk.red(text)
+          : viewModel.usagePercent >= 50
+            ? chalk.yellow(text)
+            : chalk.dim(text),
+      );
     },
   };
+
+  function updateDisclosureTicker(viewModel: DisclosureViewModel): void {
+    if (viewModel.state === "running") runningDisclosures.add(viewModel.id);
+    else runningDisclosures.delete(viewModel.id);
+
+    if (runningDisclosures.size > 0 && !disclosureTimer) {
+      disclosureTimer = setInterval(() => ui.requestRender(true), DISCLOSURE_TICK_MS);
+      return;
+    }
+    if (runningDisclosures.size === 0 && disclosureTimer) {
+      clearInterval(disclosureTimer);
+      disclosureTimer = null;
+    }
+  }
 
   // Global input handler
   ui.addInputListener((data: string) => {
@@ -347,9 +368,10 @@ export function createOmniTui(): OmniTui {
     closed = true;
     if (exitTimer) clearTimeout(exitTimer);
     if (markdownTimer) clearTimeout(markdownTimer);
-    for (const timer of toolPreviewTimers) clearTimeout(timer);
-    toolPreviewTimers.clear();
+    if (disclosureTimer) clearInterval(disclosureTimer);
     internalLinks.clear();
+    disclosureMessages.clear();
+    runningDisclosures.clear();
     if (sigtermListener) {
       process.removeListener("SIGTERM", sigtermListener);
       sigtermListener = null;

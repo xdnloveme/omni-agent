@@ -29,6 +29,9 @@ import {
 } from "../context/compression/prompt";
 import { validateCheckpointSummary } from "../context/compression/summary";
 
+const progress = { publish() {} };
+const compression = { begin() {}, record() {} };
+
 function gateOptions(
   estimator: ApproximateContextTokenEstimator,
   frame: ReturnType<typeof createContextFrame>,
@@ -44,6 +47,7 @@ function gateOptions(
       .map((entry) => entry.message),
     precedingStages: [],
     estimate: estimator.estimate(frame),
+    compression,
   };
 }
 
@@ -234,6 +238,7 @@ describe("Context policy pipeline", () => {
       modelCallId: "call-1",
       middlewareDigest: "middleware",
       sourceMessages: [{ role: "user", content: "hello", timestamp: 1 }],
+      progress,
     });
 
     expect(order).toEqual(["first", "second", "final"]);
@@ -242,6 +247,7 @@ describe("Context policy pipeline", () => {
     expect(result.stages).toHaveLength(3);
     expect(Object.keys(receivedOptions!).sort()).toEqual([
       "agentId",
+      "compression",
       "estimate",
       "modelCallId",
       "sessionId",
@@ -273,6 +279,7 @@ describe("Context policy pipeline", () => {
       modelCallId: "call-1",
       middlewareDigest: "middleware",
       sourceMessages,
+      progress,
     });
 
     expect(result.frame.entries).toEqual(source.entries);
@@ -306,6 +313,7 @@ describe("Context policy pipeline", () => {
       },
     ]).flat();
     const source = frame(messages, 100_000);
+    const progressEvents: unknown[] = [];
     const pipeline = new ContextPolicyPipeline(
       [
         stableMicro(projections, estimator, {
@@ -323,10 +331,20 @@ describe("Context policy pipeline", () => {
       modelCallId: "call-1",
       middlewareDigest: "middleware",
       sourceMessages: messages,
+      progress: { publish: (event) => progressEvents.push(event) },
     });
 
     expect(generate).toHaveBeenCalled();
     expect(result.frame.entries[0]).toMatchObject({ kind: "checkpoint" });
+    expect(progressEvents).toEqual([
+      expect.objectContaining({ type: "compression_started", startedKind: "heavy_checkpoint" }),
+      expect.objectContaining({
+        type: "compression_completed",
+        report: expect.objectContaining({
+          operations: [expect.objectContaining({ kind: "heavy_checkpoint", action: "create" })],
+        }),
+      }),
+    ]);
   });
 });
 
@@ -343,13 +361,17 @@ describe("StableMicroCompressionStage", () => {
     }));
     const source = frame(messages, 100_000);
     const estimator = new ApproximateContextTokenEstimator();
-    const result = await stableMicro(projections, estimator).apply(
-      source,
-      gateOptions(estimator, source),
-    );
+    const begin = vi.fn();
+    const record = vi.fn();
+    const result = await stableMicro(projections, estimator).apply(source, {
+      ...gateOptions(estimator, source),
+      compression: { begin, record },
+    });
 
     expect(projections.commit).toHaveBeenCalledOnce();
     expect(projections.artifacts).toHaveLength(2);
+    expect(begin).toHaveBeenCalledWith("artifact_projection");
+    expect(record).toHaveBeenCalledWith({ kind: "artifact_projection", affectedCount: 2 });
     expect(result.frame.entries.map((entry) => entry.kind)).toEqual([
       "toolResultArtifact",
       "toolResultArtifact",

@@ -3,6 +3,6 @@ export type {
   CommandContext,
   CommandSelectionOptions,
   CommandSelectionResult,
-  CommandTui,
+  CommandInteractionPort,
 } from "./types";
 export { CommandRegistry } from "./registry";

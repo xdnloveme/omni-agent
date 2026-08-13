@@ -37,6 +37,9 @@ describe("fileReadTool", () => {
     expect(result.content[0].text).toContain("1|line1");
     expect(result.content[0].text).toContain("2|line2");
     expect(result.content[0].text).toContain("3|line3");
+    expect(result.meta?.presentation).toEqual({
+      resource: { kind: "file", path: await fs.realpath(filePath) },
+    });
   });
 
   it("should respect offset and limit", async () => {

@@ -6,6 +6,7 @@ import type {
   TranscriptMessage,
 } from "../../messages";
 import type { ModelToolSpec } from "../../models/runtime";
+import type { ContextCompressionReporterPort, ContextProgressSinkPort } from "./progress";
 
 export interface ContextConversationSource {
   readonly messages: readonly TranscriptMessage[];
@@ -41,6 +42,7 @@ export interface ContextPolicyStageOptions {
   readonly sessionId: string;
   readonly modelCallId: string;
   readonly estimate: ContextTokenEstimate;
+  readonly compression: ContextCompressionReporterPort;
   readonly signal?: AbortSignal;
 }
 
@@ -74,6 +76,7 @@ export interface ContextPolicyResolveOptions {
   readonly sessionRevision: number;
   readonly middlewareDigest: string;
   readonly sourceMessages: readonly TranscriptMessage[];
+  readonly progress: ContextProgressSinkPort;
   readonly signal?: AbortSignal;
 }
 

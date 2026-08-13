@@ -72,6 +72,7 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
           capability,
           decision,
           comparison,
+          inputTokens: usage.input,
           cacheReadTokens: usage.cacheRead,
           cacheWriteTokens: usage.cacheWrite,
         });
@@ -100,6 +101,7 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
           capability,
           decision,
           comparison,
+          inputTokens: 0,
           cacheReadTokens: 0,
           cacheWriteTokens: 0,
         }),
@@ -119,9 +121,18 @@ function createReport(input: {
   readonly capability: ModelCacheCapability;
   readonly decision: ReturnType<ModelCachePolicyPort["resolve"]>;
   readonly comparison: ModelCacheComparison;
+  readonly inputTokens: number;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
 }): ModelCacheReport {
+  const totalPromptTokens = input.inputTokens + input.cacheReadTokens + input.cacheWriteTokens;
+  const cacheHitRate =
+    input.outcome === "success" &&
+    input.capability.mode !== "none" &&
+    input.decision.directive.retention !== "none" &&
+    totalPromptTokens > 0
+      ? input.cacheReadTokens / totalPromptTokens
+      : undefined;
   return {
     outcome: input.outcome,
     modelCallId: input.options.identity.modelCallId,
@@ -136,6 +147,8 @@ function createReport(input: {
     ...input.comparison,
     cacheReadTokens: input.cacheReadTokens,
     cacheWriteTokens: input.cacheWriteTokens,
+    inputTokens: input.inputTokens,
+    ...(cacheHitRate === undefined ? {} : { cacheHitRate }),
     reason: input.decision.reason ?? lifecycleReason(input.comparison.lifecycle),
     createdAt: Date.now(),
   };

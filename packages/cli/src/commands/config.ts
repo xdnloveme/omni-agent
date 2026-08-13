@@ -9,7 +9,7 @@ export function createConfigCommand(app: AgentApplication): Command {
     name: "config",
     description: "Reconfigure model provider and credential",
     async execute(ctx) {
-      ctx.tui.pause();
+      ctx.interaction.pause();
       let updated = false;
       try {
         const action = await select({
@@ -47,13 +47,13 @@ export function createConfigCommand(app: AgentApplication): Command {
           ),
         );
       } finally {
-        ctx.tui.resume();
+        ctx.interaction.resume();
       }
       if (updated)
-        ctx.tui.sink.line(
+        ctx.interaction.line(
           chalk.green(`Configuration updated. Using ${app.modelSelection.vendorId} now.`),
         );
-      ctx.tui.sink.spacer();
+      ctx.interaction.spacer();
     },
   };
 }

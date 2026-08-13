@@ -91,6 +91,7 @@ function request(middleware: readonly ContextMiddlewarePort[] = [], sourceMessag
       tools: [tool()],
       model: { modelId: "test-model", contextWindow: 128_000, maxOutputTokens: 4_096 },
       middleware,
+      progress: { publish() {} },
     }),
   };
 }
@@ -132,6 +133,7 @@ describe("context ownership", () => {
       tools: [registeredTool],
       model: { modelId: "model", contextWindow: 10, maxOutputTokens: 2 },
       middleware: [],
+      progress: { publish() {} },
     });
     const draft = createContextDraft(preparation);
 

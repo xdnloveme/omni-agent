@@ -27,7 +27,6 @@ import { createContextRuntime } from "../context/contextRuntime";
 
 export interface SkillCapability {
   readonly runtime: SkillRuntime;
-  readonly buildSystemPrompt: () => Promise<string>;
 }
 
 export interface AgentCapabilities {

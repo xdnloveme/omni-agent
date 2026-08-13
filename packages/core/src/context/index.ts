@@ -74,4 +74,12 @@ export type {
   ToolResultArtifactEntry,
   TranscriptContextEntry,
 } from "./contracts/types";
+export type {
+  ContextCompressionKind,
+  ContextCompressionOperationSummary,
+  ContextCompressionReport,
+  ContextCompressionReporterPort,
+  ContextProgressEvent,
+  ContextProgressSinkPort,
+} from "./contracts/progress";
 export type { ContextCheckpoint } from "./checkpoints/types";

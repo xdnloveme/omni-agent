@@ -7,10 +7,9 @@ export function createPermissionsCommand(app: AgentApplication): Command {
     name: "permissions",
     description: "Manage permission mode and persistent approvals",
     async execute(ctx) {
-      if (!ctx.tui.select) throw new Error("Permission settings require an interactive TUI");
       const mode = await app.getPermissionMode();
       const approvals = await app.listPersistentApprovals();
-      const actionResult = await ctx.tui.select({
+      const actionResult = await ctx.interaction.select({
         title: "Permissions",
         detail: `Agent: ${app.agentId}\nMode: ${mode}`,
         items: [
@@ -40,7 +39,7 @@ export function createPermissionsCommand(app: AgentApplication): Command {
       if (actionResult.kind === "escape") return;
       const action = actionResult.value;
       if (action === "mode") {
-        const selectedResult = await ctx.tui.select({
+        const selectedResult = await ctx.interaction.select({
           title: "Permission mode",
           detail: `Agent: ${app.agentId}`,
           items: [
@@ -57,16 +56,16 @@ export function createPermissionsCommand(app: AgentApplication): Command {
         const selected = selectedResult.kind === "selected" ? selectedResult.value : undefined;
         if (selected === "standard" || selected === "supervised") {
           await app.setPermissionMode(selected);
-          ctx.tui.sink.line(chalk.green(`Permission mode changed to ${selected}.`));
+          ctx.interaction.line(chalk.green(`Permission mode changed to ${selected}.`));
         }
       } else if (action === "clear") {
         await app.clearPersistentApprovals();
-        ctx.tui.sink.line(chalk.green("Persistent approvals cleared."));
+        ctx.interaction.line(chalk.green("Persistent approvals cleared."));
       } else if (action.startsWith("revoke:")) {
         await app.revokePersistentApproval(action.slice("revoke:".length));
-        ctx.tui.sink.line(chalk.green("Persistent approval revoked."));
+        ctx.interaction.line(chalk.green("Persistent approval revoked."));
       }
-      ctx.tui.sink.spacer();
+      ctx.interaction.spacer();
     },
   };
 }

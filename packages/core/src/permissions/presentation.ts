@@ -25,6 +25,10 @@ export function sanitizePermissionLabel(label: string): string {
   return redact(sanitize(label, MAX_LABEL_LENGTH));
 }
 
+export function sanitizeSensitiveText(value: string, maxLength = MAX_DETAIL_LENGTH): string {
+  return redact(sanitize(value, maxLength));
+}
+
 export function sanitizeSensitiveValue(
   value: unknown,
   hiddenKeys: readonly string[] = [],
@@ -33,7 +37,7 @@ export function sanitizeSensitiveValue(
   let fields = 0;
   const visit = (current: unknown, depth: number): unknown => {
     if (depth > MAX_DEPTH) return "[TRUNCATED]";
-    if (typeof current === "string") return redact(sanitize(current, MAX_DETAIL_LENGTH));
+    if (typeof current === "string") return sanitizeSensitiveText(current);
     if (current === null || typeof current !== "object") return current;
     if (Array.isArray(current))
       return current.slice(0, MAX_FIELDS).map((item) => visit(item, depth + 1));
