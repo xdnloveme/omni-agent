@@ -24,7 +24,47 @@ export interface AgentToolDefinition {
   timeout: ToolTimeoutPolicy;
   authorization: ToolAuthorizationDescriptor;
   execution: ToolExecutionStrategy;
+  invocation?: ToolInvocationPresentation;
   execute: (params: Record<string, unknown>, context: ToolExecutionContext) => Promise<ToolResult>;
+}
+
+export type ToolInvocationAction =
+  "invoke" | "execute" | "read" | "edit" | "write" | "search" | "fetch";
+
+export type ToolInvocationResourceKind = "file" | "command" | "url" | "text";
+
+export interface ToolInvocationPresentation {
+  readonly action: ToolInvocationAction;
+  readonly resource?: {
+    readonly kind: ToolInvocationResourceKind;
+    readonly inputKey: string;
+  };
+}
+
+export interface ToolInvocationPreview {
+  readonly action: ToolInvocationAction;
+  readonly resource?: {
+    readonly kind: ToolInvocationResourceKind;
+    readonly value: string;
+  };
+}
+
+export interface ToolBatchPosition {
+  readonly batchId: string;
+  readonly index: number;
+  readonly total: number;
+}
+
+export interface ToolBatchMember {
+  readonly toolName: string;
+  readonly toolCallId: string;
+  readonly preview: ToolInvocationPreview;
+}
+
+export interface ToolBatchDescriptor {
+  readonly batchId: string;
+  readonly modelCallId: string;
+  readonly members: readonly ToolBatchMember[];
 }
 
 export interface RegisteredAgentTool extends AgentToolDefinition {
@@ -88,14 +128,29 @@ export type AgentEvent =
   | { type: "model_context_prepared"; manifest: ModelContextSnapshotManifest }
   | { type: "model_cache_report"; report: ModelCacheReport }
   | { type: "context_progress"; event: ContextProgressEvent }
-  | { type: "tool_start"; toolName: string; toolCallId: string; input: Record<string, unknown> }
+  | { type: "tool_batch_started"; batch: ToolBatchDescriptor }
+  | {
+      type: "tool_start";
+      toolName: string;
+      toolCallId: string;
+      input: Record<string, unknown>;
+      preview: ToolInvocationPreview;
+      batch: ToolBatchPosition;
+    }
   | {
       type: "tool_end";
       toolName: string;
       toolCallId: string;
       result: ToolResult;
       durationMs: number;
+      batch: ToolBatchPosition;
       metrics?: import("./tool-calls/types").ToolCallMetrics;
+    }
+  | {
+      type: "tool_batch_completed";
+      batchId: string;
+      modelCallId: string;
+      durationMs: number;
     }
   | ExtensionEvent
   | {

@@ -31,6 +31,7 @@ function makeTool(name = "test_tool"): RegisteredAgentTool {
     toolIdentity: `test:${name}`,
     authorization: { kind: "static", risk: "read", reason: "test" },
     execution: { kind: "host" },
+    invocation: { action: "execute", resource: { kind: "command", inputKey: "input" } },
     timeout: { kind: "none" },
     description: "A test tool",
     schema: { type: "object", properties: { input: { type: "string" } } },
@@ -309,7 +310,7 @@ describe("runAgentLoop", () => {
     }
   });
 
-  it("should handle tool call flow: tool_start → tool_end → continue → done", async () => {
+  it("emits a correlated tool batch around the tool lifecycle", async () => {
     const tool = makeTool("bash");
     const config = makeConfig({ tools: [tool] });
 
@@ -353,6 +354,32 @@ describe("runAgentLoop", () => {
 
     const events = await collectEvents(executeLoop(config, makeMessages("Run a command")));
 
+    const lifecycle = events
+      .filter((event) => event.type.startsWith("tool_"))
+      .map((event) => event.type);
+    expect(lifecycle).toEqual([
+      "tool_batch_started",
+      "tool_start",
+      "tool_end",
+      "tool_batch_completed",
+    ]);
+    const batchStarted = events.find((event) => event.type === "tool_batch_started");
+    expect(batchStarted).toMatchObject({
+      type: "tool_batch_started",
+      batch: {
+        members: [
+          {
+            toolName: "bash",
+            toolCallId: "call_1",
+            preview: {
+              action: "execute",
+              resource: { kind: "command", value: "test" },
+            },
+          },
+        ],
+      },
+    });
+
     // Verify tool_start and tool_end events
     const toolStart = events.find((e) => e.type === "tool_start");
     expect(toolStart).toBeDefined();
@@ -360,6 +387,7 @@ describe("runAgentLoop", () => {
       type: "tool_start",
       toolName: "bash",
       toolCallId: "call_1",
+      batch: { index: 0, total: 1 },
     });
 
     const toolEnd = events.find((e) => e.type === "tool_end");
@@ -368,6 +396,7 @@ describe("runAgentLoop", () => {
       type: "tool_end",
       toolName: "bash",
       toolCallId: "call_1",
+      batch: { index: 0, total: 1 },
       result: { content: [{ type: "text", text: "tool result" }], isError: false },
     });
 

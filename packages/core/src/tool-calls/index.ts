@@ -16,3 +16,4 @@ export type {
   ToolCallRequest,
   ValidatedToolResult,
 } from "./types";
+export { projectToolInvocationPreview } from "./invocation-preview";

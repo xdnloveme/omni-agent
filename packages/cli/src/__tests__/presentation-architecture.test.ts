@@ -61,6 +61,7 @@ describe("stream presentation architecture", () => {
     expect(combined.match(/class\s+StreamPresentationRouter\b/g)).toHaveLength(1);
     expect(combined.match(/class\s+CompressionEventPresenter\b/g)).toHaveLength(1);
     expect(combined.match(/class\s+ToolEventPresenter\b/g)).toHaveLength(1);
+    expect(combined.match(/class\s+ToolBatchPresenter\b/g)).toHaveLength(1);
     expect(combined.match(/cacheReadTokens\s*\/\s*totalPromptTokens/g)).toHaveLength(1);
   });
 

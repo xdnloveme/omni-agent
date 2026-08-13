@@ -14,6 +14,7 @@ import { cloneTranscriptMessage } from "./messages";
 import { createContextPreparationRequest } from "./agent/contextInput";
 import { WorkingConversation } from "./agent/workingConversation";
 import { createContextPreparationStream } from "./agent/contextPreparationStream";
+import { createToolBatchDescriptor } from "./agent/toolBatch";
 
 export interface AgentLoopOptions {
   /** Optional StreamSession for state-machine-driven event dispatch */
@@ -190,9 +191,23 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     );
     loopProtection.beginToolBatch(toolCalls);
     const toolResultMessages: TranscriptMessage[] = [];
+    const batchStartedAt = Date.now();
+    const batch = createToolBatchDescriptor(
+      toolCalls,
+      config.tools,
+      preparedContext.manifest.modelCallId,
+    );
+    const batchStartedEvent: AgentEvent = {
+      type: "tool_batch_started",
+      batch: cloneData(batch),
+    };
+    session?.handle({ type: "tool_batch_started", batch: cloneData(batch) });
+    yield batchStartedEvent;
 
-    for (const call of toolCalls) {
+    for (const [index, call] of toolCalls.entries()) {
       throwIfAborted(signal);
+      const position = { batchId: batch.batchId, index, total: toolCalls.length };
+      const preview = batch.members[index]!.preview;
 
       let result: import("./tool-calls").ValidatedToolResult | undefined;
       for await (const event of toolCallCoordinator.run(
@@ -206,25 +221,43 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         },
       )) {
         if (event.type === "tool_start") {
+          const toolStartEvent: AgentEvent = {
+            type: "tool_start",
+            toolName: event.toolName,
+            toolCallId: event.toolCallId,
+            input: cloneData(event.input),
+            preview: cloneData(preview),
+            batch: { ...position },
+          };
           session?.handle({
             type: "tool_use_start",
             toolName: event.toolName,
             toolCallId: event.toolCallId,
-            input: event.input,
+            input: cloneData(event.input),
+            preview: cloneData(preview),
+            batch: { ...position },
           });
+          yield toolStartEvent;
         } else if (event.type === "tool_end") {
           result = event.result;
+          const toolEndEvent: AgentEvent = {
+            ...event,
+            result: cloneData(event.result),
+            batch: { ...position },
+          };
           session?.handle({
             type: "tool_use_end",
             toolName: event.toolName,
             toolCallId: event.toolCallId,
-            result: event.result,
+            result: cloneData(event.result),
             durationMs: event.durationMs,
+            batch: { ...position },
           });
+          yield toolEndEvent;
         } else {
           session?.handle(event);
+          yield event;
         }
-        yield event;
       }
       throwIfAborted(signal);
       if (!result) throw new Error(`Tool call completed without a result: ${call.name}`);
@@ -248,6 +281,15 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       };
       toolResultMessages.push(toolResultMsg);
     }
+
+    const batchCompletedEvent: AgentEvent = {
+      type: "tool_batch_completed",
+      batchId: batch.batchId,
+      modelCallId: preparedContext.manifest.modelCallId,
+      durationMs: Math.max(0, Date.now() - batchStartedAt),
+    };
+    session?.handle(batchCompletedEvent);
+    yield batchCompletedEvent;
 
     const loopDecision = loopProtection.completeToolBatch();
     for (const message of toolResultMessages) conversation.append(message);

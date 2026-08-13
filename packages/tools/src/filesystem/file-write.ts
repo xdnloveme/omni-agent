@@ -31,6 +31,7 @@ export const fileWriteTool: AgentToolDefinition = {
     hiddenInputKeys: ["content"],
   },
   execution: { kind: "host" },
+  invocation: { action: "write", resource: { kind: "file", inputKey: "file_path" } },
   timeout: { kind: "none" },
   description:
     "Create or completely overwrite a UTF-8 text file.\n\n" +

@@ -11,6 +11,7 @@ import type { DisclosureViewModel } from "../../presentation/view-models";
 export class DisclosureMessage implements Component {
   private expanded: boolean;
   private cachedDetails: readonly string[] | undefined;
+  private readonly children = new Map<string, DisclosureMessage>();
 
   constructor(
     private viewModel: DisclosureViewModel,
@@ -18,17 +19,27 @@ export class DisclosureMessage implements Component {
     private readonly now: () => number = Date.now,
   ) {
     this.expanded = viewModel.initiallyExpanded;
+    this.syncChildren(viewModel.children ?? []);
   }
 
   update(viewModel: DisclosureViewModel): void {
+    if (this.viewModel === viewModel) return;
     this.viewModel = viewModel;
     this.cachedDetails = undefined;
     if (viewModel.initiallyExpanded) this.expanded = true;
+    this.syncChildren(viewModel.children ?? []);
   }
 
-  toggle(): void {
+  toggle(targetId: string = this.viewModel.id): boolean {
+    if (targetId !== this.viewModel.id) {
+      for (const child of this.children.values()) {
+        if (child.toggle(targetId)) return true;
+      }
+      return false;
+    }
     this.expanded = !this.expanded;
     if (this.expanded && !this.cachedDetails) this.cachedDetails = this.viewModel.details();
+    return true;
   }
 
   invalidate(): void {}
@@ -50,13 +61,37 @@ export class DisclosureMessage implements Component {
     for (const detail of this.cachedDetails) {
       lines.push(...indentWrapped(chalk.dim(detail), safeWidth, chalk.dim("│ ")));
     }
+    for (const child of this.children.values()) {
+      for (const line of child.render(Math.max(20, safeWidth - 2))) {
+        lines.push(`│ ${line}`);
+      }
+    }
     lines.push(chalk.dim("└─ click to collapse"));
     return lines;
+  }
+
+  private syncChildren(viewModels: readonly DisclosureViewModel[]): void {
+    const retained = new Set(viewModels.map((viewModel) => viewModel.id));
+    for (const id of this.children.keys()) {
+      if (!retained.has(id)) this.children.delete(id);
+    }
+    for (const viewModel of viewModels) {
+      const child = this.children.get(viewModel.id);
+      if (child) child.update(viewModel);
+      else {
+        this.children.set(
+          viewModel.id,
+          new DisclosureMessage(viewModel, disclosureUrl(viewModel.id), this.now),
+        );
+      }
+    }
   }
 }
 
 function renderState(viewModel: DisclosureViewModel, now: number): string {
   switch (viewModel.state) {
+    case "waiting":
+      return chalk.dim("waiting");
     case "running": {
       const elapsed =
         viewModel.startedAt === undefined ? 0 : Math.max(0, now - viewModel.startedAt);
@@ -70,6 +105,10 @@ function renderState(viewModel: DisclosureViewModel, now: number): string {
     case "cancelled":
       return chalk.yellow("cancelled");
   }
+}
+
+export function disclosureUrl(id: string): string {
+  return `omni-agent://disclosure/${encodeURIComponent(id)}`;
 }
 
 function formatElapsed(durationMs: number): string {

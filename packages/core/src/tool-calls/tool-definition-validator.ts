@@ -3,6 +3,16 @@ import { ToolInputValidator } from "./tool-input-validator";
 
 const TOOL_NAME = /^[a-z][a-z0-9_-]*$/;
 const MAX_TIMER_MS = 2_147_483_647;
+const INVOCATION_ACTIONS = new Set([
+  "invoke",
+  "execute",
+  "read",
+  "edit",
+  "write",
+  "search",
+  "fetch",
+]);
+const INVOCATION_RESOURCE_KINDS = new Set(["file", "command", "url", "text"]);
 
 export class ToolDefinitionValidator {
   constructor(private readonly inputValidator = new ToolInputValidator()) {}
@@ -33,8 +43,43 @@ export class ToolDefinitionValidator {
     validateTimeout(tool);
     validateAuthorization(tool);
     validateExecution(tool);
+    validateInvocationPresentation(tool);
     if (typeof tool.execute !== "function")
       throw new Error(`Tool execute is required: ${tool.name}`);
+  }
+}
+
+function validateInvocationPresentation(tool: AgentToolDefinition): void {
+  const presentation = tool.invocation;
+  if (presentation === undefined) return;
+  if (
+    !presentation ||
+    typeof presentation !== "object" ||
+    !INVOCATION_ACTIONS.has(presentation.action)
+  ) {
+    throw new Error(`Invalid tool invocation action: ${tool.name}`);
+  }
+  const resource = presentation.resource;
+  if (resource === undefined) return;
+  if (
+    !resource ||
+    typeof resource !== "object" ||
+    !INVOCATION_RESOURCE_KINDS.has(resource.kind) ||
+    typeof resource.inputKey !== "string" ||
+    !resource.inputKey
+  ) {
+    throw new Error(`Invalid tool invocation resource: ${tool.name}`);
+  }
+  const property = schemaProperty(tool, resource.inputKey);
+  if (!property || typeof property !== "object" || Array.isArray(property)) {
+    throw new Error(
+      `Tool invocation resource schema is missing: ${tool.name}.${resource.inputKey}`,
+    );
+  }
+  if ((property as Record<string, unknown>).type !== "string") {
+    throw new Error(
+      `Tool invocation resource must reference a string: ${tool.name}.${resource.inputKey}`,
+    );
   }
 }
 
@@ -69,11 +114,7 @@ function validateTimeout(tool: AgentToolDefinition): void {
   ) {
     throw new Error(`Invalid input tool timeout: ${tool.name}`);
   }
-  const properties = tool.schema.properties;
-  const property =
-    properties && typeof properties === "object" && !Array.isArray(properties)
-      ? (properties as Record<string, unknown>)[timeout.parameter]
-      : undefined;
+  const property = schemaProperty(tool, timeout.parameter);
   if (!property || typeof property !== "object" || Array.isArray(property)) {
     throw new Error(`Timeout schema property is missing: ${tool.name}.${timeout.parameter}`);
   }
@@ -85,6 +126,13 @@ function validateTimeout(tool: AgentToolDefinition): void {
   ) {
     throw new Error(`Timeout policy does not match schema: ${tool.name}.${timeout.parameter}`);
   }
+}
+
+function schemaProperty(tool: AgentToolDefinition, name: string): unknown {
+  const properties = tool.schema.properties;
+  return properties && typeof properties === "object" && !Array.isArray(properties)
+    ? (properties as Record<string, unknown>)[name]
+    : undefined;
 }
 
 function validateAuthorization(tool: AgentToolDefinition): void {

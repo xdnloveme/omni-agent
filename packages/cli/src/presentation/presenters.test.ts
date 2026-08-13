@@ -2,11 +2,17 @@ import { describe, expect, it } from "vitest";
 import { CompressionEventPresenter } from "./compression-event-presenter";
 import { RunMetricsPresenter } from "./run-metrics-presenter";
 import { ToolEventPresenter } from "./tool-event-presenter";
+import { ToolBatchPresenter } from "./tool-batch-presenter";
 
 describe("CLI stream presenters", () => {
   it("keeps file details lazy and replaces the provisional path with the canonical resource", () => {
     const presenter = new ToolEventPresenter();
-    const start = presenter.start("file_read", "call", { file_path: "src/a.ts" });
+    const start = presenter.start(
+      "file_read",
+      "call",
+      { file_path: "src/a.ts" },
+      { action: "read", resource: { kind: "file", value: "src/a.ts" } },
+    );
     expect(start.summary).toBe("src/a.ts");
     const completed = presenter.complete(
       "call",
@@ -26,11 +32,138 @@ describe("CLI stream presenters", () => {
 
   it("closes an unfinished tool disclosure when its run is cancelled", () => {
     const presenter = new ToolEventPresenter(() => 1_000);
-    presenter.start("bash", "call", { command: "sleep 10" });
+    presenter.start(
+      "bash",
+      "call",
+      { command: "sleep 10" },
+      { action: "execute", resource: { kind: "command", value: "sleep 10" } },
+    );
     expect(presenter.cancelPending()).toEqual([
       expect.objectContaining({ id: "tool:call", state: "cancelled" }),
     ]);
     expect(presenter.cancelPending()).toEqual([]);
+  });
+
+  it("cancels one pending tool exactly once without adding a batch wrapper", () => {
+    const presenter = new ToolBatchPresenter(() => 1_000);
+    presenter.start({
+      batchId: "batch",
+      modelCallId: "call",
+      members: [
+        {
+          toolName: "bash",
+          toolCallId: "tool",
+          preview: { action: "execute" },
+        },
+      ],
+    });
+    presenter.toolStarted(
+      "bash",
+      "tool",
+      { command: "sleep 10" },
+      { action: "execute" },
+      { batchId: "batch", index: 0, total: 1 },
+    );
+
+    expect(presenter.cancelPending()).toEqual([
+      expect.objectContaining({ id: "tool:tool", state: "cancelled" }),
+    ]);
+  });
+
+  it("counts failed children as finished while a batch continues", () => {
+    const presenter = new ToolBatchPresenter(() => 1_000);
+    presenter.start({
+      batchId: "batch",
+      modelCallId: "call",
+      members: [
+        { toolName: "bash", toolCallId: "one", preview: { action: "execute" } },
+        { toolName: "bash", toolCallId: "two", preview: { action: "execute" } },
+      ],
+    });
+    presenter.toolStarted(
+      "bash",
+      "one",
+      { command: "false" },
+      { action: "execute" },
+      { batchId: "batch", index: 0, total: 2 },
+    );
+    const failed = presenter.toolCompleted(
+      "one",
+      { content: [{ type: "text", text: "failed" }], isError: true },
+      10,
+      { batchId: "batch", index: 0, total: 2 },
+    );
+
+    expect(failed).toMatchObject({ summary: "1/2 done · 1 failed", initiallyExpanded: true });
+  });
+
+  it("progressively groups multiple tools while leaving child disclosures intact", () => {
+    const presenter = new ToolBatchPresenter(() => 1_000);
+    const started = presenter.start({
+      batchId: "batch",
+      modelCallId: "model-call",
+      members: [
+        {
+          toolName: "bash",
+          toolCallId: "bash-1",
+          preview: {
+            action: "execute",
+            resource: { kind: "command", value: "pnpm test" },
+          },
+        },
+        {
+          toolName: "file_read",
+          toolCallId: "read-1",
+          preview: {
+            action: "read",
+            resource: { kind: "file", value: "src/index.ts" },
+          },
+        },
+      ],
+    });
+    expect(started).toMatchObject({
+      id: "tool-batch:batch",
+      summary: "0/2 done",
+      state: "running",
+    });
+    expect(started?.children?.map((child) => child.state)).toEqual(["waiting", "waiting"]);
+
+    const running = presenter.toolStarted(
+      "bash",
+      "bash-1",
+      { command: "pnpm test" },
+      { action: "execute", resource: { kind: "command", value: "pnpm test" } },
+      { batchId: "batch", index: 0, total: 2 },
+    );
+    expect(running?.summary).toContain("running pnpm test");
+
+    const progressed = presenter.toolCompleted(
+      "bash-1",
+      { content: [{ type: "text", text: "passed" }], isError: false },
+      800,
+      { batchId: "batch", index: 0, total: 2 },
+    );
+    expect(progressed?.summary).toBe("1/2 done");
+
+    presenter.toolStarted(
+      "file_read",
+      "read-1",
+      { file_path: "src/index.ts" },
+      { action: "read", resource: { kind: "file", value: "src/index.ts" } },
+      { batchId: "batch", index: 1, total: 2 },
+    );
+    presenter.toolCompleted(
+      "read-1",
+      { content: [{ type: "text", text: "content" }], isError: false },
+      20,
+      { batchId: "batch", index: 1, total: 2 },
+    );
+    const completed = presenter.complete("batch", "model-call", 1_200);
+    expect(completed).toMatchObject({
+      state: "completed",
+      summary: "2 completed · bash, file_read · 1.2s",
+    });
+    expect(completed?.children?.map((child) => child.state)).toEqual(["completed", "completed"]);
   });
 
   it("maps one compression lifecycle to one stable disclosure id", () => {

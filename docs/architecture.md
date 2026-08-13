@@ -535,6 +535,20 @@ forming Transcript details, preserving the Session JSONL contract. A collapsed t
 therefore needs only a path; its bounded, sanitized input and captured result are formatted
 only on first expansion. Expansion never reads the filesystem again.
 
+One Assistant `toolUse` response defines one Tool Batch. Core emits an immutable batch
+descriptor, correlated child positions, and one completion event; it does not infer a
+batch from timing. Tool definitions may declare a bounded semantic invocation preview
+using an action, resource kind, and input key. This declaration is validated at tool
+registration and excluded from `ModelToolSpec`. Tools never provide terminal wording.
+
+The CLI `ToolBatchPresenter` applies Composite presentation: a single visible tool keeps
+its existing disclosure, while two or more visible tools become one progressively updated
+group. The collapsed group previews the currently executing operation and its elapsed
+time. Expanding it renders the existing child disclosures, which remain independently
+clickable and lazy. Skill-owned calls may be claimed by `SkillStreamPresenter` and are
+excluded from the generic group without changing the Core batch. Batch events and preview
+facts never enter Session, Working Conversation, Model Context, or Provider requests.
+
 Context compression publishes a single lifecycle per Context preparation. Micro and Heavy
 stages report only domain operations to a Pipeline-owned collector; the collector emits one
 started event and one terminal completed/failed event. Stable replay, threshold skips,

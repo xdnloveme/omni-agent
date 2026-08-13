@@ -25,6 +25,7 @@ export const bashTool: AgentToolDefinition = {
   },
   authorization: { kind: "dynamic", assess: assessBashPermission },
   execution: { kind: "sandbox_eligible", profile: "shell" },
+  invocation: { action: "execute", resource: { kind: "command", inputKey: "command" } },
   description:
     "Execute Bash source from the current execution directory and return its stdout/stderr.\n\n" +
     "Usage:\n" +

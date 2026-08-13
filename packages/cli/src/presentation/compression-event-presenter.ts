@@ -4,6 +4,7 @@ import type {
   ContextProgressEvent,
 } from "@omni-agent/core";
 import type { DisclosureViewModel } from "./view-models";
+import { formatDuration } from "./format";
 
 const TYPE_LABELS: Record<ContextCompressionKind, { full: string; compact: string }> = {
   artifact_projection: { full: "Artifact projection", compact: "Artifact" },
@@ -112,7 +113,7 @@ function completedDetails(report: {
   lines.push(
     `tokens: ${report.beforeTokens.toLocaleString()} → ${report.afterTokens.toLocaleString()}`,
     `reduction: ${(report.reductionRatio * 100).toFixed(1)}%`,
-    `duration: ${report.durationMs >= 1_000 ? `${(report.durationMs / 1_000).toFixed(1)}s` : `${report.durationMs}ms`}`,
+    `duration: ${formatDuration(report.durationMs)}`,
   );
   return lines;
 }

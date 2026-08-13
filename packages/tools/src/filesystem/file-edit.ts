@@ -32,6 +32,7 @@ export const fileEditTool: AgentToolDefinition = {
   }),
   authorization: createFilePathPermission({ parameter: "file_path", access: "write" }),
   execution: { kind: "host" },
+  invocation: { action: "edit", resource: { kind: "file", inputKey: "file_path" } },
   timeout: { kind: "none" },
   description:
     "Perform one exact, whitespace-sensitive replacement in a UTF-8 text file.\n\n" +

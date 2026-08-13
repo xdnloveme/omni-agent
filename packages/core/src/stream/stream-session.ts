@@ -45,11 +45,17 @@ export class StreamSession {
       case "context_progress":
         this.notify(() => this._callbacks.onContextProgress?.(cloneData(event.event)));
         break;
+      case "tool_batch_started":
+        this.notify(() => this._callbacks.onToolBatchStart?.(cloneData(event)));
+        break;
       case "tool_use_start":
-        this.handleToolStart(event.toolName, event.toolCallId, event.input);
+        this.handleToolStart(event);
         break;
       case "tool_use_end":
-        this.handleToolEnd(event.toolName, event.toolCallId, event.result, event.durationMs);
+        this.handleToolEnd(event);
+        break;
+      case "tool_batch_completed":
+        this.notify(() => this._callbacks.onToolBatchEnd?.(cloneData(event)));
         break;
       case "extension_event":
         this.handleExtensionEvent(event);
@@ -100,41 +106,38 @@ export class StreamSession {
     this.notify(() => this._callbacks.onTextChunk?.(delta));
   }
 
-  private handleToolStart(
-    toolName: string,
-    toolCallId: string,
-    input: Record<string, unknown>,
-  ): void {
+  private handleToolStart(event: import("./types").ToolUseStartEvent): void {
     this.transitionTo("streaming");
     this._messages.push({
       type: "tool_call",
-      content: toolName,
+      content: event.toolName,
       timestamp: Date.now(),
-      meta: { toolCallId, input },
+      meta: {
+        toolCallId: event.toolCallId,
+        input: event.input,
+        preview: event.preview,
+        batch: event.batch,
+      },
     });
-    this.notify(() => this._callbacks.onToolStart?.(toolName, toolCallId, cloneData(input)));
+    this.notify(() => this._callbacks.onToolStart?.(cloneData(event)));
   }
 
-  private handleToolEnd(
-    toolName: string,
-    toolCallId: string,
-    result: {
-      content: Array<{ type: "text"; text: string }>;
-      isError: boolean;
-      meta?: Record<string, unknown>;
-    },
-    durationMs: number,
-  ): void {
+  private handleToolEnd(event: import("./types").ToolUseEndEvent): void {
     // Stay in streaming — more events may follow
     this._messages.push({
       type: "tool_result",
-      content: result.content.map((c) => c.text).join("\n"),
+      content: event.result.content.map((c) => c.text).join("\n"),
       timestamp: Date.now(),
-      meta: { toolCallId, toolName, isError: result.isError, durationMs, resultMeta: result.meta },
+      meta: {
+        toolCallId: event.toolCallId,
+        toolName: event.toolName,
+        isError: event.result.isError,
+        durationMs: event.durationMs,
+        resultMeta: event.result.meta,
+        batch: event.batch,
+      },
     });
-    this.notify(() =>
-      this._callbacks.onToolEnd?.(toolName, toolCallId, cloneData(result), durationMs),
-    );
+    this.notify(() => this._callbacks.onToolEnd?.(cloneData(event)));
   }
 
   private handleExtensionEvent(event: ExtensionEvent): void {

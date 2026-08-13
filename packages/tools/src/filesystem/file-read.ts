@@ -25,6 +25,7 @@ export const fileReadTool: AgentToolDefinition = {
   }),
   authorization: createFilePathPermission({ parameter: "file_path", access: "read" }),
   execution: { kind: "host" },
+  invocation: { action: "read", resource: { kind: "file", inputKey: "file_path" } },
   timeout: { kind: "none" },
   description:
     "Read a UTF-8 text file with bounded, version-consistent pagination.\n\n" +

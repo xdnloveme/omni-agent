@@ -22,6 +22,7 @@ export const globTool: AgentToolDefinition = {
   }),
   authorization: createSearchPathPermission("dir_path"),
   execution: { kind: "host" },
+  invocation: { action: "search", resource: { kind: "text", inputKey: "pattern" } },
   timeout: { kind: "none" },
   description:
     "Fast file pattern matching tool for discovering files by name or path pattern.\n\n" +

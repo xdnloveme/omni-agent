@@ -6,7 +6,12 @@
  */
 
 import type { ExtensionEvent } from "../extension-events";
-import type { TokenUsage } from "../types";
+import type {
+  TokenUsage,
+  ToolBatchDescriptor,
+  ToolBatchPosition,
+  ToolInvocationPreview,
+} from "../types";
 import type { ContextProgressEvent, ModelContextSnapshotManifest } from "../context";
 import type { ModelCacheReport } from "../models/cache";
 
@@ -17,11 +22,18 @@ export interface TextDeltaEvent {
 }
 
 /** A tool invocation has started */
+export interface ToolBatchStartedEvent {
+  type: "tool_batch_started";
+  batch: ToolBatchDescriptor;
+}
+
 export interface ToolUseStartEvent {
   type: "tool_use_start";
   toolName: string;
   toolCallId: string;
   input: Record<string, unknown>;
+  preview: ToolInvocationPreview;
+  batch: ToolBatchPosition;
 }
 
 /** A tool invocation has completed */
@@ -30,6 +42,14 @@ export interface ToolUseEndEvent {
   toolName: string;
   toolCallId: string;
   result: ToolResultPayload;
+  durationMs: number;
+  batch: ToolBatchPosition;
+}
+
+export interface ToolBatchCompletedEvent {
+  type: "tool_batch_completed";
+  batchId: string;
+  modelCallId: string;
   durationMs: number;
 }
 
@@ -66,8 +86,10 @@ export type StreamEvent =
   | ModelContextPreparedEvent
   | ModelCacheReportEvent
   | ContextProgressStreamEvent
+  | ToolBatchStartedEvent
   | ToolUseStartEvent
   | ToolUseEndEvent
+  | ToolBatchCompletedEvent
   | ExtensionEvent
   | DoneEvent
   | ErrorEvent;
@@ -90,13 +112,10 @@ export interface StreamCallbacks {
   onModelContextPrepared?: (manifest: ModelContextSnapshotManifest) => void;
   onModelCacheReport?: (report: ModelCacheReport) => void;
   onContextProgress?: (event: ContextProgressEvent) => void;
-  onToolStart?: (toolName: string, toolCallId: string, input: Record<string, unknown>) => void;
-  onToolEnd?: (
-    toolName: string,
-    toolCallId: string,
-    result: ToolResultPayload,
-    durationMs: number,
-  ) => void;
+  onToolBatchStart?: (event: ToolBatchStartedEvent) => void;
+  onToolStart?: (event: ToolUseStartEvent) => void;
+  onToolEnd?: (event: ToolUseEndEvent) => void;
+  onToolBatchEnd?: (event: ToolBatchCompletedEvent) => void;
   onExtensionEvent?: (event: ExtensionEvent) => void;
   onDone?: (usage?: TokenUsage) => void;
   onError?: (error: string) => void;

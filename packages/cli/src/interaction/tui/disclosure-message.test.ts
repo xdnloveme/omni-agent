@@ -63,4 +63,72 @@ describe("DisclosureMessage", () => {
     now = 4_200;
     expect(message.render(80).join("\n")).toContain("running… 3s");
   });
+
+  it("renders nested disclosures and toggles a child independently", () => {
+    const message = new DisclosureMessage(
+      {
+        id: "tool-batch:1",
+        title: "Tools",
+        state: "completed",
+        tone: "success",
+        details: () => [],
+        initiallyExpanded: true,
+        children: [
+          {
+            id: "tool:1",
+            title: "bash",
+            state: "completed",
+            tone: "success",
+            details: () => ["output: passed"],
+            initiallyExpanded: false,
+          },
+        ],
+      },
+      "omni-agent://disclosure/tool-batch%3A1",
+    );
+
+    expect(message.render(100).join("\n")).toContain("bash");
+    expect(message.render(100).join("\n")).not.toContain("output: passed");
+    expect(message.toggle("tool:1")).toBe(true);
+    expect(message.render(100).join("\n")).toContain("output: passed");
+  });
+
+  it("preserves a child detail cache when only its parent batch changes", () => {
+    const details = vi.fn(() => ["cached detail"]);
+    const child = {
+      id: "tool:1",
+      title: "bash",
+      state: "completed" as const,
+      tone: "success" as const,
+      details,
+      initiallyExpanded: true,
+    };
+    const message = new DisclosureMessage(
+      {
+        id: "tool-batch:1",
+        title: "Tools",
+        summary: "1/2 done",
+        state: "running",
+        tone: "neutral",
+        details: () => [],
+        initiallyExpanded: true,
+        children: [child],
+      },
+      "omni-agent://disclosure/tool-batch%3A1",
+    );
+    message.render(100);
+    message.update({
+      id: "tool-batch:1",
+      title: "Tools",
+      summary: "running next tool",
+      state: "running",
+      tone: "neutral",
+      details: () => [],
+      initiallyExpanded: true,
+      children: [child],
+    });
+    message.render(100);
+
+    expect(details).toHaveBeenCalledTimes(1);
+  });
 });

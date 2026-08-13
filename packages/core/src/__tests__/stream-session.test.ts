@@ -28,6 +28,12 @@ function cacheReport() {
   };
 }
 
+const batch = { batchId: "batch", index: 0, total: 1 } as const;
+const preview = {
+  action: "execute" as const,
+  resource: { kind: "command" as const, value: "ls" },
+};
+
 describe("StreamSession", () => {
   let callbacks: Required<StreamCallbacks>;
   let session: StreamSession;
@@ -38,8 +44,10 @@ describe("StreamSession", () => {
       onModelContextPrepared: vi.fn(),
       onModelCacheReport: vi.fn(),
       onContextProgress: vi.fn(),
+      onToolBatchStart: vi.fn(),
       onToolStart: vi.fn(),
       onToolEnd: vi.fn(),
+      onToolBatchEnd: vi.fn(),
       onExtensionEvent: vi.fn(),
       onDone: vi.fn(),
       onError: vi.fn(),
@@ -172,6 +180,8 @@ describe("StreamSession", () => {
         toolName: "bash",
         toolCallId: "call_1",
         input: { command: "ls" },
+        preview,
+        batch,
       });
       expect(session.state).toBe("streaming");
     });
@@ -182,8 +192,17 @@ describe("StreamSession", () => {
         toolName: "bash",
         toolCallId: "call_1",
         input: { command: "ls" },
+        preview,
+        batch,
       });
-      expect(callbacks.onToolStart).toHaveBeenCalledWith("bash", "call_1", { command: "ls" });
+      expect(callbacks.onToolStart).toHaveBeenCalledWith({
+        type: "tool_use_start",
+        toolName: "bash",
+        toolCallId: "call_1",
+        input: { command: "ls" },
+        preview,
+        batch,
+      });
     });
 
     it("records tool_call in accumulated messages", () => {
@@ -192,12 +211,19 @@ describe("StreamSession", () => {
         toolName: "bash",
         toolCallId: "call_1",
         input: { command: "ls" },
+        preview,
+        batch,
       });
       const msgs = session.getAccumulatedMessages();
       expect(msgs).toHaveLength(1);
       expect(msgs[0].type).toBe("tool_call");
       expect(msgs[0].content).toBe("bash");
-      expect(msgs[0].meta).toEqual({ toolCallId: "call_1", input: { command: "ls" } });
+      expect(msgs[0].meta).toEqual({
+        toolCallId: "call_1",
+        input: { command: "ls" },
+        preview,
+        batch,
+      });
     });
   });
 
@@ -210,8 +236,16 @@ describe("StreamSession", () => {
         toolCallId: "call_1",
         result,
         durationMs: 150,
+        batch,
       });
-      expect(callbacks.onToolEnd).toHaveBeenCalledWith("bash", "call_1", result, 150);
+      expect(callbacks.onToolEnd).toHaveBeenCalledWith({
+        type: "tool_use_end",
+        toolName: "bash",
+        toolCallId: "call_1",
+        result,
+        durationMs: 150,
+        batch,
+      });
     });
 
     it("records tool_result in accumulated messages", () => {
@@ -221,6 +255,7 @@ describe("StreamSession", () => {
         toolCallId: "call_1",
         result: { content: [{ type: "text", text: "output" }], isError: false },
         durationMs: 100,
+        batch,
       });
       const msgs = session.getAccumulatedMessages();
       expect(msgs).toHaveLength(1);
@@ -234,9 +269,9 @@ describe("StreamSession", () => {
         isError: false,
         meta: { presentation: { resource: { kind: "file" as const, path: "/workspace/a.ts" } } },
       };
-      vi.mocked(callbacks.onToolEnd).mockImplementation((_tool, _call, received) => {
-        received.content[0].text = "mutated";
-        (received.meta!.presentation!.resource as { path: string }).path = "/mutated";
+      vi.mocked(callbacks.onToolEnd).mockImplementation((event) => {
+        event.result.content[0].text = "mutated";
+        (event.result.meta!.presentation!.resource as { path: string }).path = "/mutated";
       });
       session.handle({
         type: "tool_use_end",
@@ -244,6 +279,7 @@ describe("StreamSession", () => {
         toolCallId: "call_1",
         result,
         durationMs: 1,
+        batch,
       });
       expect(result.content[0].text).toBe("original");
       expect(result.meta.presentation.resource.path).toBe("/workspace/a.ts");
@@ -321,6 +357,8 @@ describe("StreamSession", () => {
         toolName: "bash",
         toolCallId: "c1",
         input: { cmd: "ls" },
+        preview,
+        batch,
       });
       session.handle({
         type: "tool_use_end",
@@ -328,6 +366,7 @@ describe("StreamSession", () => {
         toolCallId: "c1",
         result: { content: [{ type: "text", text: "file.txt" }], isError: false },
         durationMs: 50,
+        batch,
       });
       session.handle({ type: "text_delta", delta: "Found file.txt" });
       session.handle({ type: "done" });

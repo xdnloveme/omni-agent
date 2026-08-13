@@ -26,7 +26,7 @@ import {
 } from "@omni-agent/core";
 import { InlineSelect } from "./inline-select";
 import { MarkdownMessage } from "./markdown-message";
-import { DisclosureMessage } from "./disclosure-message";
+import { DisclosureMessage, disclosureUrl } from "./disclosure-message";
 import type { DisclosureViewModel, RunMetricsViewModel } from "../../presentation/view-models";
 
 const selectListTheme: SelectListTheme = {
@@ -96,6 +96,14 @@ export function createOmniTui(): OmniTui {
   const terminal = new ProcessTerminal();
   const ui = new TuiAltScreen(terminal, true, undefined, {
     openUrl(url) {
+      if (url.startsWith("omni-agent://disclosure/")) {
+        const targetId = decodeURIComponent(url.slice("omni-agent://disclosure/".length));
+        for (const message of disclosureMessages.values()) {
+          if (!message.toggle(targetId)) continue;
+          ui.requestRender(true);
+          return;
+        }
+      }
       internalLinks.get(url)?.();
     },
   });
@@ -257,13 +265,9 @@ export function createOmniTui(): OmniTui {
         return;
       }
       sink.line();
-      const linkUrl = `omni-agent://disclosure/${encodeURIComponent(viewModel.id)}`;
+      const linkUrl = disclosureUrl(viewModel.id);
       const message = new DisclosureMessage(viewModel, linkUrl);
       disclosureMessages.set(viewModel.id, message);
-      internalLinks.set(linkUrl, () => {
-        message.toggle();
-        ui.requestRender(true);
-      });
       messageContainer.addChild(message);
       ui.requestRender();
     },

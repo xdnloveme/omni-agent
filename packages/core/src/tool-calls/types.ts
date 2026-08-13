@@ -1,6 +1,5 @@
 import type { ToolExecutionMiddleware } from "../middleware";
 import type { ToolLifecycleAdapter } from "../tool-lifecycle";
-import type { AgentEvent } from "../types";
 import type { JsonValue } from "../data";
 import type { ToolResult } from "../types";
 
@@ -29,13 +28,19 @@ export interface ValidatedToolResult extends Omit<ToolResult, "meta"> {
   readonly transcriptDetails?: Record<string, JsonValue>;
 }
 
-type BaseToolCallEvent = Extract<
-  AgentEvent,
-  { type: "tool_start" | "tool_end" | "extension_event" }
->;
-
 export type ToolCallEvent =
-  | Exclude<BaseToolCallEvent, { type: "tool_end" }>
-  | (Omit<Extract<BaseToolCallEvent, { type: "tool_end" }>, "result"> & {
+  | {
+      readonly type: "tool_start";
+      readonly toolName: string;
+      readonly toolCallId: string;
+      readonly input: Record<string, unknown>;
+    }
+  | {
+      readonly type: "tool_end";
+      readonly toolName: string;
+      readonly toolCallId: string;
       readonly result: ValidatedToolResult;
-    });
+      readonly durationMs: number;
+      readonly metrics?: ToolCallMetrics;
+    }
+  | import("../extension-events").ExtensionEvent;

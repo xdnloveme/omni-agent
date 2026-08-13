@@ -27,6 +27,7 @@ export const grepTool: AgentToolDefinition = {
   }),
   authorization: createSearchPathPermission("search_path"),
   execution: { kind: "host" },
+  invocation: { action: "search", resource: { kind: "text", inputKey: "regex" } },
   timeout: { kind: "none" },
   description:
     "Search file contents with ripgrep and return structured match locations.\n\n" +

@@ -30,6 +30,7 @@ export const webFetchTool: AgentToolDefinition = {
     valueKind: "url",
   }),
   execution: { kind: "host" },
+  invocation: { action: "fetch", resource: { kind: "url", inputKey: "url" } },
   timeout: { kind: "none" },
   strict: true,
   description:

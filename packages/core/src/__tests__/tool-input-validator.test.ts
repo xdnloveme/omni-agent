@@ -25,7 +25,7 @@ describe("ToolInputValidator", () => {
   });
 });
 
-describe("ToolDefinitionValidator timeout policy", () => {
+describe("ToolDefinitionValidator", () => {
   const tool = (): AgentToolDefinition => ({
     name: "test",
     description: "test tool",
@@ -76,6 +76,18 @@ describe("ToolDefinitionValidator timeout policy", () => {
     invalid.timeout = { kind: "fixed", timeoutMs: 2_147_483_648 };
     expect(() => new ToolDefinitionValidator().validate(invalid)).toThrow(
       "Invalid fixed tool timeout",
+    );
+  });
+
+  it("requires an invocation resource to reference a string schema property", () => {
+    const invalid = tool();
+    invalid.invocation = {
+      action: "execute",
+      resource: { kind: "command", inputKey: "timeout_ms" },
+    };
+
+    expect(() => new ToolDefinitionValidator().validate(invalid)).toThrow(
+      "Tool invocation resource must reference a string",
     );
   });
 });

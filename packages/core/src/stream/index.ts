@@ -5,6 +5,8 @@ export type {
   TextDeltaEvent,
   ModelContextPreparedEvent,
   ModelCacheReportEvent,
+  ToolBatchStartedEvent,
+  ToolBatchCompletedEvent,
   ToolUseStartEvent,
   ToolUseEndEvent,
   DoneEvent,

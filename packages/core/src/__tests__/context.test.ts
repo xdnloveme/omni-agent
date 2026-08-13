@@ -64,6 +64,7 @@ function tool(): RegisteredAgentTool {
     toolIdentity: "test:inspect",
     authorization: { kind: "static", risk: "read", reason: "test" },
     execution: { kind: "host" },
+    invocation: { action: "read", resource: { kind: "file", inputKey: "path" } },
     timeout: { kind: "none" },
     async execute() {
       return { content: [{ type: "text", text: "ok" }], isError: false };
@@ -161,6 +162,7 @@ describe("context ownership", () => {
     ).toBe("changed");
     expect(toolArguments(preparation.source.messages[1]).path).toBe("context-source");
     expect("execute" in preparation.tools[0]).toBe(false);
+    expect("invocation" in preparation.tools[0]).toBe(false);
   });
 
   it("runs middleware serially and isolates every returned draft", async () => {

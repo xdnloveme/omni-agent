@@ -52,6 +52,7 @@ export const webSearchTool: AgentToolDefinition = {
     valueKind: "text",
   }),
   execution: { kind: "host" },
+  invocation: { action: "search", resource: { kind: "text", inputKey: "query" } },
   timeout: { kind: "none" },
   strict: true,
   description:

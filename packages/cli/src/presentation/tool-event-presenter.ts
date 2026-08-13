@@ -3,13 +3,16 @@ import {
   sanitizeSensitiveText,
   type ToolResultPresentationData,
   type ToolResultMetadata,
+  type ToolInvocationPreview,
 } from "@omni-agent/core";
 import type { DisclosureViewModel } from "./view-models";
+import { previewResource } from "./tool-preview";
+import { formatDuration } from "./format";
 
 const MAX_OUTPUT_CHARS = 50_000;
 const MAX_OUTPUT_LINES = 200;
 
-interface ToolResultView {
+export interface ToolResultView {
   readonly content: readonly { readonly type: "text"; readonly text: string }[];
   readonly isError: boolean;
   readonly meta?: ToolResultMetadata;
@@ -18,18 +21,43 @@ interface ToolResultView {
 export class ToolEventPresenter {
   private readonly calls = new Map<
     string,
-    { readonly toolName: string; readonly input: Record<string, unknown> }
+    {
+      readonly toolName: string;
+      readonly input: Record<string, unknown>;
+      readonly preview: ToolInvocationPreview;
+    }
   >();
 
   constructor(private readonly now: () => number = Date.now) {}
 
-  start(toolName: string, toolCallId: string, input: Record<string, unknown>): DisclosureViewModel {
-    const ownedInput = structuredClone(input);
-    this.calls.set(toolCallId, { toolName, input: ownedInput });
+  waiting(
+    toolName: string,
+    toolCallId: string,
+    preview: ToolInvocationPreview,
+  ): DisclosureViewModel {
     return {
       id: `tool:${toolCallId}`,
       title: toolName,
-      summary: provisionalResourcePath(ownedInput),
+      summary: previewResource(preview),
+      state: "waiting",
+      tone: "neutral",
+      details: () => [],
+      initiallyExpanded: false,
+    };
+  }
+
+  start(
+    toolName: string,
+    toolCallId: string,
+    input: Record<string, unknown>,
+    preview: ToolInvocationPreview,
+  ): DisclosureViewModel {
+    const ownedInput = structuredClone(input);
+    this.calls.set(toolCallId, { toolName, input: ownedInput, preview: structuredClone(preview) });
+    return {
+      id: `tool:${toolCallId}`,
+      title: toolName,
+      summary: previewResource(preview),
       state: "running",
       startedAt: this.now(),
       tone: "neutral",
@@ -48,7 +76,7 @@ export class ToolEventPresenter {
     this.calls.delete(toolCallId);
     const ownedResult = structuredClone(result);
     const path = resourcePath(ownedResult.meta?.presentation);
-    const resource = path ?? provisionalResourcePath(call.input);
+    const resource = path ?? previewResource(call.preview);
     return {
       id: `tool:${toolCallId}`,
       title: call.toolName,
@@ -64,7 +92,7 @@ export class ToolEventPresenter {
     const cancelled = [...this.calls.entries()].map(([toolCallId, call]) => ({
       id: `tool:${toolCallId}`,
       title: call.toolName,
-      summary: provisionalResourcePath(call.input),
+      summary: previewResource(call.preview),
       state: "cancelled" as const,
       tone: "warning" as const,
       details: () => [...toolDetails(call.input), "reason: run cancelled"],
@@ -73,12 +101,6 @@ export class ToolEventPresenter {
     this.calls.clear();
     return cancelled;
   }
-}
-
-function provisionalResourcePath(input: Record<string, unknown>): string | undefined {
-  return typeof input.file_path === "string" && input.file_path
-    ? sanitizeSensitiveText(input.file_path, 4_096)
-    : undefined;
 }
 
 function resourcePath(presentation: ToolResultPresentationData | undefined): string | undefined {
@@ -195,8 +217,4 @@ function numberValue(value: unknown, key: string): number | undefined {
 
 function stringValue(value: unknown, key: string): string | undefined {
   return isRecord(value) && typeof value[key] === "string" ? value[key] : undefined;
-}
-
-function formatDuration(durationMs: number): string {
-  return durationMs >= 1_000 ? `${(durationMs / 1_000).toFixed(1)}s` : `${durationMs}ms`;
 }
