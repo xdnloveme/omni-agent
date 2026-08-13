@@ -98,9 +98,9 @@ Middleware contributions are stored by the extension manager in two independent
 registries. Context middleware transforms only a detached `ContextDraft`; lifecycle
 middleware observes a detached completed model call or wraps authorized tool execution.
 `ToolInvocationRunner` invokes tool middleware only after authorization. Unregistering
-an extension removes both middleware kinds in reverse registration order. The removed
-`beforeModel(config, messages)` hook has no compatibility execution path; extensions
-must migrate it to `contextMiddleware.transform`.
+an extension removes both middleware kinds in reverse registration order. Runtime
+middleware accepts only its current declared members; Context mutation belongs solely to
+`contextMiddleware.transform`.
 
 Each installed Agent exports an `AgentBlueprint`. The application-scoped
 `AgentFactory` is the only assembly entry point: it validates the blueprint,
@@ -167,7 +167,7 @@ capabilities, Runner, Session, and mutable runtime state remain instance-local.
 ## Context engineering and data ownership
 
 Model context is an ephemeral projection, not the Session transcript. The runtime has
-three explicit ownership layers:
+three explicit ownership layers and a business-independent policy hook:
 
 ```text
 SessionTranscriptSnapshot
@@ -176,7 +176,12 @@ SessionTranscriptSnapshot
   -> ContextConversationSource
   -> detached ContextDraft
   -> Context middleware
-  -> Context strategy
+  -> ContextFrame
+  -> ContextPolicyPipeline
+       -> Agent and Extension policy stages
+       -> ToolResultMicroStage
+       -> mandatory ContextFinalGatePort
+            -> HeavyCheckpointGateStage
   -> Context assembly
   -> ModelContextMessage
   -> PreparedModelContext
@@ -205,9 +210,8 @@ or executable tools.
 The Context module is contained under `packages/core/src/context`:
 
 ```text
-contracts <- strategies
-contracts <- assembly
-contracts, strategies, assembly <- runtime
+contracts <- policy, checkpoints, compression, assembly
+policy <- runtime
 ```
 
 The contract dependency direction is strictly one-way:
@@ -216,11 +220,21 @@ The contract dependency direction is strictly one-way:
 data -> messages -> model contracts -> context -> agent -> app composition
 ```
 
-Contracts do not depend on the other Context layers. Strategies and assembly do not
-depend on each other. The engine only orchestrates the stages and never loads or saves a
-Session or calls a model. `FullHistoryContextStrategy` is the default and preserves all
-messages without token budgeting, compression, selection, retrieval, or summarization.
-An Agent may replace it through its Context capability.
+Contracts do not depend on implementation layers. `ContextPolicyPipeline` is a generic
+Hook: it serially executes detached stages, validates outputs, propagates cancellation,
+re-estimates tokens, and records decisions. It has no dependency on compression or
+checkpoint implementations. Public stages receive only identity, the current estimate,
+and cancellation. Raw source messages, middleware digests, and upstream stage manifests
+are reserved for the required `ContextFinalGatePort`. An Agent or Extension may add
+pre-gate stages; the App composition root appends the built-in Tool Result Micro stage
+and separately injects the mandatory Heavy Checkpoint gate. There is no post-gate
+extension point or alternate Full History runtime path. Below all thresholds the
+pipeline preserves full history unchanged.
+
+The Engine never reads a Session, saves a checkpoint, or directly calls a model. Concrete
+compression stages depend only on explicit token estimator, artifact store, checkpoint
+store, and summary generator ports. The App owns the ModelRuntime summary adapter and
+sidecar repositories.
 
 Every ownership boundary copies arrays, message objects, content blocks, tool arguments,
 diagnostic data, tool-result details, and model-visible schemas. TypeScript
@@ -232,13 +246,29 @@ projects them to `ModelToolSpec`, which contains only name, description, schema,
 strictness before Context preparation begins. `PreparedModelContext` and `ModelRequest` therefore cannot expose tool
 execution, authorization, timeout, or host policy to a Provider.
 
-Assembly owns the single `TranscriptMessage` to `ModelContextMessage` projection and
-creates a snapshot
-manifest for each successful model call. The manifest records identities, strategy and
-middleware versions, message counts, decisions, and stable SHA-256 digests; it contains
-no message text. A `model_context_prepared` event exposes the manifest to optional stream
-observers without adding it to the Session or accumulated conversation output. Manifests
-are not persisted.
+Assembly owns the single `TranscriptMessage` to `ModelContextMessage` projection plus the
+projection of Context-only checkpoint and artifact entries. Checkpoints are emitted only
+as tagged model-context user entries and never enter Session JSONL. The manifest records
+identities, middleware and policy-stage versions, before/after estimates, checkpoint
+lineage, message counts, decisions, and stable SHA-256 digests; it contains no message
+text. A `model_context_prepared` event exposes it without adding it to the Session.
+
+Compression uses `usableInputBudget = contextWindow - maxOutputTokens`. Tool Result Micro
+starts at 75%. The mandatory Heavy gate starts at 90%, limits its internal summary to 10%
+of usable input, and targets a post-checkpoint context at or below 50%. It preserves
+complete recent user/tool groups and fails the request after at most two summary attempts;
+it never silently restores full history or hard-truncates content.
+
+Session JSONL remains the sole transcript source of truth. Context state is physically
+co-located but logically isolated under
+`sessions/<agentId>/context/<sessionId>/`: `checkpoints.json` stores the parent-linked
+checkpoint chain and `artifacts/toolResults/` stores content-addressed large tool results.
+Dedicated repositories own only their own schemas and cannot clear one another's data.
+`ContextSidecarLifecycle` is the single owner of whole-Session Context cleanup. Corrupt
+sidecars are quarantined and rebuilt from the Transcript. Its shared Session lock lives
+outside the deletable sidecar directory, so cleanup remains mutually exclusive until it
+finishes. Session clear is coordinated by the Application through that lifecycle
+component.
 
 `ModelRuntimePort` receives only `ModelContextMessage` and `ModelToolSpec`. The Provider
 mapper creates a new backend Context, deep-copies content, arguments, deferred state, and

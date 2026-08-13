@@ -7,7 +7,7 @@ const coreRoot = join(contextRoot, "..");
 const repositoryRoot = join(coreRoot, "..", "..", "..");
 
 describe("context architecture", () => {
-  it("keeps contracts independent and strategies separate from assembly", async () => {
+  it("keeps contracts, the generic policy hook, and compression implementations separated", async () => {
     const files = await sourceFiles(contextRoot);
     const violations: string[] = [];
 
@@ -19,7 +19,8 @@ describe("context architecture", () => {
         for (const specifier of imports) {
           if (
             specifier.includes("/assembly/") ||
-            specifier.includes("/strategies/") ||
+            specifier.includes("/compression/") ||
+            specifier.includes("/policy/") ||
             specifier.includes("/runtime/") ||
             /(?:agent|session|app|provider)(?:\/|$)/i.test(specifier) ||
             specifier === "../../types"
@@ -28,21 +29,47 @@ describe("context architecture", () => {
           }
         }
       }
-      if (path.startsWith("strategies/")) {
+      if (path.startsWith("policy/")) {
         for (const specifier of imports) {
-          if (specifier.includes("/assembly/") || /provider/i.test(specifier)) {
+          if (
+            specifier.includes("/assembly/") ||
+            specifier.includes("/compression/") ||
+            specifier.includes("/checkpoints/")
+          ) {
+            violations.push(`${path} -> ${specifier}`);
+          }
+        }
+      }
+      if (path.startsWith("compression/")) {
+        for (const specifier of imports) {
+          if (/(?:agent|session|app|provider)(?:\/|$)/i.test(specifier)) {
             violations.push(`${path} -> ${specifier}`);
           }
         }
       }
       if (path.startsWith("assembly/")) {
         for (const specifier of imports) {
-          if (specifier.includes("/strategies/")) violations.push(`${path} -> ${specifier}`);
+          if (
+            specifier.includes("/compression/") ||
+            specifier.includes("/checkpoints/") ||
+            specifier.includes("/policy/")
+          ) {
+            violations.push(`${path} -> ${specifier}`);
+          }
         }
       }
     }
 
     expect(violations).toEqual([]);
+
+    const contracts = await readFile(join(contextRoot, "contracts", "types.ts"), "utf8");
+    const publicStageOptions = contracts.match(
+      /export interface ContextPolicyStageOptions \{([\s\S]*?)\n\}/,
+    )?.[1];
+    expect(publicStageOptions).toBeDefined();
+    expect(publicStageOptions).not.toMatch(
+      /sourceMessages|middlewareDigest|precedingStages|sessionRevision/,
+    );
   });
 
   it("keeps model contracts and the Context Engine free of higher-level runtime types", async () => {
@@ -111,6 +138,7 @@ describe("context architecture", () => {
 
     const transcriptAndModelContextAllowlist = new Set([
       "packages/core/src/context/assembly/messageProjection.ts",
+      "packages/core/src/context/assembly/entryProjection.ts",
       "packages/core/src/context/contracts/types.ts",
       "packages/core/src/index.ts",
       "packages/core/src/messages/index.ts",
@@ -126,6 +154,17 @@ describe("context architecture", () => {
         )
         .map(({ file }) => relative(repositoryRoot, file))
         .filter((file) => !transcriptAndModelContextAllowlist.has(file)),
+    ).toEqual([]);
+
+    expect(
+      sources
+        .filter(({ source }) => /FullHistoryContextStrategy|ContextStrategyPort/.test(source))
+        .map(({ file }) => relative(repositoryRoot, file)),
+    ).toEqual([]);
+    expect(
+      sources
+        .filter(({ source }) => /\bbeforeModel\b|\bstrategyName\b|\bstrategyVersion\b/.test(source))
+        .map(({ file }) => relative(repositoryRoot, file)),
     ).toEqual([]);
   });
 

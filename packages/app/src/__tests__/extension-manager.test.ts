@@ -59,13 +59,13 @@ describe("ExtensionManager", () => {
     expect(manager.middleware).toEqual([]);
   });
 
-  it("rejects removed beforeModel middleware with a migration error", async () => {
+  it("rejects unsupported runtime middleware members", async () => {
     const manager = new ExtensionManager({ cwd: process.cwd() });
     const legacy = extension("legacy-model-middleware");
     legacy.contributions.middleware = [{ beforeModel() {} } as never];
 
     await expect(manager.register(legacy)).rejects.toThrow(
-      "migrate it to contextMiddleware.transform",
+      "Unsupported runtime middleware member beforeModel",
     );
   });
 
@@ -117,6 +117,25 @@ describe("ExtensionManager", () => {
     expect(manager.contextMiddleware).toEqual([first, second]);
     await manager.unregister("context-owner");
     expect(manager.contextMiddleware).toEqual([]);
+  });
+
+  it("keeps context policy stages ordered and rolls them back atomically", async () => {
+    const manager = new ExtensionManager({ cwd: process.cwd() });
+    const broken = extension("broken-policy", () => {
+      throw new Error("activation failed");
+    });
+    const first = {
+      name: "first",
+      version: 1,
+      async apply(frame: never) {
+        return { frame, decisions: [] };
+      },
+    };
+    const second = { ...first, name: "second" };
+    broken.contributions.contextPolicyStages = [first, second];
+
+    await expect(manager.register(broken)).rejects.toThrow("activation failed");
+    expect(manager.contextPolicyStages).toEqual([]);
   });
 
   it("keeps the activation error when extension cleanup also fails", async () => {

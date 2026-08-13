@@ -1,8 +1,8 @@
 import { throwIfAborted } from "../../execution";
 import type {
   ContextEnginePort,
+  ContextPolicyPort,
   ContextPreparationRequest,
-  ContextStrategyPort,
 } from "../contracts/ports";
 import type {
   ContextComponentManifest,
@@ -11,18 +11,18 @@ import type {
 } from "../contracts/types";
 import { ContextAssembler, assertContextDraft } from "../assembly/assembler";
 import { cloneContextDraft, createContextDraft } from "../assembly/draft";
+import { createContextFrame } from "../policy/types";
+import { assertContextPolicyResult } from "../policy/pipeline";
+import { digestContextValue } from "../digest";
+import { cloneTranscriptMessages } from "../../messages";
 
 export class DefaultContextEngine implements ContextEnginePort {
   private readonly assembler = new ContextAssembler();
 
-  constructor(private readonly strategy: ContextStrategyPort) {}
+  constructor(private readonly policy: ContextPolicyPort) {}
 
   async prepare(request: ContextPreparationRequest): Promise<PreparedModelContext> {
     throwIfAborted(request.signal);
-    assertComponent(this.strategy, "Context strategy");
-    if (typeof this.strategy.apply !== "function") {
-      throw new Error(`Context strategy apply is required: ${this.strategy.name}`);
-    }
     let current = createContextDraft(request);
     const middlewareManifest: ContextComponentManifest[] = [];
     const options = {
@@ -49,15 +49,25 @@ export class DefaultContextEngine implements ContextEnginePort {
     }
 
     throwIfAborted(request.signal);
-    const strategyInput: ContextDraft = cloneContextDraft(current);
-    const result = await this.strategy.apply(strategyInput, options);
+    const frame = createContextFrame({
+      systemPrompt: current.systemPrompt,
+      messages: current.messages,
+      tools: current.tools,
+      model: current.model,
+    });
+    const result = await this.policy.resolve(frame, {
+      ...options,
+      sessionRevision: request.identity.sessionRevision,
+      middlewareDigest: digestContextValue(middlewareManifest),
+      sourceMessages: cloneTranscriptMessages(current.messages),
+    });
+    assertContextPolicyResult(result);
     throwIfAborted(request.signal);
 
     return this.assembler.assemble({
       identity: request.identity,
       transformedDraft: current,
       result,
-      strategy: { name: this.strategy.name, version: this.strategy.version },
       middleware: middlewareManifest,
     });
   }

@@ -43,7 +43,7 @@ export function createTransportStreams(transport: ModelTransport): ProviderStrea
       providerId: model.provider,
       baseUrl: model.baseUrl,
       contextWindow: model.contextWindow,
-      maxOutputTokens: model.maxTokens,
+      maxOutputTokens: Math.min(model.maxTokens, options.maxTokens ?? model.maxTokens),
     };
     let partial = initialMessage(transportModel);
     output.push({ type: "start", partial });

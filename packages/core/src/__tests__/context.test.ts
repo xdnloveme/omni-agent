@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import {
+  ApproximateContextTokenEstimator,
+  ContextPolicyPipeline,
   DefaultContextEngine,
-  FullHistoryContextStrategy,
-  InvalidContextStrategyResultError,
+  InvalidContextPolicyResultError,
   type ContextMiddlewarePort,
-  type ContextStrategyPort,
+  type ContextFinalGatePort,
+  type ContextPolicyStagePort,
 } from "../context";
 import { createContextPreparationRequest } from "../agent/contextInput";
 import { WorkingConversation } from "../agent/workingConversation";
@@ -93,6 +95,22 @@ function request(middleware: readonly ContextMiddlewarePort[] = [], sourceMessag
   };
 }
 
+function createEngine(stages: readonly ContextPolicyStagePort[] = []) {
+  return new DefaultContextEngine(
+    new ContextPolicyPipeline(stages, finalGate(), new ApproximateContextTokenEstimator()),
+  );
+}
+
+function finalGate(): ContextFinalGatePort {
+  return {
+    name: "test_final_gate",
+    version: 1,
+    async apply(frame) {
+      return { frame: structuredClone(frame) as never, decisions: [] };
+    },
+  };
+}
+
 describe("context ownership", () => {
   it("detaches WorkingConversation, draft messages, tool arguments, and schemas", () => {
     const source = messages();
@@ -176,9 +194,7 @@ describe("context ownership", () => {
       },
     ];
     const input = request(middleware);
-    const prepared = await new DefaultContextEngine(new FullHistoryContextStrategy()).prepare(
-      input.preparation,
-    );
+    const prepared = await createEngine().prepare(input.preparation);
 
     (firstOutput!.messages[3] as { content: string }).content = "mutated later";
     expect(order).toEqual(["first", "second:4"]);
@@ -194,9 +210,7 @@ describe("context ownership", () => {
 
   it("projects full history without executable tools or transport metadata", async () => {
     const input = request();
-    const prepared = await new DefaultContextEngine(new FullHistoryContextStrategy()).prepare(
-      input.preparation,
-    );
+    const prepared = await createEngine().prepare(input.preparation);
 
     expect(prepared.messages).toHaveLength(3);
     expect(prepared.messages.map((message) => message.role)).toEqual([
@@ -212,7 +226,7 @@ describe("context ownership", () => {
       strict: true,
     });
     expect("execute" in prepared.tools[0]).toBe(false);
-    expect(prepared.manifest.decisions).toEqual([{ type: "preserve_all" }]);
+    expect(prepared.manifest.decisions).toEqual([]);
     expect(prepared.snapshotId).toMatch(/^[a-f0-9]{64}$/);
   });
 
@@ -223,31 +237,31 @@ describe("context ownership", () => {
       transform: (draft) => draft as never,
     };
     const aliasedInput = request([aliased]);
-    await expect(
-      new DefaultContextEngine(new FullHistoryContextStrategy()).prepare(aliasedInput.preparation),
-    ).rejects.toThrow("must return a new draft");
+    await expect(createEngine().prepare(aliasedInput.preparation)).rejects.toThrow(
+      "must return a new draft",
+    );
 
-    const invalidStrategy: ContextStrategyPort = {
+    const invalidStage: ContextPolicyStagePort = {
       name: "invalid",
       version: 1,
-      async apply() {
-        return { messages: [{ role: "unknown" }] as never, decisions: [] };
+      async apply(frame) {
+        return { frame: { ...frame, entries: undefined as never }, decisions: [] };
       },
     };
     const invalidInput = request();
     await expect(
-      new DefaultContextEngine(invalidStrategy).prepare(invalidInput.preparation),
-    ).rejects.toBeInstanceOf(InvalidContextStrategyResultError);
+      createEngine([invalidStage]).prepare(invalidInput.preparation),
+    ).rejects.toBeInstanceOf(InvalidContextPolicyResultError);
   });
 
-  it("propagates cancellation before invoking a strategy", async () => {
-    const apply = vi.fn<ContextStrategyPort["apply"]>();
+  it("propagates cancellation before invoking a policy stage", async () => {
+    const apply = vi.fn<ContextPolicyStagePort["apply"]>();
     const controller = new AbortController();
     controller.abort();
     const input = request();
 
     await expect(
-      new DefaultContextEngine({ name: "custom", version: 1, apply }).prepare({
+      createEngine([{ name: "custom", version: 1, apply }]).prepare({
         ...input.preparation,
         signal: controller.signal,
       }),
@@ -256,7 +270,7 @@ describe("context ownership", () => {
   });
 
   it("creates stable digests for equal calls and a distinct snapshot for a new call id", async () => {
-    const engine = new DefaultContextEngine(new FullHistoryContextStrategy());
+    const engine = createEngine();
     const first = request().preparation;
     const same = request().preparation;
     const next = {

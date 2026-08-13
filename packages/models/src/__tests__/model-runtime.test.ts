@@ -30,7 +30,13 @@ function memoryCredentials(): CredentialStore {
 describe("ModelRuntime", () => {
   it("maps backend events to the stable Omni model event stream", async () => {
     const faux = fauxProvider({ provider: "test-vendor", models: [{ id: "test-model" }] });
-    faux.setResponses([fauxAssistantMessage("hello")]);
+    let seenMaxTokens: number | undefined;
+    faux.setResponses([
+      (_context, options) => {
+        seenMaxTokens = options?.maxTokens;
+        return fauxAssistantMessage("hello");
+      },
+    ]);
     const runtime = new ModelRuntime({ credentials: memoryCredentials() });
     const manager = runtime.createPluginManager(new VendorRegistry());
     await manager.register({
@@ -60,11 +66,13 @@ describe("ModelRuntime", () => {
         messages: [{ role: "user", content: "hi" }],
         tools: [],
       },
+      { maxOutputTokens: 512 },
     ))
       events.push(event);
 
     expect(events.some((event) => event.type === "text_delta")).toBe(true);
     expect(events.at(-1)).toEqual(expect.objectContaining({ type: "done" }));
+    expect(seenMaxTokens).toBe(512);
     await manager.dispose();
   });
 
@@ -136,6 +144,7 @@ describe("ModelRuntime", () => {
               async *stream(model, request, options) {
                 seen.push(
                   model.id,
+                  String(model.maxOutputTokens),
                   request.messages[0]?.role ?? "missing",
                   options.apiKey ?? "missing",
                 );
@@ -176,11 +185,12 @@ describe("ModelRuntime", () => {
       },
       {
         credential: { type: "api_key", key: "request-key" },
+        maxOutputTokens: 512,
       },
     ))
       events.push(event);
 
-    expect(seen).toEqual(["custom-model", "user", "request-key"]);
+    expect(seen).toEqual(["custom-model", "512", "user", "request-key"]);
     expect(events).toEqual([
       { type: "text_delta", delta: "custom" },
       expect.objectContaining({ type: "done" }),

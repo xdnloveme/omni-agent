@@ -1,23 +1,16 @@
-import { createHash } from "node:crypto";
 import { cloneData } from "../../dataCopy";
 import { cloneTranscriptMessages } from "../../messages";
 import type {
   ContextComponentManifest,
   ContextDecision,
   ContextDraft,
-  ContextStrategyResult,
+  ContextPolicyResult,
   ModelContextSnapshotManifest,
   PreparedModelContext,
 } from "../contracts/types";
 import { cloneModelToolSpec } from "./draft";
-import { toContextMessages } from "./messageProjection";
-
-export class InvalidContextStrategyResultError extends Error {
-  constructor(message: string) {
-    super(message);
-    this.name = "InvalidContextStrategyResultError";
-  }
-}
+import { projectContextEntries } from "./entryProjection";
+import { digestContextValue } from "../digest";
 
 export interface ContextAssemblyInput {
   readonly identity: {
@@ -27,53 +20,83 @@ export interface ContextAssemblyInput {
     readonly modelCallId: string;
   };
   readonly transformedDraft: ContextDraft;
-  readonly result: ContextStrategyResult;
-  readonly strategy: ContextComponentManifest;
+  readonly result: ContextPolicyResult;
   readonly middleware: readonly ContextComponentManifest[];
 }
 
 export class ContextAssembler {
   assemble(input: ContextAssemblyInput): PreparedModelContext {
-    assertStrategyResult(input.result);
-
     const sourceMessages = cloneTranscriptMessages(input.transformedDraft.messages);
-    const messages = toContextMessages(input.result.messages);
-    const tools = input.transformedDraft.tools.map(cloneModelToolSpec);
+    const messages = projectContextEntries(input.result.frame.entries);
+    const tools = input.result.frame.tools.map(cloneModelToolSpec);
     const decisions = cloneData(input.result.decisions) as ContextDecision[];
-    const sourceDigest = digest(sourceMessages);
-    const outputDigest = digest(messages);
-    const systemPromptDigest = digest(input.transformedDraft.systemPrompt);
-    const toolsetDigest = digest(tools);
-    const strategy = { ...input.strategy };
+    const sourceDigest = digestContextValue(sourceMessages);
+    const contextEntryDigest = digestContextValue(input.result.frame.entries);
+    const outputDigest = digestContextValue(messages);
+    const systemPromptDigest = digestContextValue(input.result.frame.systemPrompt);
+    const toolsetDigest = digestContextValue(tools);
     const middleware = input.middleware.map((entry) => ({ ...entry }));
-    const snapshotId = digest({
+    const policyStages = input.result.stages.map((stage) => cloneData(stage));
+    const artifactIds = input.result.frame.entries
+      .filter((entry) => entry.kind === "toolResultArtifact")
+      .map((entry) => entry.artifact.id);
+    const checkpointEntry = input.result.frame.entries.find((entry) => entry.kind === "checkpoint");
+    const checkpointDecision = input.result.decisions.find((decision) =>
+      ["checkpoint_reused", "checkpoint_created", "checkpoint_extended"].includes(decision.type),
+    );
+    const checkpoint =
+      checkpointEntry?.kind === "checkpoint" && checkpointDecision
+        ? {
+            action:
+              checkpointDecision.type === "checkpoint_reused"
+                ? ("reuse" as const)
+                : checkpointDecision.type === "checkpoint_created"
+                  ? ("create" as const)
+                  : ("extend" as const),
+            checkpointId: checkpointEntry.checkpointId,
+            parentId: checkpointEntry.parentId,
+            coveredMessageCount: checkpointEntry.coveredMessageCount,
+            summaryDigest: digestContextValue(checkpointEntry.summary),
+            summaryModelCallId: checkpointEntry.summaryModelCallId,
+          }
+        : undefined;
+    const snapshotId = digestContextValue({
       ...input.identity,
-      strategy,
+      policyStages,
       middleware,
       sourceDigest,
+      contextEntryDigest,
       outputDigest,
       systemPromptDigest,
       toolsetDigest,
       decisions,
+      artifactIds,
+      checkpoint,
     });
     const manifest: ModelContextSnapshotManifest = {
       snapshotId,
       ...input.identity,
-      strategy,
+      policyStages,
       middleware,
       sourceMessageCount: sourceMessages.length,
       outputMessageCount: messages.length,
       sourceDigest,
+      contextEntryDigest,
       outputDigest,
       systemPromptDigest,
       toolsetDigest,
+      estimatedInputTokens: input.result.estimate.totalInputTokens,
+      usableInputBudget: input.result.estimate.usableInputBudget,
+      usageRatio: input.result.estimate.usageRatio,
+      artifactIds,
+      checkpoint,
       decisions,
       createdAt: Date.now(),
     };
 
     return {
       snapshotId,
-      systemPrompt: input.transformedDraft.systemPrompt,
+      systemPrompt: input.result.frame.systemPrompt,
       messages,
       tools,
       manifest,
@@ -118,37 +141,6 @@ export function assertContextDraft(value: unknown): asserts value is ContextDraf
   }
 }
 
-function assertStrategyResult(value: unknown): asserts value is ContextStrategyResult {
-  if (!value || typeof value !== "object") {
-    throw new InvalidContextStrategyResultError("Context strategy returned no result");
-  }
-  const result = value as Partial<ContextStrategyResult>;
-  if (!Array.isArray(result.messages)) {
-    throw new InvalidContextStrategyResultError("Context strategy returned invalid messages");
-  }
-  assertMessages(
-    result.messages,
-    (message) => new InvalidContextStrategyResultError(`Context strategy ${message}`),
-  );
-  if (!Array.isArray(result.decisions)) {
-    throw new InvalidContextStrategyResultError("Context strategy returned invalid decisions");
-  }
-  for (const decision of result.decisions) {
-    if (
-      !decision ||
-      typeof decision !== "object" ||
-      typeof decision.type !== "string" ||
-      !decision.type.trim() ||
-      (decision.details !== undefined &&
-        (!decision.details ||
-          typeof decision.details !== "object" ||
-          Array.isArray(decision.details)))
-    ) {
-      throw new InvalidContextStrategyResultError("Context strategy returned an invalid decision");
-    }
-  }
-}
-
 function assertMessages(messages: readonly unknown[], error: (message: string) => Error): void {
   for (const message of messages) {
     if (!message || typeof message !== "object") throw error("returned an invalid message");
@@ -187,23 +179,4 @@ function assertMessages(messages: readonly unknown[], error: (message: string) =
     }
     throw error("returned a message with an unknown role");
   }
-}
-
-function digest(value: unknown): string {
-  return createHash("sha256").update(stableSerialize(value)).digest("hex");
-}
-
-function stableSerialize(value: unknown): string {
-  return JSON.stringify(canonicalize(value));
-}
-
-function canonicalize(value: unknown): unknown {
-  if (value === undefined) return { $undefined: true };
-  if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return value.map(canonicalize);
-  return Object.fromEntries(
-    Object.entries(value)
-      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
-      .map(([key, entry]) => [key, canonicalize(entry)]),
-  );
 }

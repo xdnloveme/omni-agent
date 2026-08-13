@@ -157,6 +157,10 @@ export class ModelRuntime implements ModelRuntimePort {
       maxRetries: options.maxRetries,
       apiKey: options.credential?.key,
       headers: selection.requestHeaders,
+      maxTokens:
+        options.maxOutputTokens === undefined
+          ? undefined
+          : Math.min(options.maxOutputTokens, catalogModel.maxTokens),
     });
     for await (const event of stream) {
       if (event.type === "text_delta") yield { type: "text_delta", delta: event.delta };

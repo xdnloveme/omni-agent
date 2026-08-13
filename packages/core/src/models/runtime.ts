@@ -31,6 +31,7 @@ export interface ModelRequestOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
   maxRetries?: number;
+  maxOutputTokens?: number;
   credential?: { type: "api_key"; key: string };
 }
 

@@ -1,5 +1,14 @@
 export { AgentApplication } from "./application/agent-application";
-export type { AgentApplicationDependencies } from "./application/agent-application";
+export type {
+  AgentApplicationDependencies,
+  ContextSessionStorage,
+} from "./application/agent-application";
+export {
+  AgentStorageLayout,
+  ContextArtifactRepository,
+  ContextCheckpointRepository,
+  RuntimeContextSummaryGenerator,
+} from "./context/index";
 export { AgentFactory, AgentModelNotConfiguredError } from "./application/agent-factory";
 export type {
   AgentBlueprint,

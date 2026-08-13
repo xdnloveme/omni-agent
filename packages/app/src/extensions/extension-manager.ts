@@ -3,7 +3,11 @@ import { AgentRegistry } from "../registry/agent-registry";
 import { ToolRegistry } from "../registry/tool-registry";
 import type { AgentExtension, ExtensionDiagnostic } from "./types";
 import type { VendorPluginManager } from "@omni-agent/models";
-import type { ContextMiddlewarePort, RuntimeMiddleware } from "@omni-agent/core";
+import type {
+  ContextMiddlewarePort,
+  ContextPolicyStagePort,
+  RuntimeMiddleware,
+} from "@omni-agent/core";
 
 export interface ExtensionManagerOptions {
   cwd: string;
@@ -19,6 +23,7 @@ export class ExtensionManager {
   readonly commands: CommandRegistry;
   readonly middleware: RuntimeMiddleware[] = [];
   readonly contextMiddleware: ContextMiddlewarePort[] = [];
+  readonly contextPolicyStages: ContextPolicyStagePort[] = [];
   readonly diagnostics: ExtensionDiagnostic[] = [];
   private readonly cwd: string;
   private readonly active = new Map<
@@ -31,6 +36,7 @@ export class ExtensionManager {
       providers: string[];
       middleware: RuntimeMiddleware[];
       contextMiddleware: ContextMiddlewarePort[];
+      contextPolicyStages: ContextPolicyStagePort[];
     }
   >();
   private readonly modelProviders?: VendorPluginManager;
@@ -51,6 +57,7 @@ export class ExtensionManager {
     const registeredProviders: string[] = [];
     const registeredMiddleware: RuntimeMiddleware[] = [];
     const registeredContextMiddleware: ContextMiddlewarePort[] = [];
+    const registeredContextPolicyStages: ContextPolicyStagePort[] = [];
     try {
       for (const provider of extension.contributions.providers ?? []) {
         if (!this.modelProviders) throw new Error("Model provider contributions are not enabled");
@@ -77,6 +84,10 @@ export class ExtensionManager {
         this.contextMiddleware.push(middleware);
         registeredContextMiddleware.push(middleware);
       }
+      for (const stage of extension.contributions.contextPolicyStages ?? []) {
+        this.contextPolicyStages.push(stage);
+        registeredContextPolicyStages.push(stage);
+      }
       await extension.activate?.({ cwd: this.cwd });
       this.active.set(extension.manifest.id, {
         extension,
@@ -86,8 +97,10 @@ export class ExtensionManager {
         providers: registeredProviders,
         middleware: registeredMiddleware,
         contextMiddleware: registeredContextMiddleware,
+        contextPolicyStages: registeredContextPolicyStages,
       });
     } catch (error) {
+      this.removeContextPolicyStages([...registeredContextPolicyStages].reverse());
       this.removeContextMiddleware([...registeredContextMiddleware].reverse());
       this.removeMiddleware([...registeredMiddleware].reverse());
       for (const name of [...registeredCommands].reverse()) this.commands.unregister(name);
@@ -118,6 +131,7 @@ export class ExtensionManager {
   async unregister(extensionId: string): Promise<void> {
     const entry = this.active.get(extensionId);
     if (!entry) return;
+    this.removeContextPolicyStages([...entry.contextPolicyStages].reverse());
     this.removeContextMiddleware([...entry.contextMiddleware].reverse());
     this.removeMiddleware([...entry.middleware].reverse());
     for (const name of [...entry.commands].reverse()) this.commands.unregister(name);
@@ -186,11 +200,11 @@ export class ExtensionManager {
       if (!middleware || typeof middleware !== "object") {
         throw new Error(`Invalid runtime middleware in extension: ${id}`);
       }
-      const legacy = middleware as RuntimeMiddleware & { beforeModel?: unknown };
-      if (legacy.beforeModel !== undefined) {
-        throw new Error(
-          `Extension ${id} uses removed beforeModel middleware; migrate it to contextMiddleware.transform`,
-        );
+      const allowedMembers = new Set(["afterModel", "beforeExecute", "afterExecute"]);
+      for (const member of Object.keys(middleware)) {
+        if (!allowedMembers.has(member)) {
+          throw new Error(`Unsupported runtime middleware member ${member}: ${id}`);
+        }
       }
       assertOptionalFunction(middleware, "afterModel", id);
       assertOptionalFunction(middleware, "beforeExecute", id);
@@ -212,6 +226,20 @@ export class ExtensionManager {
         throw new Error(`Context middleware transform is required: ${middleware.name}`);
       }
     }
+    for (const stage of extension.contributions.contextPolicyStages ?? []) {
+      if (!stage || typeof stage !== "object") {
+        throw new Error(`Invalid context policy stage in extension: ${id}`);
+      }
+      if (typeof stage.name !== "string" || !stage.name.trim()) {
+        throw new Error(`Context policy stage name is required: ${id}`);
+      }
+      if (!Number.isInteger(stage.version) || stage.version < 1) {
+        throw new Error(`Context policy stage version must be a positive integer: ${stage.name}`);
+      }
+      if (typeof stage.apply !== "function") {
+        throw new Error(`Context policy stage apply is required: ${stage.name}`);
+      }
+    }
   }
 
   private removeMiddleware(entries: readonly RuntimeMiddleware[]): void {
@@ -225,6 +253,13 @@ export class ExtensionManager {
     for (const middleware of entries) {
       const index = this.contextMiddleware.lastIndexOf(middleware);
       if (index >= 0) this.contextMiddleware.splice(index, 1);
+    }
+  }
+
+  private removeContextPolicyStages(entries: readonly ContextPolicyStagePort[]): void {
+    for (const stage of entries) {
+      const index = this.contextPolicyStages.lastIndexOf(stage);
+      if (index >= 0) this.contextPolicyStages.splice(index, 1);
     }
   }
 

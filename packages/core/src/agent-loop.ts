@@ -14,44 +14,9 @@ import { cloneTranscriptMessage } from "./messages";
 import { createContextPreparationRequest } from "./agent/contextInput";
 import { WorkingConversation } from "./agent/workingConversation";
 
-const APPROX_CHARS_PER_TOKEN = 4;
-
 export interface AgentLoopOptions {
   /** Optional StreamSession for state-machine-driven event dispatch */
   session?: StreamSession;
-}
-
-function textContentLength(content: TranscriptMessage["content"]): number {
-  if (typeof content === "string") return content.length;
-  return content.reduce((total, block) => {
-    if (block.type === "text") return total + block.text.length;
-    if (block.type === "thinking") return total + block.thinking.length;
-    if (block.type === "toolCall")
-      return total + block.name.length + JSON.stringify(block.arguments).length;
-    if (block.type === "image") return total + 256;
-    return total;
-  }, 0);
-}
-
-function estimateRequestInputTokens(
-  systemPrompt: string,
-  tools: AgentConfig["tools"],
-  messages: readonly TranscriptMessage[],
-): number {
-  const systemChars = systemPrompt.length;
-  const messageChars = messages.reduce(
-    (total, message) => total + textContentLength(message.content),
-    0,
-  );
-  const toolChars = JSON.stringify(
-    tools.map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      parameters: tool.schema,
-    })),
-  ).length;
-
-  return Math.ceil((systemChars + messageChars + toolChars) / APPROX_CHARS_PER_TOKEN);
 }
 
 function toTokenUsage(
@@ -114,11 +79,6 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       config.tools.length > 0,
     );
     const conversationSnapshot = conversation.snapshot();
-    const estimatedInputTokens = estimateRequestInputTokens(
-      promptLease.systemPrompt,
-      config.tools,
-      conversationSnapshot.messages,
-    );
     const preparedContext = await contextEngine.prepare(
       createContextPreparationRequest({
         identity: {
@@ -139,6 +99,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         signal,
       }),
     );
+    const estimatedInputTokens = preparedContext.manifest.estimatedInputTokens;
     const contextEvent: AgentEvent = {
       type: "model_context_prepared",
       manifest: cloneData(preparedContext.manifest),

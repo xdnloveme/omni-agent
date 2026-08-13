@@ -15,7 +15,8 @@ import { ToolAuthorizationRouter, ToolCallCoordinator, ToolInputValidator } from
 import { ToolInvocationRunner } from "../execution";
 import {
   DefaultContextEngine,
-  FullHistoryContextStrategy,
+  ApproximateContextTokenEstimator,
+  ContextPolicyPipeline,
   type ContextMiddlewarePort,
 } from "../context";
 
@@ -72,7 +73,19 @@ function executeLoop(
       revision: 1,
       messages,
     },
-    contextEngine: new DefaultContextEngine(new FullHistoryContextStrategy()),
+    contextEngine: new DefaultContextEngine(
+      new ContextPolicyPipeline(
+        [],
+        {
+          name: "test_final_gate",
+          version: 1,
+          async apply(frame) {
+            return { frame: structuredClone(frame) as never, decisions: [] };
+          },
+        },
+        new ApproximateContextTokenEstimator(),
+      ),
+    ),
     contextMiddleware,
     modelRuntime,
     agentId: "test",

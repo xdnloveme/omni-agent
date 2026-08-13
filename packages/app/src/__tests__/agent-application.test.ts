@@ -4,8 +4,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AgentSessionRepository,
+  ApproximateContextTokenEstimator,
+  ContextPolicyPipeline,
   DefaultContextEngine,
-  FullHistoryContextStrategy,
   ToolAuthorizationRouter,
   ToolCallCoordinator,
   ToolInputValidator,
@@ -65,6 +66,7 @@ async function fixture() {
   const permissions = createPermissionRuntime({
     globalDirectory: root,
   });
+  const contextStorage = { clear: vi.fn(async () => undefined) };
   return {
     app: new AgentApplication({
       extensions,
@@ -81,13 +83,27 @@ async function fixture() {
         invocationRunner: new ToolInvocationRunner(),
         inputValidator: new ToolInputValidator(),
       }),
-      contextEngine: new DefaultContextEngine(new FullHistoryContextStrategy()),
+      contextEngine: new DefaultContextEngine(
+        new ContextPolicyPipeline(
+          [],
+          {
+            name: "test_final_gate",
+            version: 1,
+            async apply(frame) {
+              return { frame: structuredClone(frame) as never, decisions: [] };
+            },
+          },
+          new ApproximateContextTokenEstimator(),
+        ),
+      ),
       contextMiddleware: [],
+      contextStorage,
     }),
     configService,
     dispose,
     isConfigured,
     sessions,
+    contextStorage,
   };
 }
 
@@ -136,6 +152,19 @@ describe("AgentApplication model selection", () => {
 });
 
 describe("AgentApplication session persistence", () => {
+  it("clears Session transcript and Context sidecar through separate owners", async () => {
+    const { app, sessions, contextStorage } = await fixture();
+    const sessionId = sessions.currentId!;
+    await sessions.append(sessionId, [
+      { role: "user", content: "remove me", timestamp: Date.now() },
+    ]);
+
+    await app.clearSession();
+
+    expect(sessions.snapshot().messages).toEqual([]);
+    expect(contextStorage.clear).toHaveBeenCalledWith(sessionId);
+  });
+
   it("persists produced messages when the turn limit is reached", async () => {
     const { app, sessions } = await fixture();
     const produced: TranscriptMessage[] = [

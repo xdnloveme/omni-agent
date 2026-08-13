@@ -5,8 +5,14 @@ import type {
   ContextDraft,
   ContextMiddlewareOptions,
   ContextModelLimits,
-  ContextStrategyOptions,
-  ContextStrategyResult,
+  ContextFrame,
+  ContextEntry,
+  ContextFinalGateOptions,
+  ContextPolicyResult,
+  ContextPolicyResolveOptions,
+  ContextPolicyStageOptions,
+  ContextPolicyStageResult,
+  ContextTokenEstimate,
   PreparedModelContext,
 } from "./types";
 
@@ -19,13 +25,34 @@ export interface ContextMiddlewarePort {
   ): ContextDraft | Promise<ContextDraft>;
 }
 
-export interface ContextStrategyPort {
+export interface ContextPolicyStagePort {
   readonly name: string;
   readonly version: number;
   apply(
-    draft: DeepReadonly<ContextDraft>,
-    options: ContextStrategyOptions,
-  ): Promise<ContextStrategyResult>;
+    frame: DeepReadonly<ContextFrame>,
+    options: DeepReadonly<ContextPolicyStageOptions>,
+  ): Promise<ContextPolicyStageResult>;
+}
+
+export interface ContextFinalGatePort {
+  readonly name: string;
+  readonly version: number;
+  apply(
+    frame: DeepReadonly<ContextFrame>,
+    options: DeepReadonly<ContextFinalGateOptions>,
+  ): Promise<ContextPolicyStageResult>;
+}
+
+export interface ContextTokenEstimatorPort {
+  estimate(frame: DeepReadonly<ContextFrame>): ContextTokenEstimate;
+  estimateEntry(entry: DeepReadonly<ContextEntry>): number;
+}
+
+export interface ContextPolicyPort {
+  resolve(
+    frame: DeepReadonly<ContextFrame>,
+    options: DeepReadonly<ContextPolicyResolveOptions>,
+  ): Promise<ContextPolicyResult>;
 }
 
 export interface ContextPreparationRequest {
@@ -48,5 +75,5 @@ export interface ContextEnginePort {
 }
 
 export interface ContextCapability {
-  readonly strategy: ContextStrategyPort;
+  readonly policyStages?: readonly ContextPolicyStagePort[];
 }

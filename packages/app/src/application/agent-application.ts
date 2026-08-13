@@ -27,6 +27,7 @@ export class AgentApplication {
   readonly permissions: PermissionService;
   private activeSelection: ModelSelection;
   private readonly configService: ConfigService;
+  private readonly contextStorage: ContextSessionStorage;
 
   constructor(dependencies: AgentApplicationDependencies) {
     this.extensions = dependencies.extensions;
@@ -37,6 +38,7 @@ export class AgentApplication {
     this.modelService = dependencies.modelService;
     this.activeSelection = dependencies.modelSelection;
     this.configService = dependencies.configService;
+    this.contextStorage = dependencies.contextStorage;
     this.permissions = dependencies.permissionService;
     this.runner = new AgentRunner(
       dependencies.modelService.runtime,
@@ -65,7 +67,9 @@ export class AgentApplication {
   }
 
   async clearSession(): Promise<void> {
-    await this.sessions.clear(this.requireSessionId());
+    const sessionId = this.requireSessionId();
+    await this.sessions.clear(sessionId);
+    await this.contextStorage.clear(sessionId);
   }
 
   async refreshInstructions(): Promise<void> {
@@ -171,4 +175,9 @@ export interface AgentApplicationDependencies {
   readonly toolCallCoordinator: ToolCallCoordinator;
   readonly contextEngine: ContextEnginePort;
   readonly contextMiddleware: readonly ContextMiddlewarePort[];
+  readonly contextStorage: ContextSessionStorage;
+}
+
+export interface ContextSessionStorage {
+  clear(sessionId: string): Promise<void>;
 }

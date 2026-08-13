@@ -1,0 +1,46 @@
+import type {
+  ContextSummaryGeneratorPort,
+  ContextSummaryRequest,
+  ContextSummaryResult,
+  ModelRuntimePort,
+  RuntimeModelSelection,
+} from "@omni-agent/core";
+
+export class RuntimeContextSummaryGenerator implements ContextSummaryGeneratorPort {
+  constructor(
+    private readonly runtime: ModelRuntimePort,
+    private readonly currentModel: () => RuntimeModelSelection,
+  ) {}
+
+  async generate(request: ContextSummaryRequest): Promise<ContextSummaryResult> {
+    let completed: ContextSummaryResult | undefined;
+    for await (const event of this.runtime.stream(
+      this.currentModel(),
+      {
+        systemPrompt: request.systemPrompt,
+        messages: [{ role: "user", content: request.userPrompt }],
+        tools: [],
+      },
+      { signal: request.signal, maxOutputTokens: request.maxOutputTokens },
+    )) {
+      if (event.type === "error") {
+        throw new Error(event.error.errorMessage ?? "Context summary model call failed");
+      }
+      if (event.type === "done") {
+        const summary = event.message.content
+          .filter((block) => block.type === "text")
+          .map((block) => block.text)
+          .join("\n")
+          .trim();
+        completed = {
+          summary,
+          provider: event.message.provider,
+          model: event.message.model,
+          responseModel: event.message.responseModel,
+        };
+      }
+    }
+    if (!completed) throw new Error("Context summary model call returned no completion");
+    return completed;
+  }
+}
