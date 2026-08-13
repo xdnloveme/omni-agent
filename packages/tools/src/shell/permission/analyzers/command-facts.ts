@@ -10,6 +10,8 @@ import {
 import type { ShellClassification, ShellEffect } from "../classifiers/types";
 import { assignmentFromWord, type ShellCommandView, type ShellRedirection } from "../parser";
 
+const READ_OPTIONS_WITH_VALUE = new Set(["-d", "-i", "-n", "-N", "-p", "-t", "-u"]);
+
 export function resolveCommandFacts(
   command: ShellCommandView,
   context: ShellAnalysisContext,
@@ -77,6 +79,18 @@ export function applyCommandState(
       context,
       command.arguments.flatMap(({ staticValue }) => (staticValue ? [staticValue] : [])),
     );
+  }
+  if (command.executableName === "read") {
+    const names: string[] = [];
+    for (let index = 0; index < command.argumentValues.length; index += 1) {
+      const argument = command.argumentValues[index]!;
+      if (READ_OPTIONS_WITH_VALUE.has(argument)) {
+        index += 1;
+      } else if (!argument.startsWith("-") && /^[A-Za-z_][A-Za-z0-9_]*$/.test(argument)) {
+        names.push(argument);
+      }
+    }
+    return unsetVariables(context, names.length > 0 ? names : ["REPLY"]);
   }
   return context;
 }

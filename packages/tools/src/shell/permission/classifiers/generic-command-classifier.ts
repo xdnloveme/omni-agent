@@ -4,8 +4,8 @@ import {
   INTERPRETER_COMMANDS,
   NETWORK_TRANSFER_COMMANDS,
   READ_ONLY_COMMANDS,
-  SHELL_CONTEXT_COMMANDS,
 } from "../rules/command-rules";
+import { SHELL_CONTEXT_COMMANDS } from "../semantics/shell-builtins";
 import { classification, type ShellClassifier } from "./types";
 
 export const genericCommandClassifier: ShellClassifier = {

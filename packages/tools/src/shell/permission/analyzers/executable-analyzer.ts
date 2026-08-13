@@ -20,6 +20,9 @@ export function executableRequirement(
       kind: "bash_executable",
       label: `Always trust executable: ${executable}`,
     },
-    satisfiedBy: [key, "tool:routine"],
+    satisfiedBy: [
+      { key, kind: "bash_executable" },
+      { key: "tool:routine", kind: "tool_routine" },
+    ],
   };
 }

@@ -1,6 +1,6 @@
 import { PACKAGE_EXECUTE, PACKAGE_MANAGER_ACTIONS } from "../rules/subcommand-rules";
 import { classification, type ShellClassifier } from "./types";
-import { findPositionalArgument } from "./command-utils";
+import { findPositionalArgument, hasOption } from "./command-utils";
 
 const GLOBAL_OPTIONS_WITH_VALUE = new Set([
   "--prefix",
@@ -20,12 +20,33 @@ export const packageManagerClassifier: ShellClassifier = {
     const profile = PACKAGE_MANAGER_ACTIONS[primary];
     if (!profile) return null;
     const action = resolvePackageAction(primary, command.argumentValues);
+    if (profile.read.has(action)) {
+      return classification(
+        "read",
+        `${primary} ${action} inspects local state`,
+        `shell.read.${primary}`,
+      );
+    }
+    if (profile.externalRead.has(action)) {
+      return classification(
+        "external_read",
+        `${primary} ${action} reads package-service data`,
+        `shell.read.${primary}`,
+      );
+    }
     if (profile.routineExternal.has(action)) {
       return classification(
         "external",
         `${primary} ${action} accesses package services`,
         `shell.external.${primary}`,
         { operationClass: "routine" },
+      );
+    }
+    if (action === "publish" && hasOption(command.argumentValues, "--dry-run")) {
+      return classification(
+        "execute",
+        `${primary} publish previews a package while running local hooks`,
+        `shell.execute.${primary}`,
       );
     }
     if (profile.sensitiveExternal.has(action)) {

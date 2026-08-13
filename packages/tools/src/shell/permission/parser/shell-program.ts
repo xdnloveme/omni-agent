@@ -1,3 +1,5 @@
+import path from "node:path";
+
 export type ShellProgramStatus = "complete" | "partial" | "unsupported";
 
 export interface ShellProgram {
@@ -8,6 +10,7 @@ export interface ShellProgram {
 export type ShellStatement =
   | { kind: "command"; command: ShellCommandView }
   | { kind: "assignment"; assignment: ShellAssignment; nested: readonly ShellProgram[] }
+  | { kind: "noop"; nested: readonly ShellProgram[] }
   | { kind: "pipeline"; statements: readonly ShellStatement[] }
   | { kind: "background"; statement: ShellStatement }
   | {
@@ -17,6 +20,19 @@ export type ShellStatement =
       right: ShellStatement;
     }
   | { kind: "group"; statements: readonly ShellStatement[]; scoped: boolean }
+  | {
+      kind: "loop";
+      condition: readonly ShellStatement[];
+      body: readonly ShellStatement[];
+      nested: readonly ShellProgram[];
+      variable?: string;
+    }
+  | {
+      kind: "branch";
+      condition: readonly ShellStatement[];
+      branches: readonly (readonly ShellStatement[])[];
+      nested: readonly ShellProgram[];
+    }
   | { kind: "function"; name: string; statements: readonly ShellStatement[] }
   | {
       kind: "redirected";
@@ -73,6 +89,25 @@ export function nestedProgramsOfWord(word: ShellWord): readonly ShellProgram[] {
   return word.parts.flatMap((part) =>
     part.kind === "command_output" || part.kind === "process_substitution" ? [part.program] : [],
   );
+}
+
+export function commandViewFromWords(words: readonly ShellWord[]): ShellCommandView | null {
+  const executable = words[0];
+  if (!executable) return null;
+  const executableName = executable.staticValue
+    ? path.basename(executable.staticValue).toLowerCase()
+    : "";
+  return {
+    raw: executable.raw,
+    executable,
+    executableName,
+    arguments: words.slice(1),
+    argumentValues: words.slice(1).map((word) => word.staticValue ?? word.value),
+    leadingAssignments: [],
+    redirections: [],
+    nested: words.flatMap(nestedProgramsOfWord),
+    span: { startByte: executable.span.startByte, endByte: words.at(-1)!.span.endByte },
+  };
 }
 
 export function assignmentFromWord(word: ShellWord): ShellAssignment | null {

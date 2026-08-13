@@ -122,6 +122,25 @@ export function unsetVariables(
   return { ...context, literalVariables, variableEffects };
 }
 
+export function bindUnknownVariable(
+  context: ShellAnalysisContext,
+  name: string,
+  effects: readonly ShellEffect[] = [],
+): ShellAnalysisContext {
+  const literalVariables = new Map(context.literalVariables);
+  const variableEffects = new Map(context.variableEffects);
+  literalVariables.delete(name);
+  if (effects.length === 0) variableEffects.delete(name);
+  else variableEffects.set(name, [...new Set(effects)]);
+  const variableLimitExceeded = trimVariableState(literalVariables, variableEffects);
+  return {
+    ...context,
+    literalVariables,
+    variableEffects,
+    variableLimitExceeded: context.variableLimitExceeded || variableLimitExceeded,
+  };
+}
+
 function trimVariableState(
   variables: Map<string, string>,
   effects: Map<string, readonly ShellEffect[]>,

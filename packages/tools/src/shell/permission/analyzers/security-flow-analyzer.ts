@@ -128,6 +128,16 @@ export function isRecursiveBackgroundFunction(
       visit(statement.statement);
       return;
     }
+    if (statement.kind === "loop") {
+      statement.condition.forEach(visit);
+      statement.body.forEach(visit);
+      return;
+    }
+    if (statement.kind === "branch") {
+      statement.condition.forEach(visit);
+      statement.branches.flat().forEach(visit);
+      return;
+    }
     if (
       statement.kind === "pipeline" ||
       statement.kind === "group" ||

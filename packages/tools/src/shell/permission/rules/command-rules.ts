@@ -21,6 +21,8 @@ export const READ_ONLY_COMMANDS = new Set([
   "cut",
   "tr",
   "jq",
+  "awk",
+  "base64",
   "ps",
   "df",
   "du",
@@ -42,9 +44,10 @@ export const READ_ONLY_COMMANDS = new Set([
   "printenv",
   "true",
   "false",
+  "crontab",
+  "launchctl",
+  "test",
 ]);
-
-export const SHELL_CONTEXT_COMMANDS = new Set(["cd"]);
 
 export const WRITE_COMMANDS = new Set([
   "mkdir",
@@ -101,6 +104,8 @@ export const EXTERNAL_COMMANDS = new Set([
   "pip3",
   "npx",
   "bunx",
+  "gh",
+  "glab",
 ]);
 
 export const DESTRUCTIVE_FILE_COMMANDS = new Set(["shred", "truncate"]);

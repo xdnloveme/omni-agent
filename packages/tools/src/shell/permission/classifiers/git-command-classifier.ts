@@ -5,7 +5,7 @@ import {
   GIT_WRITE,
 } from "../rules/subcommand-rules";
 import { classification, type ShellClassifier } from "./types";
-import { findPositionalArgument } from "./command-utils";
+import { findPositionalArgument, hasOption } from "./command-utils";
 import type { ShellCommandView } from "../parser";
 
 const GIT_GLOBAL_OPTIONS_WITH_VALUE = new Set([
@@ -24,6 +24,8 @@ export const gitCommandClassifier: ShellClassifier = {
     if (GIT_READ.has(action)) {
       return classification("read", `git ${action} is read-only`, "shell.read.git");
     }
+    const readOnlyReason = readOnlyGitMode(action, command.argumentValues);
+    if (readOnlyReason) return classification("read", readOnlyReason, "shell.read.git");
     if (
       GIT_DESTRUCTIVE.has(action) ||
       (action === "reset" && command.argumentValues.includes("--hard")) ||
@@ -54,6 +56,7 @@ export const gitCommandClassifier: ShellClassifier = {
 
 function isDestructivePush(action: string, command: ShellCommandView): boolean {
   if (action !== "push") return false;
+  if (hasDryRun(command.argumentValues)) return false;
   return command.argumentValues.some((argument) => {
     if (
       ["-f", "--force", "--force-with-lease", "--delete", "--mirror", "--prune"].includes(argument)
@@ -62,6 +65,34 @@ function isDestructivePush(action: string, command: ShellCommandView): boolean {
     if (argument.startsWith("--force-with-lease=")) return true;
     return /^:[^:]/.test(argument) || /^\+[^+]/.test(argument);
   });
+}
+
+function readOnlyGitMode(action: string, args: readonly string[]): string | null {
+  if (action === "clean" && hasDryRun(args)) return "git clean previews removable files";
+  if (action === "rebase" && args.includes("--show-current-patch")) {
+    return "git rebase displays the current patch";
+  }
+  if (
+    action === "branch" &&
+    (args.length === 1 || hasAnyFlag(args, ["--list", "-l", "-a", "-r"]))
+  ) {
+    return "git branch lists local references";
+  }
+  if (action === "tag" && (args.length === 1 || hasAnyFlag(args, ["--list", "-l"]))) {
+    return "git tag lists tags";
+  }
+  if (action === "stash" && ["list", "show"].includes(args[args.indexOf("stash") + 1] ?? "")) {
+    return "git stash inspects saved changes";
+  }
+  return null;
+}
+
+function hasDryRun(args: readonly string[]): boolean {
+  return args.includes("-n") || hasOption(args, "--dry-run");
+}
+
+function hasAnyFlag(args: readonly string[], flags: readonly string[]): boolean {
+  return args.some((argument) => flags.includes(argument));
 }
 
 function resolveGitAction(command: ShellCommandView): string {

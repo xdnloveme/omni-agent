@@ -32,6 +32,7 @@ import {
   DYNAMIC_EXECUTION_BUILTINS,
   isApprovalFreeShellBuiltin,
 } from "../semantics/shell-builtins";
+import { analyzeFindCommand } from "../semantics/find-command-semantics";
 import { unknownClassification } from "./aggregate-analysis";
 import {
   emptyAnalysis,
@@ -42,6 +43,7 @@ import {
 import type { ShellAnalysisInput } from "./analysis-input";
 import {
   applyPersistentAssignment,
+  bindUnknownVariable,
   changeDirectory,
   mergeBranchContexts,
   resolveShellWord,
@@ -136,6 +138,8 @@ async function analyzeStatement(
     case "assignment": {
       return analyzeAssignments([statement.assignment], input, context, wrapperChain, depth, state);
     }
+    case "noop":
+      return analyzeNestedPrograms(statement.nested, input, context, wrapperChain, depth, state);
     case "pipeline":
       return analyzePipeline(statement.statements, input, context, wrapperChain, depth, state);
     case "background":
@@ -171,6 +175,73 @@ async function analyzeStatement(
         state,
       );
       return { ...grouped, context: statement.scoped ? context : grouped.context };
+    }
+    case "loop": {
+      const nested = await analyzeNestedPrograms(
+        statement.nested,
+        input,
+        context,
+        wrapperChain,
+        depth,
+        state,
+      );
+      const condition = await analyzeShellProgram(
+        { body: statement.condition, status: "complete" },
+        input,
+        nested.context,
+        wrapperChain,
+        depth + 1,
+        state,
+      );
+      const bodyContext = statement.variable
+        ? bindUnknownVariable(condition.context, statement.variable, producedEffects(nested))
+        : condition.context;
+      const body = await analyzeShellProgram(
+        { body: statement.body, status: "complete" },
+        input,
+        bodyContext,
+        wrapperChain,
+        depth + 1,
+        state,
+      );
+      return mergeAnalysis(
+        mergeAnalysis(nested, condition, condition.context),
+        body,
+        mergeBranchContexts(context, body.context),
+      );
+    }
+    case "branch": {
+      const nested = await analyzeNestedPrograms(
+        statement.nested,
+        input,
+        context,
+        wrapperChain,
+        depth,
+        state,
+      );
+      const condition = await analyzeShellProgram(
+        { body: statement.condition, status: "complete" },
+        input,
+        nested.context,
+        wrapperChain,
+        depth + 1,
+        state,
+      );
+      let result = mergeAnalysis(nested, condition, condition.context);
+      let branchContext = condition.context;
+      for (const branch of statement.branches) {
+        const analyzed = await analyzeShellProgram(
+          { body: branch, status: "complete" },
+          input,
+          condition.context,
+          wrapperChain,
+          depth + 1,
+          state,
+        );
+        result = mergeAnalysis(result, analyzed, result.context);
+        branchContext = mergeBranchContexts(branchContext, analyzed.context);
+      }
+      return { ...result, context: branchContext };
     }
     case "function": {
       if (isRecursiveBackgroundFunction(statement.name, statement.statements)) {
@@ -274,11 +345,13 @@ async function analyzeCommand(
   const localContext = assignments.context;
   if (localContext.variableLimitExceeded) state.limitExceeded = true;
   const wrapper = command.executableName ? analyzeWrapper(command) : undefined;
+  const findSemantics = analyzeFindCommand(command);
   const wrapperAssignmentPrograms =
     wrapper?.kind === "argv"
       ? (wrapper.targetContext?.assignments.flatMap(({ value }) => nestedProgramsOfWord(value)) ??
         [])
       : [];
+  const delegatedPrograms = findSemantics?.delegatedCommands.flatMap(({ nested }) => nested) ?? [];
   const nestedPrograms =
     wrapper?.kind === "argv"
       ? command.nested.filter(
@@ -286,7 +359,7 @@ async function analyzeCommand(
             !wrapper.target.nested.includes(program) &&
             !wrapperAssignmentPrograms.includes(program),
         )
-      : command.nested;
+      : command.nested.filter((program) => !delegatedPrograms.includes(program));
   const commandNested = await analyzeNestedPrograms(
     nestedPrograms,
     input,
@@ -419,8 +492,14 @@ async function analyzeCommand(
     );
   }
 
-  const paths = await analyzePathsForCommand(command, classification, input, localContext);
-  const result = mergeAnalysis(nested, paths, context);
+  const paths = await analyzePathsForCommand(
+    command,
+    classification,
+    input,
+    localContext,
+    findSemantics?.pathOperands,
+  );
+  let result = mergeAnalysis(nested, paths, context);
   result.classifications.push(classification);
   result.classifications.push(
     ...classifyNestedFlow(classification, nested, paths.paths, consumedEffects),
@@ -429,6 +508,26 @@ async function analyzeCommand(
   if (wrapper?.kind !== "none" && !isApprovalFreeShellBuiltin(command.executableName)) {
     const requirement = executableRequirement(command);
     if (requirement) result.requirements.push(requirement);
+  }
+  for (const delegated of findSemantics?.delegatedCommands ?? []) {
+    const analyzed = await analyzeCommand(
+      delegated,
+      input,
+      localContext,
+      [...wrapperChain, command.executableName],
+      depth + 1,
+      state,
+    );
+    result = mergeAnalysis(result, analyzed, context);
+  }
+  if (findSemantics?.unresolvedDelegation) {
+    result.classifications.push(
+      unknownClassification("find delegated command cannot be resolved", "shell.unknown.find-exec"),
+    );
+    result.uncertainties.push({
+      kind: "execution_target",
+      reason: "find delegated command cannot be resolved",
+    });
   }
   const nextContext = applyCommandState(command, context, localContext, producedEffects(nested));
   if (nextContext.variableLimitExceeded) state.limitExceeded = true;
@@ -526,12 +625,13 @@ async function analyzeRedirections(
     nested: [],
     span: { startByte: 0, endByte: 0 },
   };
+  const risk = fileRedirections.some(({ operator }) => operator.includes(">")) ? "write" : "read";
   const classification: ShellClassification = {
-    risk: fileRedirections.some(({ operator }) => operator.includes(">")) ? "write" : "read",
+    risk,
     operationClass: "routine",
     enforcement: "policy",
     reasons: ["Shell redirection accesses a file"],
-    ruleIds: ["shell.write.redirection"],
+    ruleIds: [`shell.${risk}.redirection`],
     effects: [],
   };
   const hardStop = classifyCommandHardStop(command, context.cwd, input.cwd, input.environment.home);

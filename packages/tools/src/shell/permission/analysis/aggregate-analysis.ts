@@ -41,8 +41,10 @@ function emptyClassification(): ShellClassification {
 }
 
 function maximum(left: ShellClassification, right: ShellClassification): ShellClassification {
+  const dominant = comparePriority(left, right) >= 0 ? left : right;
+  const secondary = dominant === left ? right : left;
   return {
-    risk: RISK_ORDER.indexOf(left.risk) >= RISK_ORDER.indexOf(right.risk) ? left.risk : right.risk,
+    risk: dominant.risk,
     enforcement:
       left.enforcement === "hard_deny" || right.enforcement === "hard_deny"
         ? "hard_deny"
@@ -51,8 +53,13 @@ function maximum(left: ShellClassification, right: ShellClassification): ShellCl
       left.operationClass === "sensitive" || right.operationClass === "sensitive"
         ? "sensitive"
         : "routine",
-    reasons: [...left.reasons, ...right.reasons],
-    ruleIds: [...left.ruleIds, ...right.ruleIds],
+    reasons: [...dominant.reasons, ...secondary.reasons],
+    ruleIds: [...dominant.ruleIds, ...secondary.ruleIds],
     effects: [...new Set([...left.effects, ...right.effects])],
   };
+}
+
+function comparePriority(left: ShellClassification, right: ShellClassification): number {
+  if (left.enforcement !== right.enforcement) return left.enforcement === "hard_deny" ? 1 : -1;
+  return RISK_ORDER.indexOf(left.risk) - RISK_ORDER.indexOf(right.risk);
 }

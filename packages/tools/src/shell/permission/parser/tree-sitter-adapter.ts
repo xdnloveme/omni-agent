@@ -11,7 +11,7 @@ import type {
   ShellWord,
   ShellWordPart,
 } from "./shell-program";
-import { nestedProgramsOfWord } from "./shell-program";
+import { commandViewFromWords, nestedProgramsOfWord } from "./shell-program";
 
 const TRANSPARENT_CONTAINERS = new Set(["do_group", "else_clause", "elif_clause", "then"]);
 
@@ -51,6 +51,8 @@ function adaptStatement(node: Parser.SyntaxNode, state: AdapterState): ShellStat
       return { kind: "command", command: adaptCommand(node, state) };
     case "variable_assignment":
       return adaptAssignmentStatement(node, state);
+    case "test_command":
+      return { kind: "command", command: adaptTestCommand(node, state) };
     case "pipeline":
       return { kind: "pipeline", statements: adaptChildren(node, state) };
     case "list":
@@ -60,9 +62,20 @@ function adaptStatement(node: Parser.SyntaxNode, state: AdapterState): ShellStat
     case "subshell":
       return { kind: "group", statements: adaptChildren(node, state), scoped: true };
     case "compound_statement":
-      return { kind: "group", statements: adaptChildren(node, state), scoped: false };
+      return node.text.startsWith("((")
+        ? { kind: "noop", nested: nestedPrograms(node) }
+        : { kind: "group", statements: adaptChildren(node, state), scoped: false };
     case "if_statement":
-      return adaptUnsupported(node, state);
+      return adaptIf(node, state);
+    case "while_statement":
+    case "until_statement":
+      return adaptLoop(node, state);
+    case "for_statement":
+      return adaptFor(node, state);
+    case "c_style_for_statement":
+      return adaptCStyleFor(node, state);
+    case "case_statement":
+      return adaptCase(node, state);
     case "function_definition":
       return adaptFunction(node, state);
     default:
@@ -71,6 +84,119 @@ function adaptStatement(node: Parser.SyntaxNode, state: AdapterState): ShellStat
       }
       return adaptUnsupported(node, state);
   }
+}
+
+function adaptTestCommand(node: Parser.SyntaxNode, state: AdapterState): ShellCommandView {
+  const executable: ShellWord = {
+    raw: "test",
+    value: "test",
+    staticValue: "test",
+    parts: [{ kind: "literal", value: "test" }],
+    span: span(node),
+  };
+  const command = commandViewFromWords([executable, ...testOperands(node, state)]);
+  if (!command) throw new Error("test command adapter invariant failed");
+  return { ...command, raw: node.text, span: span(node) };
+}
+
+function testOperands(node: Parser.SyntaxNode, state: AdapterState): ShellWord[] {
+  return node.namedChildren.flatMap((child) => {
+    if (["word", "string", "raw_string", "test_operator"].includes(child.type)) {
+      return [adaptWord(child, state)];
+    }
+    return testOperands(child, state);
+  });
+}
+
+function adaptLoop(node: Parser.SyntaxNode, state: AdapterState): ShellStatement {
+  const condition = node.childForFieldName("condition");
+  const body = node.childForFieldName("body");
+  if (!condition || !body) return adaptUnsupported(node, state);
+  return {
+    kind: "loop",
+    condition: adaptNodeAsStatements(condition, state),
+    body: adaptNodeAsStatements(body, state),
+    nested: [],
+  };
+}
+
+function adaptFor(node: Parser.SyntaxNode, state: AdapterState): ShellStatement {
+  const body = node.childForFieldName("body");
+  if (!body) return adaptUnsupported(node, state);
+  const values = node.childrenForFieldName("value").map((value) => adaptWord(value, state));
+  const variable = node.namedChildren.find((child) => child.type === "variable_name")?.text;
+  return {
+    kind: "loop",
+    condition: [],
+    body: adaptNodeAsStatements(body, state),
+    nested: values.flatMap(nestedProgramsOfWord),
+    ...(variable ? { variable } : {}),
+  };
+}
+
+function adaptCStyleFor(node: Parser.SyntaxNode, state: AdapterState): ShellStatement {
+  const body = node.childForFieldName("body");
+  if (!body) return adaptUnsupported(node, state);
+  const headerNodes = node.namedChildren.filter((child) => child !== body);
+  const variable = node.childForFieldName("initializer")?.childForFieldName("name")?.text;
+  return {
+    kind: "loop",
+    condition: [],
+    body: adaptNodeAsStatements(body, state),
+    nested: headerNodes.flatMap(nestedPrograms),
+    ...(variable ? { variable } : {}),
+  };
+}
+
+function adaptIf(node: Parser.SyntaxNode, state: AdapterState): ShellStatement {
+  const condition = node.childForFieldName("condition");
+  if (!condition) return adaptUnsupported(node, state);
+  const alternative = node.namedChildren.find((child) => child.type === "else_clause");
+  return {
+    kind: "branch",
+    condition: adaptNodeAsStatements(condition, state),
+    branches: [
+      adaptNodes(
+        node.namedChildren.filter((child) => child !== condition && child !== alternative),
+        state,
+      ),
+      ...(alternative ? [adaptChildren(alternative, state)] : []),
+    ],
+    nested: [],
+  };
+}
+
+function adaptCase(node: Parser.SyntaxNode, state: AdapterState): ShellStatement {
+  const selector = node.childForFieldName("value");
+  if (!selector) return adaptUnsupported(node, state);
+  const selectorWord = adaptWord(selector, state);
+  return {
+    kind: "branch",
+    condition: [],
+    branches: node.namedChildren
+      .filter((child) => child.type === "case_item")
+      .map((item) => adaptNodes(caseBodyNodes(item), state)),
+    nested: nestedProgramsOfWord(selectorWord),
+  };
+}
+
+function caseBodyNodes(item: Parser.SyntaxNode): readonly Parser.SyntaxNode[] {
+  const patternEnd = item.children.find((child) => !child.isNamed && child.text === ")")?.endIndex;
+  return patternEnd === undefined
+    ? []
+    : item.namedChildren.filter((child) => child.startIndex >= patternEnd);
+}
+
+function adaptNodes(nodes: readonly Parser.SyntaxNode[], state: AdapterState): ShellStatement[] {
+  return nodes.flatMap((node) => {
+    const statement = adaptStatement(node, state);
+    return statement ? [statement] : [];
+  });
+}
+
+function adaptNodeAsStatements(node: Parser.SyntaxNode, state: AdapterState): ShellStatement[] {
+  const statement = adaptStatement(node, state);
+  return statement ? [statement] : adaptChildren(node, state);
 }
 
 function adaptFunction(node: Parser.SyntaxNode, state: AdapterState): ShellStatement {

@@ -1,6 +1,6 @@
-import path from "node:path";
 import {
   assignmentFromWord,
+  commandViewFromWords,
   wordAfterPrefix,
   type ShellAssignment,
   type ShellCommandView,
@@ -58,6 +58,7 @@ export function analyzeWrapper(command: ShellCommandView): WrapperAnalysis | nul
     }
     return argvTarget(args);
   }
+  if (primary === "builtin") return argvTarget(args);
   if (primary === "exec") return argvTarget(args, EXEC_OPTIONS_WITH_VALUE);
   if (primary === "nohup") return argvTarget(args);
   if (primary === "time") return argvTarget(args, TIME_OPTIONS_WITH_VALUE);
@@ -76,7 +77,7 @@ export function analyzeWrapper(command: ShellCommandView): WrapperAnalysis | nul
 function analyzeEnvWrapper(args: readonly ShellWord[]): WrapperAnalysis | null {
   const index = findWrappedCommandIndex(args, ENV_OPTIONS_WITH_VALUE, true);
   if (index === null) return { kind: "none", wrapperOperands: args };
-  const target = createCommandView(args.slice(index));
+  const target = commandViewFromWords(args.slice(index));
   if (!target) return null;
   const wrapperOperands = args.slice(0, index);
   return {
@@ -115,7 +116,7 @@ function argvTarget(
 ): WrapperAnalysis | null {
   const index = findWrappedCommandIndex(args, optionsWithValue, skipAssignments);
   if (index === null) return { kind: "none", wrapperOperands: args };
-  const target = createCommandView(args.slice(index));
+  const target = commandViewFromWords(args.slice(index));
   return target ? { kind: "argv", target, wrapperOperands: args.slice(0, index) } : null;
 }
 
@@ -137,29 +138,4 @@ function findWrappedCommandIndex(
     return index;
   }
   return null;
-}
-
-function createCommandView(words: readonly ShellWord[]): ShellCommandView | null {
-  const executable = words[0];
-  if (!executable) return null;
-  const executableName = executable.staticValue
-    ? path.basename(executable.staticValue).toLowerCase()
-    : "";
-  return {
-    raw: executable.raw,
-    executable,
-    executableName,
-    arguments: words.slice(1),
-    argumentValues: words.slice(1).map((word) => word.staticValue ?? word.value),
-    leadingAssignments: [],
-    redirections: [],
-    nested: words.flatMap(({ parts }) =>
-      parts.flatMap((part) =>
-        part.kind === "command_output" || part.kind === "process_substitution"
-          ? [part.program]
-          : [],
-      ),
-    ),
-    span: { startByte: executable.span.startByte, endByte: words.at(-1)!.span.endByte },
-  };
 }

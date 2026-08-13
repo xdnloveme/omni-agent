@@ -53,16 +53,19 @@ export function classifyCommandHardStop(
     return hardDeny("Writes a system authentication file", "shell.hard.auth-file");
   }
   if (
-    executable === "crontab" ||
-    executable === "launchctl" ||
-    (executable === "systemctl" && ["enable", "mask"].includes(args[0] ?? "")) ||
+    (executable === "crontab" && !args.includes("-l")) ||
+    (executable === "launchctl" &&
+      !["list", "print", "blame", "print-cache", "procinfo"].includes(args[0] ?? "")) ||
+    (executable === "systemctl" &&
+      !args.includes("--user") &&
+      ["enable", "mask"].includes(args.find((argument) => !argument.startsWith("-")) ?? "")) ||
     (executable === "service" && args.includes("enable"))
   ) {
     return hardDeny("Installs system-level persistence", "shell.hard.persistence");
   }
   if (
     (["nc", "netcat", "ncat"].includes(executable) && args.includes("-e")) ||
-    (executable === "socat" && args.some((argument) => /(?:exec|system)/i.test(argument))) ||
+    (executable === "socat" && args.some((argument) => /^(?:exec|system):/i.test(argument))) ||
     command.redirections.some(({ target }) =>
       /\/dev\/(?:tcp|udp)\//i.test(target?.staticValue ?? ""),
     )
@@ -95,8 +98,7 @@ function isCatastrophicDelete(
   const recursive = args.some(
     (argument) => argument === "--recursive" || /^-[^-]*r/.test(argument),
   );
-  const forced = args.some((argument) => argument === "--force" || /^-[^-]*f/.test(argument));
-  if (!recursive || !forced) return false;
+  if (!recursive) return false;
   const protectedTargets = new Set([
     "/",
     "~",
@@ -110,7 +112,17 @@ function isCatastrophicDelete(
     protectedTargets.add("$PWD");
     protectedTargets.add("${PWD}");
   }
-  return args.some((argument) => protectedTargets.has(argument.replace(/\/$/, "") || "/"));
+  return args.some((argument) => {
+    const target = argument.replace(/\/$/, "") || "/";
+    if (protectedTargets.has(target)) return true;
+    const globRoot = target.replace(/\/(?:\*|\*\*)$/, "") || "/";
+    if (protectedTargets.has(globRoot)) return true;
+    return (
+      shellCwd !== "unknown" &&
+      path.resolve(shellCwd) === path.resolve(workspaceRoot) &&
+      ["*", "**"].includes(target)
+    );
+  });
 }
 
 function isPrivilegedDocker(executable: string, args: readonly string[]): boolean {
@@ -126,7 +138,10 @@ function isPrivilegedDocker(executable: string, args: readonly string[]): boolea
         /^--pid=host$/i.test(argument) ||
         (argument === "--pid" && runArgs[index + 1]?.toLowerCase() === "host") ||
         /^--volume=\/:/.test(argument) ||
-        (["-v", "--volume"].includes(argument) && runArgs[index + 1]?.startsWith("/:") === true),
+        (["-v", "--volume"].includes(argument) && runArgs[index + 1]?.startsWith("/:") === true) ||
+        (/^--mount=/.test(argument) && /(?:=|,)(?:source|src)=\/(?:,|$)/.test(argument)) ||
+        (argument === "--mount" &&
+          /(?:^|,)(?:source|src)=\/(?:,|$)/.test(runArgs[index + 1] ?? "")),
     );
 }
 

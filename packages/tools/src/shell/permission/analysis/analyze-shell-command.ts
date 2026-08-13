@@ -128,13 +128,16 @@ function isCompound(program: ShellProgram): boolean {
 }
 
 function isCompoundStatement(statement: ShellStatement): boolean {
-  return ["pipeline", "list", "group", "background", "function"].includes(statement.kind);
+  return ["pipeline", "list", "group", "loop", "branch", "background", "function"].includes(
+    statement.kind,
+  );
 }
 
 function hasNestedExecution(program: ShellProgram): boolean {
   return program.body.some((statement) => {
     if (statement.kind === "command") return statement.command.nested.length > 0;
     if (statement.kind === "assignment") return statement.nested.length > 0;
+    if (statement.kind === "noop") return statement.nested.length > 0;
     if (
       statement.kind === "pipeline" ||
       statement.kind === "group" ||
@@ -150,6 +153,24 @@ function hasNestedExecution(program: ShellProgram): boolean {
         body: [statement.left, statement.right],
         status: "complete",
       });
+    }
+    if (statement.kind === "loop") {
+      return (
+        statement.nested.length > 0 ||
+        hasNestedExecution({
+          body: [...statement.condition, ...statement.body],
+          status: "complete",
+        })
+      );
+    }
+    if (statement.kind === "branch") {
+      return (
+        statement.nested.length > 0 ||
+        hasNestedExecution({
+          body: [...statement.condition, ...statement.branches.flat()],
+          status: "complete",
+        })
+      );
     }
     if (statement.kind === "background") {
       return hasNestedExecution({ body: [statement.statement], status: "complete" });

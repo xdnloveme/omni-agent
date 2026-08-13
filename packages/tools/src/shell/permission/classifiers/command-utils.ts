@@ -13,3 +13,7 @@ export function findPositionalArgument(
   }
   return null;
 }
+
+export function hasOption(args: readonly string[], name: string): boolean {
+  return args.some((argument) => argument === name || argument.startsWith(`${name}=`));
+}
