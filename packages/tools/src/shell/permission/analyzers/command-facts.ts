@@ -11,6 +11,7 @@ import type { ShellClassification, ShellEffect } from "../classifiers/types";
 import { assignmentFromWord, type ShellCommandView, type ShellRedirection } from "../parser";
 
 const READ_OPTIONS_WITH_VALUE = new Set(["-d", "-i", "-n", "-N", "-p", "-t", "-u"]);
+const UNSET_OPTIONS = new Set(["-f", "-n", "-v"]);
 
 export function resolveCommandFacts(
   command: ShellCommandView,
@@ -77,7 +78,9 @@ export function applyCommandState(
   if (command.executableName === "unset") {
     return unsetVariables(
       context,
-      command.arguments.flatMap(({ staticValue }) => (staticValue ? [staticValue] : [])),
+      command.arguments.flatMap(({ staticValue }) =>
+        staticValue && !UNSET_OPTIONS.has(staticValue) ? [staticValue] : [],
+      ),
     );
   }
   if (command.executableName === "read") {

@@ -240,6 +240,32 @@ describe("bash permission analysis", () => {
     expect(result.approvalRequirements).toEqual([]);
   });
 
+  it("keeps unresolved arguments separate from executable persistence", async () => {
+    for (const command of [
+      'mycli "${VALUE:-fallback}"',
+      "mycli $((COUNT + 1))",
+      "mycli {first,second}",
+    ]) {
+      const result = await analyze(command);
+      expect(result.syntax.status).toBe("complete");
+      expect(result.approvalRequirements.map(({ approval }) => approval.label)).toEqual([
+        "Always trust executable: mycli",
+      ]);
+    }
+
+    const dynamicExecutable = await analyze('"${COMMAND:-mycli}" value');
+    expect(dynamicExecutable.syntax.status).toBe("complete");
+    expect(dynamicExecutable.approvalRequirements).toEqual([]);
+    expect(dynamicExecutable.uncertainties).toContainEqual(
+      expect.objectContaining({ kind: "execution_target" }),
+    );
+
+    await expect(analyze('mycli "${VALUE:-$(sudo id)}"')).resolves.toMatchObject({
+      security: { enforcement: "hard_deny" },
+      approvalRequirements: [],
+    });
+  });
+
   it.each(['eval "$CODE"', 'source "$SCRIPT"', 'trap "$CODE" EXIT', 'builtin eval "$CODE"'])(
     "does not persist an unresolved execution builtin: %s",
     async (command) => {
@@ -334,6 +360,45 @@ describe("bash permission analysis", () => {
       "Always trust executable: grep",
       "Always trust executable: wc",
     ]);
+  });
+
+  it("treats negation as control flow without weakening nested security", async () => {
+    const routine = await analyze(
+      'if ! grep -qE "pattern" packages agents 2>/dev/null; then echo missing; fi',
+    );
+    expect(routine).toMatchObject({
+      syntax: { status: "complete" },
+      security: { risk: "read", enforcement: "policy" },
+    });
+    expect(routine.security.reasons).not.toContain("Shell redirection accesses a file");
+    expect(routine.approvalRequirements.map(({ approval }) => approval.label)).toEqual([
+      "Always trust executable: grep",
+    ]);
+
+    await expect(analyze("if ! sudo id; then echo blocked; fi")).resolves.toMatchObject({
+      security: { enforcement: "hard_deny" },
+      approvalRequirements: [],
+    });
+  });
+
+  it("tracks scalar shell declarations without opening complex declarations", async () => {
+    await expect(analyze('declare TARGET=/etc/passwd; cat "$TARGET"')).resolves.toMatchObject({
+      syntax: { status: "complete" },
+      security: { operationClass: "sensitive" },
+      approvalRequirements: [],
+    });
+    await expect(analyze("declare -a values=(a b)")).resolves.toMatchObject({
+      syntax: { status: "unsupported" },
+      approvalRequirements: [],
+    });
+    await expect(analyze("declare -p")).resolves.toMatchObject({
+      syntax: { status: "complete" },
+      security: { risk: "read" },
+    });
+    await expect(analyze("TARGET=/tmp/file; unset TARGET; cat file.txt")).resolves.toMatchObject({
+      syntax: { status: "complete" },
+      security: { risk: "read" },
+    });
   });
 
   it.each([

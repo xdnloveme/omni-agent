@@ -13,7 +13,13 @@ import type {
 } from "./shell-program";
 import { commandViewFromWords, nestedProgramsOfWord } from "./shell-program";
 
-const TRANSPARENT_CONTAINERS = new Set(["do_group", "else_clause", "elif_clause", "then"]);
+const PERMISSION_TRANSPARENT_NODES = new Set([
+  "do_group",
+  "else_clause",
+  "elif_clause",
+  "negated_command",
+  "then",
+]);
 
 interface AdapterState {
   unsupported: boolean;
@@ -48,11 +54,15 @@ function adaptChildren(node: Parser.SyntaxNode, state: AdapterState): ShellState
 function adaptStatement(node: Parser.SyntaxNode, state: AdapterState): ShellStatement | null {
   switch (node.type) {
     case "command":
-      return { kind: "command", command: adaptCommand(node, state) };
+      return { kind: "command", command: adaptCommand(node) };
     case "variable_assignment":
       return adaptAssignmentStatement(node, state);
+    case "declaration_command":
+      return adaptDeclaration(node, state);
+    case "unset_command":
+      return { kind: "command", command: adaptUnsetCommand(node) };
     case "test_command":
-      return { kind: "command", command: adaptTestCommand(node, state) };
+      return { kind: "command", command: adaptTestCommand(node) };
     case "pipeline":
       return { kind: "pipeline", statements: adaptChildren(node, state) };
     case "list":
@@ -79,32 +89,65 @@ function adaptStatement(node: Parser.SyntaxNode, state: AdapterState): ShellStat
     case "function_definition":
       return adaptFunction(node, state);
     default:
-      if (TRANSPARENT_CONTAINERS.has(node.type)) {
+      if (PERMISSION_TRANSPARENT_NODES.has(node.type)) {
         return { kind: "group", statements: adaptChildren(node, state), scoped: false };
       }
       return adaptUnsupported(node, state);
   }
 }
 
-function adaptTestCommand(node: Parser.SyntaxNode, state: AdapterState): ShellCommandView {
+function adaptDeclaration(node: Parser.SyntaxNode, state: AdapterState): ShellStatement {
+  const assignmentNodes = node.namedChildren.filter(
+    (child) => child.type === "variable_assignment",
+  );
+  if (assignmentNodes.some((child) => child.childForFieldName("value")?.type === "array")) {
+    state.unsupported = true;
+    return { kind: "noop", nested: nestedPrograms(node) };
+  }
+  const assignments = assignmentNodes
+    .map(adaptAssignment)
+    .filter((assignment): assignment is ShellAssignment => assignment !== null);
+  if (assignments.length === 0) return { kind: "noop", nested: nestedPrograms(node) };
+  const statements = assignments.map((assignment): ShellStatement => ({
+    kind: "assignment",
+    assignment,
+    nested: nestedProgramsOfWord(assignment.value),
+  }));
+  return statements.length === 1 ? statements[0]! : { kind: "group", statements, scoped: false };
+}
+
+function adaptTestCommand(node: Parser.SyntaxNode): ShellCommandView {
+  return adaptSyntheticBuiltin(node, "test", testOperands(node));
+}
+
+function adaptUnsetCommand(node: Parser.SyntaxNode): ShellCommandView {
+  const operands = node.namedChildren.map(adaptWord);
+  return adaptSyntheticBuiltin(node, "unset", operands);
+}
+
+function adaptSyntheticBuiltin(
+  node: Parser.SyntaxNode,
+  name: string,
+  operands: readonly ShellWord[],
+): ShellCommandView {
   const executable: ShellWord = {
-    raw: "test",
-    value: "test",
-    staticValue: "test",
-    parts: [{ kind: "literal", value: "test" }],
+    raw: name,
+    value: name,
+    staticValue: name,
+    parts: [{ kind: "literal", value: name }],
     span: span(node),
   };
-  const command = commandViewFromWords([executable, ...testOperands(node, state)]);
-  if (!command) throw new Error("test command adapter invariant failed");
+  const command = commandViewFromWords([executable, ...operands]);
+  if (!command) throw new Error("synthetic shell builtin adapter invariant failed");
   return { ...command, raw: node.text, span: span(node) };
 }
 
-function testOperands(node: Parser.SyntaxNode, state: AdapterState): ShellWord[] {
+function testOperands(node: Parser.SyntaxNode): ShellWord[] {
   return node.namedChildren.flatMap((child) => {
     if (["word", "string", "raw_string", "test_operator"].includes(child.type)) {
-      return [adaptWord(child, state)];
+      return [adaptWord(child)];
     }
-    return testOperands(child, state);
+    return testOperands(child);
   });
 }
 
@@ -123,7 +166,7 @@ function adaptLoop(node: Parser.SyntaxNode, state: AdapterState): ShellStatement
 function adaptFor(node: Parser.SyntaxNode, state: AdapterState): ShellStatement {
   const body = node.childForFieldName("body");
   if (!body) return adaptUnsupported(node, state);
-  const values = node.childrenForFieldName("value").map((value) => adaptWord(value, state));
+  const values = node.childrenForFieldName("value").map(adaptWord);
   const variable = node.namedChildren.find((child) => child.type === "variable_name")?.text;
   return {
     kind: "loop",
@@ -169,7 +212,7 @@ function adaptIf(node: Parser.SyntaxNode, state: AdapterState): ShellStatement {
 function adaptCase(node: Parser.SyntaxNode, state: AdapterState): ShellStatement {
   const selector = node.childForFieldName("value");
   if (!selector) return adaptUnsupported(node, state);
-  const selectorWord = adaptWord(selector, state);
+  const selectorWord = adaptWord(selector);
   return {
     kind: "branch",
     condition: [],
@@ -207,18 +250,16 @@ function adaptFunction(node: Parser.SyntaxNode, state: AdapterState): ShellState
   return { kind: "function", name, statements: adaptChildren(body, state) };
 }
 
-function adaptCommand(node: Parser.SyntaxNode, state: AdapterState): ShellCommandView {
+function adaptCommand(node: Parser.SyntaxNode): ShellCommandView {
   const nameNode = node.childForFieldName("name");
-  const executable = nameNode ? adaptWord(nameNode, state) : null;
+  const executable = nameNode ? adaptWord(nameNode) : null;
   const assignments = node.namedChildren
     .filter((child) => child.type === "variable_assignment")
-    .map((child) => adaptAssignment(child, state))
+    .map(adaptAssignment)
     .filter((value): value is ShellAssignment => value !== null);
   const argumentNodes = node.childrenForFieldName("argument");
-  const arguments_ = argumentNodes.map((child) => adaptWord(child, state));
-  const redirections = node.namedChildren
-    .filter(isRedirectionNode)
-    .map((child) => adaptRedirection(child, state));
+  const arguments_ = argumentNodes.map(adaptWord);
+  const redirections = node.namedChildren.filter(isRedirectionNode).map(adaptRedirection);
   const nested = [
     ...(executable ? nestedProgramsOfWord(executable) : []),
     ...arguments_.flatMap(nestedProgramsOfWord),
@@ -243,16 +284,16 @@ function adaptCommand(node: Parser.SyntaxNode, state: AdapterState): ShellComman
 }
 
 function adaptAssignmentStatement(node: Parser.SyntaxNode, state: AdapterState): ShellStatement {
-  const assignment = adaptAssignment(node, state);
+  const assignment = adaptAssignment(node);
   if (!assignment) return adaptUnsupported(node, state);
   return { kind: "assignment", assignment, nested: nestedProgramsOfWord(assignment.value) };
 }
 
-function adaptAssignment(node: Parser.SyntaxNode, state: AdapterState): ShellAssignment | null {
+function adaptAssignment(node: Parser.SyntaxNode): ShellAssignment | null {
   const name = node.childForFieldName("name")?.text;
   const valueNode = node.childForFieldName("value");
   if (!name) return null;
-  if (valueNode) return { name, value: adaptWord(valueNode, state) };
+  if (valueNode) return { name, value: adaptWord(valueNode) };
   if (node.text !== `${name}=`) return null;
   return {
     name,
@@ -288,7 +329,7 @@ function adaptRedirected(node: Parser.SyntaxNode, state: AdapterState): ShellSta
   const body = bodyNode ? adaptStatement(bodyNode, state) : null;
   if (!body) return adaptUnsupported(node, state);
   const redirectNodes = node.childrenForFieldName("redirect");
-  const redirections = redirectNodes.map((child) => adaptRedirection(child, state));
+  const redirections = redirectNodes.map(adaptRedirection);
   const nested = redirectNodes.flatMap(nestedPrograms);
   if (body.kind === "list" || body.kind === "pipeline") {
     return attachTerminalRedirection(body, redirections, nested);
@@ -319,7 +360,7 @@ function attachTerminalRedirection(
   return { kind: "redirected", statement, redirections, nested };
 }
 
-function adaptRedirection(node: Parser.SyntaxNode, state: AdapterState): ShellRedirection {
+function adaptRedirection(node: Parser.SyntaxNode): ShellRedirection {
   const targetNode = node.childForFieldName("destination");
   const descriptor = node.childForFieldName("descriptor")?.text;
   const operator =
@@ -329,13 +370,13 @@ function adaptRedirection(node: Parser.SyntaxNode, state: AdapterState): ShellRe
     (operator === ">&" || operator === "<&") && /^(?:\d+|-)$/.test(targetNode?.text ?? "");
   return {
     operator,
-    ...(targetNode && !duplicatesDescriptor ? { target: adaptWord(targetNode, state) } : {}),
+    ...(targetNode && !duplicatesDescriptor ? { target: adaptWord(targetNode) } : {}),
     ...(descriptor && /^\d+$/.test(descriptor) ? { sourceFd: Number(descriptor) } : {}),
   };
 }
 
-function adaptWord(node: Parser.SyntaxNode, state: AdapterState): ShellWord {
-  const parts = adaptWordParts(node, state);
+function adaptWord(node: Parser.SyntaxNode): ShellWord {
+  const parts = adaptWordParts(node);
   const staticValue = staticWordValue(parts);
   return {
     raw: node.text,
@@ -346,7 +387,7 @@ function adaptWord(node: Parser.SyntaxNode, state: AdapterState): ShellWord {
   };
 }
 
-function adaptWordParts(node: Parser.SyntaxNode, state: AdapterState): ShellWordPart[] {
+function adaptWordParts(node: Parser.SyntaxNode): ShellWordPart[] {
   if (node.type === "word") {
     return [{ kind: "literal", value: decodeUnquoted(node.text) }];
   }
@@ -371,16 +412,27 @@ function adaptWordParts(node: Parser.SyntaxNode, state: AdapterState): ShellWord
     return [{ kind: "process_substitution", program: adaptProgram(node) }];
   }
   if (node.type === "command_name" && node.namedChildCount === 1) {
-    return adaptWordParts(node.namedChild(0)!, state);
+    return adaptWordParts(node.namedChild(0)!);
   }
   if (["string", "concatenation"].includes(node.type)) {
-    return node.namedChildren.flatMap((child) => adaptWordParts(child, state));
+    return node.namedChildren.flatMap(adaptWordParts);
   }
   if (node.namedChildCount === 0) {
     return [{ kind: "literal", value: stripOuterQuotes(node.text) }];
   }
-  state.unsupported = true;
-  return [{ kind: "unresolved", syntaxType: node.type }];
+  return [{ kind: "unresolved", syntaxType: node.type }, ...nestedExecutionParts(node)];
+}
+
+function nestedExecutionParts(node: Parser.SyntaxNode): ShellWordPart[] {
+  return node.namedChildren.flatMap((child): ShellWordPart[] => {
+    if (child.type === "command_substitution") {
+      return [{ kind: "command_output", program: adaptProgram(child) }];
+    }
+    if (child.type === "process_substitution") {
+      return [{ kind: "process_substitution", program: adaptProgram(child) }];
+    }
+    return nestedExecutionParts(child);
+  });
 }
 
 function nestedPrograms(node: Parser.SyntaxNode): ShellProgram[] {

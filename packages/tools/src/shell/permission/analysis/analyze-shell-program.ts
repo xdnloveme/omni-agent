@@ -636,7 +636,10 @@ async function analyzeRedirections(
   };
   const hardStop = classifyCommandHardStop(command, context.cwd, input.cwd, input.environment.home);
   const paths = await analyzePathsForCommand(command, classification, input, context, []);
-  paths.classifications.push(hardStop ?? classification);
+  if (hardStop) paths.classifications.push(hardStop);
+  else if (paths.paths.length > 0 || paths.uncertainties.length > 0) {
+    paths.classifications.push(classification);
+  }
   return paths;
 }
 
