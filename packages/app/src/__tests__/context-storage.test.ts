@@ -21,19 +21,20 @@ afterEach(async () => {
 });
 
 function checkpoint(sessionId: string): ContextCheckpoint {
+  const summary = "summary";
   return {
     id: "checkpoint-1",
     sessionId,
     sessionRevision: 1,
     coveredMessageCount: 2,
-    coveredTranscriptDigest: "source",
-    sourceMiddlewareDigest: "middleware",
-    sourcePolicyDigest: "policy",
+    coveredTranscriptDigest: digestContextValue("source"),
+    sourceMiddlewareDigest: digestContextValue("middleware"),
+    sourcePolicyDigest: digestContextValue("policy"),
     gateName: "heavy_checkpoint_gate",
     gateVersion: 1,
     promptVersion: 1,
-    summary: "summary",
-    summaryDigest: "summary-digest",
+    summary,
+    summaryDigest: digestContextValue(summary),
     estimatedSummaryTokens: 2,
     summaryModelCallId: "summary-call-1",
     generatedBy: { provider: "test", model: "model" },
@@ -104,6 +105,60 @@ describe("Context sidecar storage", () => {
         name.startsWith("checkpoints.json.corrupt-"),
       ),
     ).toBe(true);
+  });
+
+  it("validates checkpoint lineage and distinguishes idempotence from id conflicts", async () => {
+    const root = await mkdtemp(join(tmpdir(), "omni-context-storage-"));
+    roots.push(root);
+    const repository = new ContextCheckpointRepository(
+      new ContextSidecarLayout(join(root, "coding", "context")),
+    );
+    const parent = checkpoint("session-1");
+    const childSummary = "child summary";
+    const child: ContextCheckpoint = {
+      ...parent,
+      id: "checkpoint-2",
+      parentId: parent.id,
+      coveredMessageCount: parent.coveredMessageCount + 1,
+      summary: childSummary,
+      summaryDigest: digestContextValue(childSummary),
+      summaryModelCallId: "summary-call-2",
+      createdAt: new Date(1).toISOString(),
+    };
+
+    await repository.append(parent);
+    await repository.append(parent);
+    await repository.append(child);
+    expect(await repository.list("session-1")).toHaveLength(2);
+
+    const conflictingSummary = "conflicting summary";
+    await expect(
+      repository.append({
+        ...parent,
+        summary: conflictingSummary,
+        summaryDigest: digestContextValue(conflictingSummary),
+      }),
+    ).rejects.toThrow("id conflict");
+    await expect(
+      repository.append({
+        ...child,
+        id: "checkpoint-3",
+        parentId: "missing",
+      }),
+    ).rejects.toThrow("Missing checkpoint parent");
+    await expect(
+      repository.append({
+        ...child,
+        id: "checkpoint-4",
+        coveredMessageCount: parent.coveredMessageCount,
+      }),
+    ).rejects.toThrow("coverage must increase");
+    await expect(
+      repository.append({ ...child, id: "checkpoint-5", summaryDigest: "invalid" }),
+    ).rejects.toThrow("Invalid checkpoint record");
+    await expect(
+      repository.append({ ...child, id: "checkpoint-6", createdAt: "not-a-date" }),
+    ).rejects.toThrow("Invalid checkpoint record");
   });
 
   it("rejects stale projection commits without replacing current state", async () => {

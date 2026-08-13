@@ -332,6 +332,19 @@ context at or below 50%. It preserves
 complete recent user/tool groups and fails the request after at most two summary attempts;
 it never silently restores full history or hard-truncates content.
 
+All Context consumers share one conservative estimator: ASCII and non-ASCII UTF-8 bytes
+have separate ratios and message/tool structures contribute explicit overhead. Heavy
+summary input is projected to a Context-owned semantic DTO that excludes Transcript-only
+metadata, Thinking bodies, and raw image bytes. Stable HTML-safe JSON prevents historical
+text from closing prompt delimiters. Prompt v2 requires one strictly validated structured
+summary; plain prose is not a valid checkpoint.
+
+The Heavy partition and frozen summary request are created once. A retry receives the
+same request object, including the same prompt, coverage, model-call identity, output
+budget, and cancellation signal. Preflight capacity, cancellation, and persistence errors
+do not enter the retry loop. There is no alternate prompt, retry partition, mechanical
+summary, or Full History fallback.
+
 Session JSONL remains the sole transcript source of truth. Context state is physically
 co-located but logically isolated under
 `sessions/<agentId>/context/<sessionId>/`: `checkpoints.json` stores the parent-linked
@@ -342,6 +355,12 @@ sidecars are quarantined and rebuilt from the Transcript. Its shared Session loc
 outside the deletable sidecar directory, so cleanup remains mutually exclusive until it
 finishes. Session clear is coordinated by the Application through that lifecycle
 component.
+
+Checkpoint append validates records and parent lineage while holding that same Context
+Session lock. Parent records must already exist, coverage must strictly increase, exact
+duplicates are idempotent, and conflicting IDs fail without replacing the sidecar.
+Checkpoint summaries remain unescaped at rest; XML escaping is owned exclusively by the
+final Context-entry projection, so stored digests and model-visible markup cannot diverge.
 
 `ModelRuntimePort` receives only `ModelContextMessage` and `ModelToolSpec`. The Provider
 mapper creates a new backend Context, deep-copies content, arguments, deferred state, and

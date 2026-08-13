@@ -11,6 +11,7 @@ export function partitionContextEntries(
   entries: readonly ContextEntry[],
   tailTokenBudget: number,
   estimator: ContextTokenEstimatorPort,
+  minimumCoveredMessageCount?: number,
 ): ContextPartition {
   const sourceEntries = entries.filter(
     (entry): entry is Exclude<ContextEntry, { kind: "checkpoint" }> => entry.kind !== "checkpoint",
@@ -20,6 +21,13 @@ export function partitionContextEntries(
   let used = 0;
   for (let index = groups.length - 1; index >= 0; index--) {
     const group = groups[index];
+    const firstSourceIndex = group[0]?.sourceIndex ?? 0;
+    if (
+      minimumCoveredMessageCount !== undefined &&
+      firstSourceIndex <= minimumCoveredMessageCount
+    ) {
+      break;
+    }
     const cost = group.reduce((total, entry) => total + estimator.estimateEntry(entry), 0);
     if (used + cost > tailTokenBudget) break;
     tailGroups.unshift(group);

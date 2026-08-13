@@ -7,6 +7,7 @@ export type { AgentDefinition, AgentRunContext, AgentRunResult } from "./agent/i
 export {
   ApproximateContextTokenEstimator,
   ContextCompressionTargetError,
+  ContextSummaryInputBudgetError,
   ContextPolicyPipeline,
   DefaultContextEngine,
   digestContextValue,

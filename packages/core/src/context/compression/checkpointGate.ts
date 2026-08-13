@@ -12,7 +12,10 @@ import { restoreCheckpoint } from "./checkpointEntry";
 import type { ContextSummaryGeneratorPort } from "./contracts";
 import { CHECKPOINT_PROMPT_VERSION } from "./prompt";
 
-export { ContextCompressionTargetError } from "./checkpointCompactor";
+export {
+  ContextCompressionTargetError,
+  ContextSummaryInputBudgetError,
+} from "./checkpointCompactor";
 
 export class HeavyCheckpointGateStage implements ContextFinalGatePort {
   readonly name = "heavy_checkpoint_gate";

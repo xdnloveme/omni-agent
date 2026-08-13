@@ -14,6 +14,7 @@ export {
 } from "./compression/micro/threshold";
 export {
   ContextCompressionTargetError,
+  ContextSummaryInputBudgetError,
   HeavyCheckpointGateStage,
 } from "./compression/checkpointGate";
 export { DEFAULT_CONTEXT_COMPRESSION_BUDGET } from "./compression/budget";

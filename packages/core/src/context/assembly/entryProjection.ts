@@ -1,5 +1,6 @@
 import type { ModelContextMessage, TranscriptMessage } from "../../messages";
 import type { ContextEntry } from "../contracts/types";
+import { escapeContextMarkupAttribute, escapeContextMarkupText } from "../encoding";
 import { toContextMessages } from "./messageProjection";
 
 export function projectContextEntries(entries: readonly ContextEntry[]): ModelContextMessage[] {
@@ -33,10 +34,12 @@ export function projectContextEntries(entries: readonly ContextEntry[]): ModelCo
 }
 
 function checkpointContent(entry: Extract<ContextEntry, { kind: "checkpoint" }>): string {
-  const parent = entry.parentId ? ` parent_id="${entry.parentId}"` : "";
+  const parent = entry.parentId
+    ? ` parent_id="${escapeContextMarkupAttribute(entry.parentId)}"`
+    : "";
   return [
-    `<context_checkpoint checkpoint_id="${entry.checkpointId}"${parent} covered_message_count="${entry.coveredMessageCount}" prompt_version="${entry.promptVersion}">`,
-    entry.summary,
+    `<context_checkpoint checkpoint_id="${escapeContextMarkupAttribute(entry.checkpointId)}"${parent} covered_message_count="${entry.coveredMessageCount}" prompt_version="${entry.promptVersion}">`,
+    escapeContextMarkupText(entry.summary),
     "</context_checkpoint>",
   ].join("\n");
 }

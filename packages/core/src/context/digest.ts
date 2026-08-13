@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto";
 
 export function digestContextValue(value: unknown): string {
-  return createHash("sha256").update(stableSerialize(value)).digest("hex");
+  return createHash("sha256").update(serializeContextValue(value)).digest("hex");
 }
 
-function stableSerialize(value: unknown): string {
+export function serializeContextValue(value: unknown): string {
   return JSON.stringify(canonicalize(value));
 }
 

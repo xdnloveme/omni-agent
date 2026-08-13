@@ -13,12 +13,13 @@ export function resolveCompatibleCheckpoint(input: {
   readonly promptVersion: number;
 }): ContextCheckpoint | undefined {
   return [...input.checkpoints]
-    .reverse()
     .sort((left, right) => right.createdAt.localeCompare(left.createdAt))
     .find((checkpoint) => {
       if (
         checkpoint.sessionId !== input.sessionId ||
+        checkpoint.coveredMessageCount < 0 ||
         checkpoint.coveredMessageCount > input.messages.length ||
+        !checkpoint.summary.trim() ||
         checkpoint.sourceMiddlewareDigest !== input.middlewareDigest ||
         checkpoint.sourcePolicyDigest !== input.policyDigest ||
         checkpoint.gateName !== input.gateName ||

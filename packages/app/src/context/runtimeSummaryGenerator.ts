@@ -1,9 +1,10 @@
-import type {
-  ContextSummaryGeneratorPort,
-  ContextSummaryRequest,
-  ContextSummaryResult,
-  ModelRuntimePort,
-  RuntimeModelSelection,
+import {
+  throwIfAborted,
+  type ContextSummaryGeneratorPort,
+  type ContextSummaryRequest,
+  type ContextSummaryResult,
+  type ModelRuntimePort,
+  type RuntimeModelSelection,
 } from "@omni-agent/core";
 
 export class RuntimeContextSummaryGenerator implements ContextSummaryGeneratorPort {
@@ -34,6 +35,7 @@ export class RuntimeContextSummaryGenerator implements ContextSummaryGeneratorPo
       },
     )) {
       if (event.type === "error") {
+        throwIfAborted(request.signal);
         throw new Error(event.error.errorMessage ?? "Context summary model call failed");
       }
       if (event.type === "done") {

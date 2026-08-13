@@ -173,6 +173,45 @@ describe("context architecture", () => {
         )
         .map(({ file }) => relative(repositoryRoot, file)),
     ).toEqual([]);
+    expect(
+      sources
+        .filter(({ source }) => /JSON\.stringify\(entry\.message\)/.test(source))
+        .map(({ file }) => relative(repositoryRoot, file)),
+    ).toEqual([]);
+    expect(
+      sources
+        .filter(({ source }) => /CHECKPOINT_PROMPT_VERSION\s*=\s*1\b/.test(source))
+        .map(({ file }) => relative(repositoryRoot, file)),
+    ).toEqual([]);
+    expect(
+      sources.filter(({ source }) => /function\s+createCheckpointSourceEntries\s*\(/.test(source)),
+    ).toHaveLength(1);
+    for (const functionName of [
+      "encodeCheckpointPromptJson",
+      "escapeContextMarkupText",
+      "escapeContextMarkupAttribute",
+      "validateCheckpointSummary",
+    ]) {
+      expect(
+        sources.filter(({ source }) =>
+          new RegExp(`function\\s+${functionName}\\s*\\(`).test(source),
+        ),
+      ).toHaveLength(1);
+    }
+    expect(
+      sources
+        .filter(({ source }) => /extractSummaryContent|mechanical(?:\w|\s)*summary/i.test(source))
+        .map(({ file }) => relative(repositoryRoot, file)),
+    ).toEqual([]);
+
+    const compactor = await readFile(
+      join(contextRoot, "compression", "checkpointCompactor.ts"),
+      "utf8",
+    );
+    expect(compactor).not.toMatch(/tailBudget\([^)]*attempt|attempt\s*>\s*0/);
+
+    const agentLoop = await readFile(join(coreRoot, "agent-loop.ts"), "utf8");
+    expect(agentLoop).not.toMatch(/ContextSummary|CheckpointCompactor|tailBudget/);
   });
 
   it("prevents workspace consumers from deep-importing Context", async () => {

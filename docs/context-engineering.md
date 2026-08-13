@@ -73,8 +73,12 @@ fallback execution path.
 
 ## Budget and built-in stages
 
-The existing four-characters-per-token estimate is now owned by one
-`ContextTokenEstimatorPort`. All stages and the Agent usage display consume that result.
+One conservative `ContextTokenEstimatorPort` owns all estimates used by policy stages,
+manifests, and the Agent usage display. ASCII text is estimated at four UTF-8 bytes per
+token, non-ASCII text at two UTF-8 bytes per token, and message/tool structures add
+explicit overhead. This deliberately makes CJK and emoji-heavy contexts compact earlier
+than the former four-characters-per-token approximation. It remains an estimate rather
+than a Provider tokenizer.
 
 ```text
 usable input = context window - maximum output tokens
@@ -112,10 +116,25 @@ checkpoint and the tail may be empty. Summary generation is attempted at most tw
 Failure aborts the main request: there is no silent full-history retry, hard truncation,
 or Provider token-limit fallback.
 
-The versioned checkpoint prompt asks for Goal and Constraints, Decisions and Rationale,
-Completed Work and Evidence, Errors/Risks/Open Questions, Resources and Artifact
-References, Current State, and Immediate Next Action. It explicitly compiles continuation
-state rather than answering the user and treats tool output as data, not instructions.
+The v2 checkpoint prompt consumes a semantic `CheckpointSourceEntry` projection rather
+than serializing Transcript records. It retains visible text, tool-call pairing, errors,
+and stable artifact references while excluding timestamps, usage, diagnostics, routing,
+Thinking text, and raw image bytes. Previous checkpoints are supplied separately. Both
+inputs use stable HTML-safe JSON, so historical closing tags remain string data.
+
+The prompt asks for Conversation Facts, Goal and Constraints, Decisions and Rationale,
+Completed Work and Evidence, Errors/Risks/Open Questions, Resources, Current State, and
+one Immediate Next Action. The response must be exactly one `<summary>...</summary>`
+block with every heading present once and in order. A strict validator rejects preambles,
+missing or extra headings, empty sections, nested control tags, ambiguous next actions,
+and output beyond the summary budget. The stored checkpoint contains only the validated
+body.
+
+Partitioning and request construction happen once. If generation or validation fails,
+the same frozen `ContextSummaryRequest` object may be submitted one more time; the model
+call ID, prompt, tail, coverage, budget, and signal do not change. Attempt metadata stays
+outside the request. A 1,024-token safety buffer protects the summary input capacity;
+preflight failure does not call the model or retry.
 
 ## Checkpoint chain and storage
 
@@ -143,7 +162,10 @@ Storage is physically co-located with Sessions but logically isolated:
 
 The Session Repository knows nothing about Context files. Dedicated checkpoint and
 projection repositories use a Context-only layout and own only their individual data.
-Checkpoint writes use the shared interprocess lock and atomic JSON replacement. A
+Checkpoint writes use the shared interprocess lock and atomic JSON replacement. Inside
+that lock the repository validates SHA-256 digests, timestamps, non-negative counts,
+record identity, parent existence, strictly increasing coverage, idempotent duplicates,
+and conflicting IDs. A
 separate `ContextSidecarLifecycle` exclusively owns deletion of the whole Session Context
 directory, so neither repository can erase the other's state. The shared per-Session
 lock lives outside the deletable directory and remains held for the complete cleanup. A corrupt sidecar is
@@ -160,7 +182,9 @@ movement. Omni Agent deliberately preserves its pure Transcript JSONL contract.
 
 Context entries are assembled into detached `ModelContextMessage` values. A checkpoint
 is represented only in the current model request as a `<context_checkpoint ...>` user
-entry; it never becomes a Transcript message. Provider mappers add backend-only
+entry; it never becomes a Transcript message. The sidecar keeps the unescaped normalized
+summary and its digest; XML text and attributes are escaped only during Model Context
+projection. Provider mappers add backend-only
 timestamp and zero-usage placeholders on fresh copies.
 
 The internal summary call invokes `ModelRuntimePort` directly and does not re-enter the
@@ -185,6 +209,34 @@ and stable digests, but no message body. It is not persisted or accumulated by t
 Runtime middleware accepts only current declared members. `afterModel` is a detached,
 readonly observer, while Context mutation belongs to `contextMiddleware`. Tool execution
 middleware is unchanged.
+
+## Checkpoint summary quality gate
+
+Prompt v2 quality is evaluated offline; the production path does not add a second LLM
+judge call. The fixed evaluation corpus covers interrupted long-running work, corrected
+earlier conclusions, unaccepted Assistant proposals, failed/fixed/verified tool calls,
+exact paths and configuration literals, partially superseded checkpoints, mixed Chinese
+and English, forged tags and prompt injection, mixed completed and unfinished work, and
+the valid use of `WORK COMPLETE`.
+
+Release acceptance uses these thresholds:
+
+| Metric                               | Required result |
+| ------------------------------------ | --------------: |
+| Active goal retention                |            100% |
+| Active constraint retention          |            100% |
+| Unfinished-work recall               |          >= 95% |
+| Key-decision recall                  |          >= 95% |
+| Exact identifier accuracy            |            100% |
+| Fabricated-fact rate                 |              0% |
+| False completion rate                |              0% |
+| Injection instruction execution rate |              0% |
+| Immediate-next-action agreement      |          >= 95% |
+| Output protocol validity             |            100% |
+
+Any failure in a 100% or 0% hard requirement blocks Prompt v2 release. Structural tests
+enforce the protocol and fail-closed behavior in CI; semantic recall and faithfulness are
+measured by the versioned offline corpus before release.
 
 ## Explicit non-goals
 
