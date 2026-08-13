@@ -74,7 +74,7 @@ export interface ToolResultTranscriptMessage {
   toolCallId: string;
   toolName: string;
   content: Array<TextContent | ImageContent>;
-  details?: unknown;
+  details?: JsonValue;
   usage?: ModelUsage;
   addedToolNames?: string[];
   isError: boolean;

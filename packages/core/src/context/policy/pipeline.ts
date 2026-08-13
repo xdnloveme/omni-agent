@@ -53,7 +53,13 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
       current = cloneContextFrame(result.frame);
       estimate = this.estimator.estimate(current);
       decisions.push(...cloneContextDecisions(result.decisions));
-      manifests.push({ name: stage.name, version: stage.version, before, after: estimate });
+      manifests.push({
+        name: stage.name,
+        version: stage.version,
+        ...(stage.configurationDigest ? { configurationDigest: stage.configurationDigest() } : {}),
+        before,
+        after: estimate,
+      });
     }
 
     throwIfAborted(options.signal);
@@ -67,7 +73,11 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
       sessionRevision: options.sessionRevision,
       middlewareDigest: options.middlewareDigest,
       sourceMessages: cloneTranscriptMessages(options.sourceMessages),
-      precedingStages: manifests.map(({ name, version }) => ({ name, version })),
+      precedingStages: manifests.map(({ name, version, configurationDigest }) => ({
+        name,
+        version,
+        ...(configurationDigest ? { configurationDigest } : {}),
+      })),
       estimate: { ...before },
       signal: options.signal,
     });
@@ -83,6 +93,9 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
     manifests.push({
       name: this.finalGate.name,
       version: this.finalGate.version,
+      ...(this.finalGate.configurationDigest
+        ? { configurationDigest: this.finalGate.configurationDigest() }
+        : {}),
       before,
       after: estimate,
     });

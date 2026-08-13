@@ -15,16 +15,6 @@ export interface ContextSummaryResult {
   readonly responseModel?: string;
 }
 
-export interface ContextArtifactWriteRequest {
-  readonly sessionId: string;
-  readonly artifactId: string;
-  readonly content: string;
-}
-
-export interface ContextArtifactStorePort {
-  write(request: ContextArtifactWriteRequest): Promise<string>;
-}
-
 export interface ContextSummaryGeneratorPort {
   generate(request: ContextSummaryRequest): Promise<ContextSummaryResult>;
 }

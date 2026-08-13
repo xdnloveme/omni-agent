@@ -4,6 +4,7 @@ export { SkillReadLifecycleAdapter } from "./lifecycle-adapter";
 export { SkillLoader } from "./loader";
 export { SkillRegistry } from "./registry";
 export { createSkillReadTool } from "./skill-read-tool";
+export { createSkillContextProjectionStrategies } from "./contextProjection";
 export { renderSkillPromptIndex, renderLoadedSkill, renderExplicitSkillContext } from "./prompt";
 export type {
   LoadedSkill,

@@ -7,6 +7,7 @@ import type {
   RuntimeModelSelection,
 } from "@omni-agent/core";
 import { CacheAwareModelRuntime } from "../cache/cacheAwareRuntime";
+import { ModelCacheCoordinator } from "../cache/coordinator";
 import { normalizeModelCacheCapability, resolveModelCacheCapability } from "../cache/capability";
 import type {
   ModelTransportEvent,
@@ -67,6 +68,69 @@ describe("model cache infrastructure", () => {
     expect(seen[0]?.providerCache).toMatchObject({ cacheRetention: "short" });
     expect(seen[0]?.providerCache.sessionId).toBe(firstReport?.report.scopeId);
     expect(first.map((event) => event.type)).toEqual(["text_delta", "cache_report", "done"]);
+  });
+
+  it("exposes a detached active lease after a successful call", async () => {
+    const runtime = new CacheAwareModelRuntime(
+      successfulTransport([]),
+      new DefaultModelCachePolicy(),
+      () => capability("anthropic-messages"),
+    );
+    expect(
+      runtime.leaseAdvisor.inspect(selection, primaryOptions("before").identity, {
+        retention: "default",
+      }).status,
+    ).toBe("cold");
+    await collect(runtime.stream(selection, request, primaryOptions("call-1")));
+    expect(
+      runtime.leaseAdvisor.inspect(selection, primaryOptions("after").identity, {
+        retention: "default",
+      }),
+    ).toMatchObject({ status: "active", retention: "short" });
+
+    const unknownTtlRuntime = new CacheAwareModelRuntime(
+      successfulTransport([]),
+      new DefaultModelCachePolicy(),
+      () => capability("openai-responses"),
+    );
+    await collect(unknownTtlRuntime.stream(selection, request, primaryOptions("unknown-1")));
+    expect(
+      unknownTtlRuntime.leaseAdvisor.inspect(selection, primaryOptions("unknown-2").identity, {
+        retention: "default",
+      }).status,
+    ).toBe("unknown_expiry");
+  });
+
+  it("inspects expiry without consuming the next lifecycle classification", () => {
+    let now = 1_000;
+    const coordinator = new ModelCacheCoordinator(
+      new DefaultModelCachePolicy(),
+      () => capability("anthropic-messages"),
+      undefined,
+      undefined,
+      () => now,
+    );
+    const prepared = coordinator.prepare(selection, request, primaryOptions("call-1").identity, {
+      retention: "default",
+    });
+    coordinator.recordSuccess({
+      scopeId: prepared.decision.directive.scopeId,
+      retention: prepared.decision.directive.retention as "short",
+      capability: prepared.capability,
+      fingerprint: prepared.fingerprint,
+    });
+    now += 300_000;
+
+    expect(
+      coordinator.inspect(selection, primaryOptions("inspect").identity, {
+        retention: "default",
+      }).status,
+    ).toBe("expired");
+    expect(
+      coordinator.prepare(selection, request, primaryOptions("next").identity, {
+        retention: "default",
+      }).comparison.lifecycle,
+    ).toBe("expired");
   });
 
   it("keeps auxiliary calls cache-disabled and out of runtime cache state", async () => {
@@ -345,7 +409,7 @@ function assistant(text: string): AssistantTranscriptMessage {
 }
 
 function cacheEntry(fingerprint: RuntimeModelCacheEntry["fingerprint"]): RuntimeModelCacheEntry {
-  return { fingerprint };
+  return { fingerprint, retention: "short" };
 }
 
 function capability(api: string, compat?: Record<string, unknown>) {

@@ -1,5 +1,6 @@
 import type {
   ModelCacheCapability,
+  ModelCacheLeaseAdvisorPort,
   ModelCachePolicyPort,
   ModelCacheReport,
   ModelEvent,
@@ -9,40 +10,39 @@ import type {
   RuntimeModelSelection,
 } from "@omni-agent/core";
 import type { ModelTransportExecutionOptions, ModelTransportRuntimePort } from "./contracts";
+import { ModelCacheCoordinator } from "./coordinator";
 import { ModelCacheFingerprinter } from "./fingerprint";
 import { toProviderCacheOptions } from "./providerAdapter";
-import { compareModelCacheState, resolveCacheExpiry, RuntimeModelCacheState } from "./state";
+import { RuntimeModelCacheState, type ModelCacheComparison } from "./state";
 
 type ModelCacheCapabilityResolver = (selection: RuntimeModelSelection) => ModelCacheCapability;
 
 export class CacheAwareModelRuntime implements ModelRuntimePort {
+  readonly leaseAdvisor: ModelCacheLeaseAdvisorPort;
+  private readonly coordinator: ModelCacheCoordinator;
+
   constructor(
     private readonly inner: ModelTransportRuntimePort,
-    private readonly policy: ModelCachePolicyPort,
-    private readonly capabilities: ModelCacheCapabilityResolver,
-    private readonly fingerprinter = new ModelCacheFingerprinter(),
-    private readonly state = new RuntimeModelCacheState(),
-  ) {}
+    policy: ModelCachePolicyPort,
+    capabilities: ModelCacheCapabilityResolver,
+    fingerprinter = new ModelCacheFingerprinter(),
+    state = new RuntimeModelCacheState(),
+  ) {
+    this.coordinator = new ModelCacheCoordinator(policy, capabilities, fingerprinter, state);
+    this.leaseAdvisor = this.coordinator;
+  }
 
   async *stream(
     selection: RuntimeModelSelection,
     request: ModelRequest,
     options: ModelRequestOptions,
   ): AsyncIterable<ModelEvent> {
-    const capability = this.capabilities(selection);
-    const decision = this.policy.resolve({
-      identity: options.identity,
-      intent: options.cache,
-      capability,
+    const { capability, decision, fingerprint, comparison } = this.coordinator.prepare(
       selection,
-    });
-    const fingerprint = this.fingerprinter.fingerprint(selection, request);
-    const now = Date.now();
-    const previous =
-      decision.directive.retention === "none"
-        ? undefined
-        : this.state.get(decision.directive.scopeId, now);
-    const comparison = compareModelCacheState(previous, fingerprint, now);
+      request,
+      options.identity,
+      options.cache,
+    );
     const executionOptions: ModelTransportExecutionOptions = {
       signal: options.signal,
       timeoutMs: options.timeoutMs,
@@ -76,11 +76,12 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
           cacheWriteTokens: usage.cacheWrite,
         });
         if (outcome === "success" && decision.directive.retention !== "none") {
-          const createdAt = Date.now();
           // Failed and cancelled requests must never replace the last successful baseline.
-          this.state.set(decision.directive.scopeId, {
+          this.coordinator.recordSuccess({
+            scopeId: decision.directive.scopeId,
+            retention: decision.directive.retention,
+            capability,
             fingerprint,
-            expiresAt: resolveCacheExpiry(decision.directive, capability, createdAt),
           });
         }
         yield { type: "cache_report", report };
@@ -108,7 +109,7 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
   }
 
   clear(): void {
-    this.state.clear();
+    this.coordinator.clear();
   }
 }
 
@@ -117,7 +118,7 @@ function createReport(input: {
   readonly options: ModelRequestOptions;
   readonly capability: ModelCacheCapability;
   readonly decision: ReturnType<ModelCachePolicyPort["resolve"]>;
-  readonly comparison: ReturnType<typeof compareModelCacheState>;
+  readonly comparison: ModelCacheComparison;
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
 }): ModelCacheReport {

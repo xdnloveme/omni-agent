@@ -50,7 +50,27 @@ describe("model cache architecture", () => {
 
     expect(combined.match(/function\s+createScopeId\s*\(/g)).toHaveLength(1);
     expect(combined.match(/class\s+ModelCacheFingerprinter\b/g)).toHaveLength(1);
+    expect(combined.match(/class\s+ModelCacheCoordinator\b/g)).toHaveLength(1);
+    expect(combined.match(/implements\s+ModelCacheLeaseAdvisorPort\b/g)).toHaveLength(1);
+    expect(combined).not.toMatch(/class\s+ModelCacheLeaseAdvisor\b/);
     expect(combined).not.toMatch(/cache_control|prompt_cache_key/);
+  });
+
+  it("keeps the cache-to-Context mapping in one App adapter", async () => {
+    const appSources = await Promise.all(
+      (await sourceFiles(join(repositoryRoot, "packages", "app", "src")))
+        .filter((file) => !file.includes("/__tests__/"))
+        .map(async (file) => ({ file, source: await readFile(file, "utf8") })),
+    );
+    expect(
+      appSources
+        .filter(
+          ({ source }) =>
+            source.includes("ModelCacheLeaseAdvisorPort") &&
+            source.includes("ContextRewriteGuardPort"),
+        )
+        .map(({ file }) => relative(repositoryRoot, file)),
+    ).toEqual(["packages/app/src/context/cacheRewriteGuard.ts"]);
   });
 
   it("keeps transport-only contracts internal and gives cache reports one producer", async () => {

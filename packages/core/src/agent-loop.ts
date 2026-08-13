@@ -186,7 +186,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     for (const call of toolCalls) {
       throwIfAborted(signal);
 
-      let result: import("./types").ToolResult | undefined;
+      let result: import("./tool-calls").ValidatedToolResult | undefined;
       for await (const event of toolCallCoordinator.run(
         config.tools,
         { toolName: call.name, toolCallId: call.id, input: call.arguments, signal },
@@ -232,6 +232,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         toolCallId: call.id,
         toolName: call.name,
         content: result.content,
+        ...(result.meta === undefined ? {} : { details: cloneData(result.meta) }),
         isError: result.isError,
         timestamp: Date.now(),
       };

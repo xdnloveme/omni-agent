@@ -34,6 +34,15 @@ export function assertPolicyComponent(
   if (!Number.isInteger(component.version) || component.version < 1) {
     throw new Error(`Context policy stage version must be a positive integer: ${component.name}`);
   }
+  if (component.configurationDigest !== undefined) {
+    if (typeof component.configurationDigest !== "function") {
+      throw new Error(`Context policy stage configuration digest is invalid: ${component.name}`);
+    }
+    const digest = component.configurationDigest();
+    if (typeof digest !== "string" || !digest) {
+      throw new Error(`Context policy stage configuration digest is invalid: ${component.name}`);
+    }
+  }
   if (typeof component.apply !== "function") {
     throw new Error(`Context policy stage apply is required: ${component.name}`);
   }
@@ -106,7 +115,8 @@ function assertEntry(entry: ContextFrame["entries"][number], label: string): voi
       typeof entry.artifact.id !== "string" ||
       typeof entry.artifact.path !== "string" ||
       typeof entry.artifact.contentDigest !== "string" ||
-      !Number.isFinite(entry.artifact.originalLength))
+      !Number.isFinite(entry.artifact.originalLength) ||
+      typeof entry.artifact.recoveryInstruction !== "string")
   ) {
     throw new InvalidContextPolicyResultError(`${label} returned an invalid artifact entry`);
   }

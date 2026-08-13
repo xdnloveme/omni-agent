@@ -1,11 +1,18 @@
 import { isAbortError, throwIfAborted } from "../execution";
+import { assertJsonObject } from "../data";
 import type { ToolInvocationRunner } from "../execution";
 import { sanitizeSensitiveValue } from "../permissions";
 import { collectLifecycleEndEvents, collectLifecycleStartEvents } from "../tool-lifecycle";
 import type { RegisteredAgentTool, ToolResult } from "../types";
 import type { ToolInputValidator } from "./tool-input-validator";
 import type { ToolAuthorizationResult, ToolAuthorizer } from "./tool-authorization-router";
-import type { ToolCallEnvironment, ToolCallEvent, ToolCallMetrics, ToolCallRequest } from "./types";
+import type {
+  ToolCallEnvironment,
+  ToolCallEvent,
+  ToolCallMetrics,
+  ToolCallRequest,
+  ValidatedToolResult,
+} from "./types";
 
 export interface ToolCallCoordinatorOptions {
   authorizer: ToolAuthorizer;
@@ -171,10 +178,16 @@ function endEvent(
     type: "tool_end",
     toolName: request.toolName,
     toolCallId: request.toolCallId,
-    result,
+    result: validateToolResult(result, request.toolName),
     durationMs: callMetrics.executionMs,
     metrics: callMetrics,
   };
+}
+
+function validateToolResult(result: ToolResult, toolName: string): ValidatedToolResult {
+  if (result.meta === undefined) return { content: result.content, isError: result.isError };
+  assertJsonObject(result.meta, `Tool result metadata: ${toolName}`);
+  return { ...result, meta: result.meta };
 }
 
 function errorResult(message: string, meta?: Record<string, unknown>): ToolResult {

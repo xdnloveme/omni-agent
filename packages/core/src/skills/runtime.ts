@@ -3,6 +3,8 @@ import { createSkillReadTool } from "./skill-read-tool";
 import { SkillReadLifecycleAdapter } from "./lifecycle-adapter";
 import { SkillRegistry } from "./registry";
 import type { SkillSlashPreload } from "./types";
+import type { MicroProjectionStrategyPort } from "../context";
+import { createSkillContextProjectionStrategies } from "./contextProjection";
 
 export interface SkillRuntimeOptions {
   cwd: string;
@@ -33,6 +35,10 @@ export class SkillRuntime {
 
   lifecycleAdapters(): SkillReadLifecycleAdapter[] {
     return [this.lifecycleAdapter];
+  }
+
+  contextProjectionStrategies(): readonly MicroProjectionStrategyPort[] {
+    return createSkillContextProjectionStrategies();
   }
 
   async reload(): Promise<void> {

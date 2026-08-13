@@ -144,6 +144,25 @@ describe("ToolCallCoordinator", () => {
     expect(result.at(-1)).toMatchObject({ type: "tool_end", result: { isError: false } });
   });
 
+  it("turns non-JSON tool metadata into a structured tool error", async () => {
+    const value = fixture();
+    value.tool.execute = vi.fn(async () => ({
+      content: [{ type: "text" as const, text: "ok" }],
+      isError: false,
+      meta: { unsupported: 1n },
+    }));
+
+    const result = await events(value, { value: "ok" });
+
+    expect(result.at(-1)).toMatchObject({
+      type: "tool_end",
+      result: {
+        isError: true,
+        content: [{ text: expect.stringContaining("must be a JSON object") }],
+      },
+    });
+  });
+
   it("does not run middleware or tool after denial", async () => {
     const value = fixture({ allow: false });
     const result = await events(value, { value: "ok" });

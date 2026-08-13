@@ -1,37 +1,33 @@
 import { join } from "node:path";
 
-export class AgentStorageLayout {
-  readonly agentDirectory: string;
-
-  constructor(sessionsRoot: string, agentId: string) {
-    assertSegment(agentId, "Agent id");
-    this.agentDirectory = join(sessionsRoot, agentId);
-  }
+export class ContextSidecarLayout {
+  constructor(readonly contextRoot: string) {}
 
   checkpointPath(sessionId: string): string {
-    assertSegment(sessionId, "Session id");
     return join(this.contextDirectory(sessionId), "checkpoints.json");
+  }
+
+  projectionPath(sessionId: string): string {
+    return join(this.contextDirectory(sessionId), "projections.json");
   }
 
   contextLockPath(sessionId: string): string {
     assertSegment(sessionId, "Session id");
-    return join(this.agentDirectory, "context", ".locks", `${sessionId}.lock`);
+    return join(this.contextRoot, ".locks", `${sessionId}.lock`);
   }
 
   toolResultArtifactPath(sessionId: string, artifactId: string): string {
-    assertSegment(sessionId, "Session id");
     assertSegment(artifactId, "Artifact id");
     return join(this.artifactDirectory(sessionId), "toolResults", `${artifactId}.txt`);
   }
 
   artifactDirectory(sessionId: string): string {
-    assertSegment(sessionId, "Session id");
     return join(this.contextDirectory(sessionId), "artifacts");
   }
 
   contextDirectory(sessionId: string): string {
     assertSegment(sessionId, "Session id");
-    return join(this.agentDirectory, "context", sessionId);
+    return join(this.contextRoot, sessionId);
   }
 }
 

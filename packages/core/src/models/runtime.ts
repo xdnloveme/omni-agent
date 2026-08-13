@@ -21,7 +21,10 @@ export interface RuntimeModelSelection {
   contextWindow: number;
   maxOutputTokens: number;
   requestHeaders?: Record<string, string | null>;
+  thinkingHistoryPolicy?: ThinkingHistoryPolicy;
 }
+
+export type ThinkingHistoryPolicy = "preserve_all" | "clear_old_text";
 
 export interface ModelRequest {
   readonly systemPrompt: string;

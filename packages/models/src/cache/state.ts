@@ -3,6 +3,7 @@ import type { ModelCacheFingerprint } from "./contracts";
 
 export interface RuntimeModelCacheEntry {
   readonly fingerprint: ModelCacheFingerprint;
+  readonly retention: ModelCacheDirective["retention"];
   readonly expiresAt?: number;
 }
 
@@ -30,6 +31,11 @@ export class RuntimeModelCacheState {
       this.entries.set(scopeId, entry);
     }
     return cloneEntry(entry);
+  }
+
+  peek(scopeId: string): RuntimeModelCacheEntry | undefined {
+    const entry = this.entries.get(scopeId);
+    return entry ? cloneEntry(entry) : undefined;
   }
 
   set(scopeId: string, entry: RuntimeModelCacheEntry): void {
@@ -129,6 +135,7 @@ function cloneEntry(entry: RuntimeModelCacheEntry): RuntimeModelCacheEntry {
       ...entry.fingerprint,
       messageDigests: [...entry.fingerprint.messageDigests],
     },
+    retention: entry.retention,
     expiresAt: entry.expiresAt,
   };
 }

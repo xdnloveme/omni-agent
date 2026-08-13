@@ -13,6 +13,8 @@ diagnostics, response IDs, errors, deferred data, tool-result details, and routi
 metadata. `ModelContextMessage` is the minimum model-visible representation. A system
 prompt remains a separate Context field. `MessageRole` and `ContentBlockType` are runtime
 constants backed by discriminated unions rather than TypeScript enums.
+Tool Result metadata is validated as a JSON object before it becomes durable Transcript
+details, so BigInt, Map, functions, and cyclic extension values cannot break Session JSONL.
 
 The only Agent-to-Context adapter is `createContextPreparationRequest()`. It copies the
 Working Conversation and projects executable `RegisteredAgentTool` values to pure
@@ -31,7 +33,10 @@ SessionTranscriptSnapshot
   -> ContextPolicyPipeline
        -> Agent policy stages
        -> Extension policy stages
-       -> ToolResultMicroStage
+       -> StableMicroCompressionStage
+            -> Artifact Projection
+            -> optional Skill Projection
+            -> Thinking Projection
        -> mandatory ContextFinalGatePort
             -> HeavyCheckpointGateStage
   -> Context Assembly
@@ -76,11 +81,28 @@ usable input = context window - maximum output tokens
 usage ratio  = estimated input / usable input
 ```
 
-At 75%, `ToolResultMicroStage` externalizes successful, text-only tool results longer
-than 500 characters, while preserving the latest three eligible results. It retains tool
-pairing, digest, length, artifact ID, absolute path, and `file_read` recovery guidance.
-Image and error results are never externalized. Artifact IDs are content-addressed and
-writes are idempotent.
+The Micro threshold is dynamic. It reserves the larger of 40,000 tokens or 25% of usable
+input; models with at least 500,000 usable input reserve 50%. A zero threshold skips
+Micro advancement. Stable projections are replayed regardless of the threshold.
+
+`StableMicroCompressionStage` is a composite. App injects the ordered strategies; the
+built-in order is Artifact, optional Skill, then Thinking. The stage re-estimates after each
+advance and stops as soon as pressure is resolved. Projection state is keyed by each
+strategy's stable key, so adding a strategy does not require changing the central state
+contract. Artifact Projection externalizes successful, text-only
+tool results longer than 500 characters while preserving the latest three. Recovery is
+an Agent capability, so Core does not name `file_read`. Skill Projection uses structured
+Tool Result details supplied by `SkillRuntime`; it never parses result text. Thinking
+Projection is disabled unless a model explicitly declares `clear_old_text`, preserves
+the latest three Thinking blocks, and retains signatures, redaction, message order,
+ordinary text, and tool calls.
+
+Projection records contain stable source and output digests, versions, configuration
+digests, and artifact references, not Transcript bodies. Replay verifies those facts and
+the artifact file's content digest. Runtime model selection is resolved for every
+preparation, so cache leases and Thinking capability cannot become stale after a model
+switch. Advance commits all new records and content-addressed artifacts
+once with optimistic revision checking. There is no legacy Micro path or fallback.
 
 At 90%, `HeavyCheckpointGateStage` is the final gate. It uses the current Session model
 with no tools, limits summary output to 10% of usable input, and targets a final context
@@ -115,11 +137,12 @@ Storage is physically co-located with Sessions but logically isolated:
     ├── .locks/<sessionId>.lock/
     └── <sessionId>/
         ├── checkpoints.json
+        ├── projections.json
         └── artifacts/toolResults/<artifactId>.txt
 ```
 
 The Session Repository knows nothing about Context files. Dedicated checkpoint and
-artifact repositories use the shared storage layout and own only their individual data.
+projection repositories use a Context-only layout and own only their individual data.
 Checkpoint writes use the shared interprocess lock and atomic JSON replacement. A
 separate `ContextSidecarLifecycle` exclusively owns deletion of the whole Session Context
 directory, so neither repository can erase the other's state. The shared per-Session
@@ -147,6 +170,14 @@ changing normal requests. It is identified as an auxiliary model call and explic
 disables prompt caching. Cache lifecycle belongs to the decorated Model Runtime; Context
 does not read TTLs, place Provider cache markers, or retain cache fingerprints.
 
+Before a lossy Micro advance, the composite asks the business-independent
+`ContextRewriteGuardPort`. App adapts the Models-layer lease advisor into that port. A
+known active cache lease defers Micro until its real expiry; `cold`, `disabled`,
+`expired`, and unknown-expiry states allow advancement. Replay never consults the guard.
+The Heavy gate always runs afterward and is not deferable. Context decisions record
+`none`, `stable_replay`, or `prefix_rewrite` cache impact, while the later
+`model_cache_report` is correlated through the Context snapshot ID.
+
 Every successful preparation emits `model_context_prepared`. Its manifest records stage
 order, before/after estimates, decisions, checkpoint lineage, artifact IDs, identities,
 and stable digests, but no message body. It is not persisted or accumulated by the TUI.
@@ -157,6 +188,7 @@ middleware is unchanged.
 
 ## Explicit non-goals
 
-This version does not implement retrieval, durable memory, configurable thresholds,
-artifact garbage collection, cross-Session checkpoints, fork/revert, checkpoint UI,
-Provider token-limit retry, hard truncation, or a second compression path.
+This version does not implement retrieval, durable memory, artifact garbage collection,
+cross-Session checkpoints, fork/revert, checkpoint UI, cache breakpoint placement,
+Provider token-limit retry, hard truncation, image/Plan compression, or a second
+compression path.

@@ -2,12 +2,16 @@ import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { ContextCheckpoint } from "@omni-agent/core";
 import {
-  AgentStorageLayout,
-  ContextArtifactRepository,
+  digestContextValue,
+  type ContextCheckpoint,
+  type ContextProjectionState,
+} from "@omni-agent/core";
+import {
   ContextCheckpointRepository,
+  ContextProjectionRepository,
   ContextSidecarLifecycle,
+  ContextSidecarLayout,
 } from "../context";
 
 const roots: string[] = [];
@@ -41,25 +45,43 @@ describe("Context sidecar storage", () => {
   it("co-locates data with the Agent Session root while keeping repositories isolated", async () => {
     const root = await mkdtemp(join(tmpdir(), "omni-context-storage-"));
     roots.push(root);
-    const layout = new AgentStorageLayout(root, "coding");
+    const layout = new ContextSidecarLayout(join(root, "coding", "context"));
     const checkpoints = new ContextCheckpointRepository(layout);
-    const artifacts = new ContextArtifactRepository(layout);
+    const projections = new ContextProjectionRepository(layout);
     const lifecycle = new ContextSidecarLifecycle(layout);
 
     await checkpoints.append(checkpoint("session-1"));
-    const artifactPath = await artifacts.write({
+    const artifactPath = projections.artifactPath("session-1", "artifact-1");
+    await projections.commit({
       sessionId: "session-1",
-      artifactId: "artifact-1",
-      content: "large result",
-    });
-    await artifacts.write({
-      sessionId: "session-1",
-      artifactId: "artifact-1",
-      content: "large result",
+      expectedRevision: 0,
+      nextState: projectionState("session-1", 1),
+      artifacts: [
+        {
+          artifactId: "artifact-1",
+          content: "large result",
+          contentDigest: digestContextValue("large result"),
+        },
+      ],
     });
 
     expect(await checkpoints.list("session-1")).toHaveLength(1);
     expect(artifactPath).toContain("coding/context/session-1/artifacts/toolResults");
+    expect(
+      await projections.artifactMatches(
+        "session-1",
+        "artifact-1",
+        digestContextValue("large result"),
+      ),
+    ).toBe(true);
+    await writeFile(artifactPath, "tampered", "utf8");
+    expect(
+      await projections.artifactMatches(
+        "session-1",
+        "artifact-1",
+        digestContextValue("large result"),
+      ),
+    ).toBe(false);
     await lifecycle.clear("session-1");
     await expect(readdir(layout.contextDirectory("session-1"))).rejects.toMatchObject({
       code: "ENOENT",
@@ -69,7 +91,7 @@ describe("Context sidecar storage", () => {
   it("quarantines a corrupt checkpoint sidecar and rebuilds from empty derived state", async () => {
     const root = await mkdtemp(join(tmpdir(), "omni-context-storage-"));
     roots.push(root);
-    const layout = new AgentStorageLayout(root, "coding");
+    const layout = new ContextSidecarLayout(join(root, "coding", "context"));
     const diagnostics = vi.fn();
     const repository = new ContextCheckpointRepository(layout, diagnostics);
     await mkdir(layout.contextDirectory("session-1"), { recursive: true });
@@ -83,4 +105,60 @@ describe("Context sidecar storage", () => {
       ),
     ).toBe(true);
   });
+
+  it("rejects stale projection commits without replacing current state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "omni-context-storage-"));
+    roots.push(root);
+    const layout = new ContextSidecarLayout(join(root, "coding", "context"));
+    const repository = new ContextProjectionRepository(layout);
+    await repository.commit({
+      sessionId: "session-1",
+      expectedRevision: 0,
+      nextState: projectionState("session-1", 1),
+      artifacts: [],
+    });
+
+    await expect(
+      repository.commit({
+        sessionId: "session-1",
+        expectedRevision: 0,
+        nextState: projectionState("session-1", 1),
+        artifacts: [],
+      }),
+    ).rejects.toThrow("revision conflict");
+    expect((await repository.load("session-1"))?.revision).toBe(1);
+  });
+
+  it("quarantines corrupt Projection state and rebuilds from no derived state", async () => {
+    const root = await mkdtemp(join(tmpdir(), "omni-context-storage-"));
+    roots.push(root);
+    const layout = new ContextSidecarLayout(join(root, "coding", "context"));
+    const diagnostics = vi.fn();
+    const repository = new ContextProjectionRepository(layout, diagnostics);
+    await mkdir(layout.contextDirectory("session-1"), { recursive: true });
+    await writeFile(layout.projectionPath("session-1"), "{broken", { encoding: "utf8" });
+
+    expect(await repository.load("session-1")).toBeUndefined();
+    expect(diagnostics).toHaveBeenCalledOnce();
+    expect(
+      (await readdir(layout.contextDirectory("session-1"))).some((name) =>
+        name.startsWith("projections.json.corrupt-"),
+      ),
+    ).toBe(true);
+  });
 });
+
+function projectionState(sessionId: string, revision: number): ContextProjectionState {
+  const strategy = (name: string) => ({
+    strategyName: name,
+    strategyVersion: 1,
+    configurationDigest: "configuration",
+    records: [],
+  });
+  return {
+    version: 1,
+    sessionId,
+    revision,
+    strategies: { custom: strategy("custom_projection") },
+  };
+}

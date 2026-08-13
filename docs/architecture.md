@@ -114,8 +114,8 @@ resolved scope and retention to `pi-ai` `sessionId` and `cacheRetention`; Provid
 `prompt_cache_key` fields remain backend implementation details. Only the cache
 decorator can emit `cache_report`; the inner transport event contract excludes it.
 
-Cache state contains only SHA-256 digests and known expiry. It is bounded to 256 scopes,
-is cleared with the Models runtime, and is
+Cache state contains only SHA-256 digests, applied retention, and known expiry. It is
+bounded to 256 scopes, is cleared with the Models runtime, and is
 never written to Session or Context sidecars. Lifecycle classification is deterministic:
 incompatible request semantics, known expiry, static-prefix rebase, append-only history,
 last-message replacement, whole-history rebase, then other prefix rewrites.
@@ -131,10 +131,17 @@ not its Vendor name. Capability validation and copying have one Models-layer own
 Fingerprints, bounded state, and transport execution contracts are internal implementation
 details rather than Models package exports.
 
-This foundation deliberately does not capture complete requests or implement cache-safe
-compression. Cache breakpoints, cache-expiry-aware Micro compression, and cache-safe Full
-compression are later consumers of this boundary rather than responsibilities of the
-base cache runtime. See [`docs/model-cache.md`](model-cache.md).
+`ModelCacheCoordinator` is the sole owner of cache policy, capability resolution,
+fingerprinting, state, and successful-baseline updates. Its read-only lease advisor
+reports `disabled`, `cold`, `active`, `expired`, or `unknown_expiry` without consuming a
+lifecycle result or updating the LRU. App maps that model-cache fact to the generic
+`ContextRewriteGuardPort`. Context sees only `allow` or `defer`; it never imports cache
+types or guesses Provider TTLs. A known active lease may defer Micro projection, while
+unknown TTLs do not create guessed delays and the 90% Heavy gate is never deferred.
+
+Stable projection makes the first Micro advance an intentional prefix rewrite and keeps
+later requests append-only against the new projected prefix. Cache breakpoints and
+complete request snapshots remain future work. See [`docs/model-cache.md`](model-cache.md).
 
 ## Extensions
 
@@ -228,7 +235,10 @@ SessionTranscriptSnapshot
   -> ContextFrame
   -> ContextPolicyPipeline
        -> Agent and Extension policy stages
-       -> ToolResultMicroStage
+       -> StableMicroCompressionStage
+            -> Artifact Projection
+            -> optional Skill Projection
+            -> Thinking Projection
        -> mandatory ContextFinalGatePort
             -> HeavyCheckpointGateStage
   -> Context assembly
@@ -263,6 +273,19 @@ contracts <- policy, checkpoints, compression, assembly
 policy <- runtime
 ```
 
+Micro compression is a stable projection rather than a Session mutation. A Context
+sidecar stores only versioned projection records and content-addressed artifacts. The
+composite Micro stage replays existing records on every preparation, then advances the
+ordered strategies injected by App when the dynamic budget threshold is exceeded. Built-ins
+are Artifact, optional Skill, and capability-gated Thinking. Projection state is keyed by
+stable strategy identifiers rather than fixed slots. Runtime model capabilities and cache
+leases are resolved from the current Agent model on every preparation. The final Heavy
+checkpoint gate remains mandatory and cannot be blocked by Micro policy.
+
+The Session Repository does not know the Context sidecar. `ContextSidecarLayout`, the
+projection/checkpoint repositories, and lifecycle cleanup are composed in App. Physical
+co-location under the Agent Session directory does not imply shared ownership.
+
 The contract dependency direction is strictly one-way:
 
 ```text
@@ -275,7 +298,7 @@ re-estimates tokens, and records decisions. It has no dependency on compression 
 checkpoint implementations. Public stages receive only identity, the current estimate,
 and cancellation. Raw source messages, middleware digests, and upstream stage manifests
 are reserved for the required `ContextFinalGatePort`. An Agent or Extension may add
-pre-gate stages; the App composition root appends the built-in Tool Result Micro stage
+pre-gate stages; the App composition root appends the built-in Stable Micro composite
 and separately injects the mandatory Heavy Checkpoint gate. There is no post-gate
 extension point or alternate Full History runtime path. Below all thresholds the
 pipeline preserves full history unchanged.
@@ -302,9 +325,10 @@ identities, middleware and policy-stage versions, before/after estimates, checkp
 lineage, message counts, decisions, and stable SHA-256 digests; it contains no message
 text. A `model_context_prepared` event exposes it without adding it to the Session.
 
-Compression uses `usableInputBudget = contextWindow - maxOutputTokens`. Tool Result Micro
-starts at 75%. The mandatory Heavy gate starts at 90%, limits its internal summary to 10%
-of usable input, and targets a post-checkpoint context at or below 50%. It preserves
+Compression uses `usableInputBudget = contextWindow - maxOutputTokens`. Stable Micro uses
+the dynamic warning-buffer threshold documented below. The mandatory Heavy gate starts at
+90%, limits its internal summary to 10% of usable input, and targets a post-checkpoint
+context at or below 50%. It preserves
 complete recent user/tool groups and fails the request after at most two summary attempts;
 it never silently restores full history or hard-truncates content.
 

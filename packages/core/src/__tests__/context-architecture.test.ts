@@ -163,7 +163,14 @@ describe("context architecture", () => {
     ).toEqual([]);
     expect(
       sources
-        .filter(({ source }) => /\bbeforeModel\b|\bstrategyName\b|\bstrategyVersion\b/.test(source))
+        .filter(({ source }) => /\bbeforeModel\b/.test(source))
+        .map(({ file }) => relative(repositoryRoot, file)),
+    ).toEqual([]);
+    expect(
+      sources
+        .filter(({ source }) =>
+          /ToolResultMicroStage|ContextArtifactStorePort|AgentStorageLayout/.test(source),
+        )
         .map(({ file }) => relative(repositoryRoot, file)),
     ).toEqual([]);
   });

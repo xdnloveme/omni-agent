@@ -1,15 +1,12 @@
 import { rm } from "node:fs/promises";
-import { InterprocessFileLock } from "@omni-agent/core";
-import type { AgentStorageLayout } from "./storageLayout";
+import type { ContextSidecarLayout } from "./sidecarLayout";
+import { createContextSidecarLock } from "./sidecarStore";
 
 export class ContextSidecarLifecycle {
-  constructor(private readonly layout: AgentStorageLayout) {}
+  constructor(private readonly layout: ContextSidecarLayout) {}
 
   async clear(sessionId: string): Promise<void> {
-    await new InterprocessFileLock(this.layout.contextLockPath(sessionId), {
-      retryMs: 25,
-      timeoutMs: 5_000,
-    }).runExclusive(() =>
+    await createContextSidecarLock(this.layout, sessionId).runExclusive(() =>
       rm(this.layout.contextDirectory(sessionId), { recursive: true, force: true }),
     );
   }

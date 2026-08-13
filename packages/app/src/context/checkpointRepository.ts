@@ -1,11 +1,7 @@
-import { rename } from "node:fs/promises";
-import {
-  InterprocessFileLock,
-  type ContextCheckpoint,
-  type ContextCheckpointStorePort,
-} from "@omni-agent/core";
+import { type ContextCheckpoint, type ContextCheckpointStorePort } from "@omni-agent/core";
 import { AtomicJsonFile } from "../persistence/atomic-json-file";
-import type { AgentStorageLayout } from "./storageLayout";
+import type { ContextSidecarLayout } from "./sidecarLayout";
+import { createContextSidecarLock, readValidatedSidecar } from "./sidecarStore";
 
 interface PersistedCheckpoints {
   readonly version: 1;
@@ -14,7 +10,7 @@ interface PersistedCheckpoints {
 
 export class ContextCheckpointRepository implements ContextCheckpointStorePort {
   constructor(
-    private readonly layout: AgentStorageLayout,
+    private readonly layout: ContextSidecarLayout,
     private readonly onDiagnostic?: (message: string) => void,
   ) {}
 
@@ -37,35 +33,25 @@ export class ContextCheckpointRepository implements ContextCheckpointStorePort {
   }
 
   private async readOrQuarantine(sessionId: string): Promise<PersistedCheckpoints> {
-    try {
-      const value = await this.file(sessionId).read();
-      if (value === undefined) return { version: 1, checkpoints: [] };
-      assertPersistedCheckpoints(value, sessionId);
-      return value;
-    } catch (error) {
-      const path = this.layout.checkpointPath(sessionId);
-      const quarantine = `${path}.corrupt-${Date.now()}`;
-      try {
-        await rename(path, quarantine);
-      } catch (renameError) {
-        if ((renameError as NodeJS.ErrnoException).code !== "ENOENT") throw renameError;
-      }
-      this.onDiagnostic?.(
-        `Context checkpoint sidecar was corrupt and quarantined: ${errorMessage(error)}`,
-      );
-      return { version: 1, checkpoints: [] };
-    }
+    const file = this.file(sessionId);
+    return (
+      (await readValidatedSidecar({
+        file,
+        path: this.layout.checkpointPath(sessionId),
+        validate: (value): asserts value is PersistedCheckpoints =>
+          assertPersistedCheckpoints(value, sessionId),
+        label: "Context checkpoint sidecar",
+        onDiagnostic: this.onDiagnostic,
+      })) ?? { version: 1, checkpoints: [] }
+    );
   }
 
   private file(sessionId: string): AtomicJsonFile<PersistedCheckpoints> {
     return new AtomicJsonFile(this.layout.checkpointPath(sessionId));
   }
 
-  private lock(sessionId: string): InterprocessFileLock {
-    return new InterprocessFileLock(this.layout.contextLockPath(sessionId), {
-      retryMs: 25,
-      timeoutMs: 5_000,
-    });
+  private lock(sessionId: string) {
+    return createContextSidecarLock(this.layout, sessionId);
   }
 }
 
@@ -109,8 +95,4 @@ function assertPersistedCheckpoints(
 
 function cloneCheckpoint(checkpoint: ContextCheckpoint): ContextCheckpoint {
   return { ...checkpoint, generatedBy: { ...checkpoint.generatedBy } };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

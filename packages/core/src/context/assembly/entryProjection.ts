@@ -22,7 +22,7 @@ export function projectContextEntries(entries: readonly ContextEntry[]): ModelCo
                   `Path: ${entry.artifact.path}`,
                   `Original length: ${entry.artifact.originalLength} characters`,
                   `SHA-256: ${entry.artifact.contentDigest}`,
-                  "Use file_read on the path when the complete result is needed.",
+                  entry.artifact.recoveryInstruction,
                 ].join("\n"),
               },
             ],

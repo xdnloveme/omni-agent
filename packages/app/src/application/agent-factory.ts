@@ -2,16 +2,11 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   AgentSessionRepository,
-  ApproximateContextTokenEstimator,
-  ContextPolicyPipeline,
-  DefaultContextEngine,
-  HeavyCheckpointGateStage,
   isAgentId,
   ToolAuthorizationRouter,
   ToolCallCoordinator,
   ToolInvocationRunner,
   ToolInputValidator,
-  ToolResultMicroStage,
   type AgentConfig,
   type ContextCapability,
   type ApprovalBroker,
@@ -28,13 +23,7 @@ import type { AgentExtension } from "../extensions/types";
 import type { ModelService } from "../models/model-service";
 import { createPermissionRuntime } from "../permissions/create-permission-runtime";
 import { ToolRegistry } from "../registry/tool-registry";
-import {
-  AgentStorageLayout,
-  ContextArtifactRepository,
-  ContextCheckpointRepository,
-  ContextSidecarLifecycle,
-  RuntimeContextSummaryGenerator,
-} from "../context";
+import { createContextRuntime } from "../context/contextRuntime";
 
 export interface SkillCapability {
   readonly runtime: SkillRuntime;
@@ -134,31 +123,26 @@ export class AgentFactory {
         toolLifecycleAdapters: module.capabilities.skills?.runtime.lifecycleAdapters(),
       };
       const sessionsRoot = join(this.globalDirectory, "sessions");
-      const storageLayout = new AgentStorageLayout(sessionsRoot, blueprint.id);
-      const checkpoints = new ContextCheckpointRepository(storageLayout, (message) => {
-        manager.diagnostics.push({
-          extensionId: "builtin-context",
-          source: "context-sidecar",
-          message,
-        });
-      });
-      const artifacts = new ContextArtifactRepository(storageLayout);
-      const contextStorage = new ContextSidecarLifecycle(storageLayout);
-      const estimator = new ApproximateContextTokenEstimator();
-      const summaryGenerator = new RuntimeContextSummaryGenerator(
-        this.options.modelService.runtime,
-        () => agentConfig.model,
-      );
-      const contextPolicy = new ContextPolicyPipeline(
-        [
+      const { contextEngine, contextStorage } = createContextRuntime({
+        agentId: blueprint.id,
+        sessionsRoot,
+        agentConfig,
+        artifactRecovery: module.capabilities.context?.artifactRecovery,
+        policyStages: [
           ...(module.capabilities.context?.policyStages ?? []),
           ...manager.contextPolicyStages,
-          new ToolResultMicroStage(artifacts),
         ],
-        new HeavyCheckpointGateStage(checkpoints, summaryGenerator, estimator),
-        estimator,
-      );
-      const contextEngine = new DefaultContextEngine(contextPolicy);
+        skillStrategies: module.capabilities.skills?.runtime.contextProjectionStrategies(),
+        modelRuntime: this.options.modelService.runtime,
+        cacheLeaseAdvisor: this.options.modelService.runtime.leaseAdvisor,
+        onDiagnostic: (message) => {
+          manager.diagnostics.push({
+            extensionId: "builtin-context",
+            source: "context-sidecar",
+            message,
+          });
+        },
+      });
       const sessions = new AgentSessionRepository({
         agentId: blueprint.id,
         sessionsRoot,

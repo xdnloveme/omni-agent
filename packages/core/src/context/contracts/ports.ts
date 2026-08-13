@@ -1,6 +1,7 @@
 import type { DeepReadonly } from "../../data";
 import type { ModelToolSpec } from "../../models/runtime";
 import type {
+  ContextArtifactRecoveryCapability,
   ContextConversationSource,
   ContextDraft,
   ContextMiddlewareOptions,
@@ -12,6 +13,8 @@ import type {
   ContextPolicyResolveOptions,
   ContextPolicyStageOptions,
   ContextPolicyStageResult,
+  ContextRewriteGuardDecision,
+  ContextRewriteGuardInput,
   ContextTokenEstimate,
   PreparedModelContext,
 } from "./types";
@@ -28,15 +31,23 @@ export interface ContextMiddlewarePort {
 export interface ContextPolicyStagePort {
   readonly name: string;
   readonly version: number;
+  configurationDigest?(): string;
   apply(
     frame: DeepReadonly<ContextFrame>,
     options: DeepReadonly<ContextPolicyStageOptions>,
   ): Promise<ContextPolicyStageResult>;
 }
 
+export interface ContextRewriteGuardPort {
+  assess(
+    input: DeepReadonly<ContextRewriteGuardInput>,
+  ): ContextRewriteGuardDecision | Promise<ContextRewriteGuardDecision>;
+}
+
 export interface ContextFinalGatePort {
   readonly name: string;
   readonly version: number;
+  configurationDigest?(): string;
   apply(
     frame: DeepReadonly<ContextFrame>,
     options: DeepReadonly<ContextFinalGateOptions>,
@@ -76,4 +87,5 @@ export interface ContextEnginePort {
 
 export interface ContextCapability {
   readonly policyStages?: readonly ContextPolicyStagePort[];
+  readonly artifactRecovery?: ContextArtifactRecoveryCapability;
 }

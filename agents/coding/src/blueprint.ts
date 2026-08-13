@@ -16,6 +16,12 @@ export const agentBlueprint = {
           runtime,
           buildSystemPrompt: coding.buildSystemPrompt,
         },
+        context: {
+          artifactRecovery: {
+            toolName: "file_read",
+            instruction: "Use file_read on the path when the complete result is needed.",
+          },
+        },
       },
     };
   },

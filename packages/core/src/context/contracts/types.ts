@@ -11,6 +11,11 @@ export interface ContextConversationSource {
   readonly messages: readonly TranscriptMessage[];
 }
 
+export interface ContextArtifactRecoveryCapability {
+  readonly toolName: string;
+  readonly instruction: string;
+}
+
 export interface ContextModelLimits {
   readonly modelId: string;
   readonly contextWindow: number;
@@ -38,6 +43,22 @@ export interface ContextPolicyStageOptions {
   readonly estimate: ContextTokenEstimate;
   readonly signal?: AbortSignal;
 }
+
+export interface ContextRewriteGuardInput {
+  readonly agentId: string;
+  readonly sessionId: string;
+  readonly modelCallId: string;
+  readonly estimate: ContextTokenEstimate;
+  readonly signal?: AbortSignal;
+}
+
+export type ContextRewriteGuardDecision =
+  | { readonly action: "allow"; readonly reason: string }
+  | {
+      readonly action: "defer";
+      readonly reason: string;
+      readonly reconsiderAt?: number;
+    };
 
 export interface ContextFinalGateOptions extends ContextPolicyStageOptions {
   readonly sessionRevision: number;
@@ -86,6 +107,7 @@ export interface ToolResultArtifactEntry {
     readonly path: string;
     readonly contentDigest: string;
     readonly originalLength: number;
+    readonly recoveryInstruction: string;
   };
 }
 
@@ -128,6 +150,7 @@ export interface ContextPolicyResult {
 export interface ContextComponentManifest {
   readonly name: string;
   readonly version: number;
+  readonly configurationDigest?: string;
 }
 
 export interface ModelContextSnapshotManifest {

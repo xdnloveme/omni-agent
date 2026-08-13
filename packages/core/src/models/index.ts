@@ -5,12 +5,16 @@ export type {
   ModelRuntimePort,
   ModelToolSpec,
   RuntimeModelSelection,
+  ThinkingHistoryPolicy,
 } from "./runtime";
 export type { ModelCallIdentity } from "./call";
 export type {
   ModelCacheCapability,
   ModelCacheDirective,
   ModelCacheIntent,
+  ModelCacheLeaseAdvice,
+  ModelCacheLeaseAdvisorPort,
+  ModelCacheLeaseStatus,
   ModelCacheLifecycle,
   ModelCacheMode,
   ModelCachePolicyDecision,

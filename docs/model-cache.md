@@ -9,6 +9,7 @@ runtime-only control plane:
 Model call identity + cache intent
   -> capability resolver
   -> default cache policy
+  -> ModelCacheCoordinator
   -> stable scope and semantic fingerprint
   -> Provider cache options
   -> normalized cache report
@@ -55,14 +56,20 @@ The runtime compares the previous successful fingerprint in a fixed order and re
 and never changes the deterministic classification.
 
 Only successful cache-enabled calls replace state. Failed and cancelled calls emit a
-report without destroying the previous baseline. The LRU stores at most 256 small digest
-entries, lazily removes known-expired entries, and clears on runtime disposal. It never
-stores request bodies, credentials, or raw headers.
+report without destroying the previous baseline. The LRU stores at most 256 small entries
+containing digests, applied retention, and known expiry; it lazily
+removes known-expired entries and clears on runtime disposal. It never stores request
+bodies, credentials, or raw headers.
 
 The fingerprint, LRU entry, Provider cache DTO, and inner transport event/options are
 Models implementation details. The transport event contract excludes cache reports, so
 only `CacheAwareModelRuntime` can publish cache lifecycle observations. When retention is
 `none`, Provider scope metadata is omitted as well as caching being disabled.
+
+The coordinator also exposes a read-only lease advisor. It classifies the current scope
+as `disabled`, `cold`, `active`, `expired`, or `unknown_expiry`. Inspection neither
+promotes an LRU entry nor removes an expired entry, so it cannot consume the lifecycle
+classification of the next model call. Unknown Provider TTLs remain unknown.
 
 ## Extension boundary
 
@@ -71,6 +78,13 @@ It carries identity correlation, capability, lifecycle, counts, token usage, and
 but no prompt or message content. The existing stream event system is reused; there is no
 parallel cache observer framework.
 
-Future cache breakpoint strategies, cache-expiry-aware Micro compression, complete
-request snapshots, and cache-safe Full compression must be added as separate consumers.
-They must not move Provider semantics into Context or durable cache state into Session.
+App adapts lease advice to the business-independent Context rewrite guard. Context sees
+only `allow/defer`, never cache capabilities or TTLs. Known active leases may delay Micro
+projection; unknown expiry is never guessed, and Heavy compression is never blocked.
+Stable replay keeps subsequent projected prefixes identical. `model_cache_report`
+remains the post-call evidence for `prefix_rewritten`, `append_only`, and Provider token
+usage.
+
+Future cache breakpoint strategies and complete request snapshots must be added as
+separate consumers. They must not move Provider semantics into Context or durable cache
+state into Session.

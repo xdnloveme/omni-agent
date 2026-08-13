@@ -559,6 +559,19 @@ describe("runAgentLoop", () => {
         tokenEstimate: 42,
       }),
     });
+    const done = events.find((event) => event.type === "done");
+    expect(
+      done?.type === "done"
+        ? done.produced?.find((message) => message.role === "toolResult")
+        : undefined,
+    ).toMatchObject({
+      details: {
+        kind: "skill_read",
+        skillName: "frontend-design",
+        status: "loaded",
+        tokenEstimate: 42,
+      },
+    });
   });
 
   it("should continue tool-result pairing when a lifecycle adapter throws", async () => {

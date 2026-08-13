@@ -4,8 +4,10 @@ export type {
   ContextSessionStorage,
 } from "./application/agent-application";
 export {
-  AgentStorageLayout,
-  ContextArtifactRepository,
+  ContextSidecarLayout,
+  ContextProjectionRepository,
+  ContextProjectionRevisionError,
+  CacheBackedContextRewriteGuard,
   ContextCheckpointRepository,
   RuntimeContextSummaryGenerator,
 } from "./context/index";

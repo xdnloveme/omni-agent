@@ -1,5 +1,6 @@
 import type { DeepReadonly } from "../data";
 import type { ModelCallIdentity } from "./call";
+import type { RuntimeModelSelection } from "./runtime";
 
 export type ModelCacheRetention = "none" | "short" | "long";
 
@@ -67,4 +68,21 @@ export interface ModelCachePolicyDecision {
 
 export interface ModelCachePolicyPort {
   resolve(input: DeepReadonly<ModelCachePolicyInput>): ModelCachePolicyDecision;
+}
+
+export type ModelCacheLeaseStatus = "disabled" | "cold" | "active" | "expired" | "unknown_expiry";
+
+export interface ModelCacheLeaseAdvice {
+  readonly status: ModelCacheLeaseStatus;
+  readonly scopeId: string;
+  readonly retention: ModelCacheRetention;
+  readonly expiresAt?: number;
+}
+
+export interface ModelCacheLeaseAdvisorPort {
+  inspect(
+    selection: RuntimeModelSelection,
+    identity: ModelCallIdentity,
+    intent: ModelCacheIntent,
+  ): ModelCacheLeaseAdvice;
 }
