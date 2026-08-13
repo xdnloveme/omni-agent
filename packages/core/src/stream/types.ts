@@ -7,6 +7,7 @@
 
 import type { ExtensionEvent } from "../extension-events";
 import type { TokenUsage } from "../types";
+import type { ModelContextSnapshotManifest } from "../context";
 
 /** Text chunk streamed from the LLM */
 export interface TextDeltaEvent {
@@ -37,6 +38,11 @@ export interface DoneEvent {
   usage?: TokenUsage;
 }
 
+export interface ModelContextPreparedEvent {
+  type: "model_context_prepared";
+  manifest: ModelContextSnapshotManifest;
+}
+
 /** Stream encountered an error */
 export interface ErrorEvent {
   type: "error";
@@ -45,7 +51,13 @@ export interface ErrorEvent {
 
 /** Union of all stream events */
 export type StreamEvent =
-  TextDeltaEvent | ToolUseStartEvent | ToolUseEndEvent | ExtensionEvent | DoneEvent | ErrorEvent;
+  | TextDeltaEvent
+  | ModelContextPreparedEvent
+  | ToolUseStartEvent
+  | ToolUseEndEvent
+  | ExtensionEvent
+  | DoneEvent
+  | ErrorEvent;
 
 /** Tool result payload (mirrors core ToolResult but decoupled) */
 export interface ToolResultPayload {
@@ -62,6 +74,7 @@ export interface ToolResultPayload {
  */
 export interface StreamCallbacks {
   onTextChunk?: (delta: string) => void;
+  onModelContextPrepared?: (manifest: ModelContextSnapshotManifest) => void;
   onToolStart?: (toolName: string, toolCallId: string, input: Record<string, unknown>) => void;
   onToolEnd?: (
     toolName: string,

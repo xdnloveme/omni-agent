@@ -3,12 +3,14 @@ import { appendFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/
 import { join } from "node:path";
 import { InterprocessFileLock } from "../persistence";
 import { isAgentId } from "../identifiers";
+import { cloneTranscriptMessages } from "../messages";
+import type { TranscriptMessage } from "../messages";
 
-import type { SessionEntry, SessionIndex, SessionMessage } from "./types";
+import type { SessionEntry, SessionIndex, SessionTranscriptSnapshot } from "./types";
 
 export interface AgentSession {
   readonly id: string;
-  readonly messages: readonly SessionMessage[];
+  readonly messages: readonly TranscriptMessage[];
 }
 
 export interface AgentSessionRepositoryOptions {
@@ -22,7 +24,8 @@ export class AgentSessionRepository {
   private readonly lockPath: string;
   private readonly lock: InterprocessFileLock;
   private activeId: string | null = null;
-  private activeMessages: SessionMessage[] = [];
+  private activeMessages: TranscriptMessage[] = [];
+  private revision = 0;
 
   constructor(options: AgentSessionRepositoryOptions) {
     assertAgentId(options.agentId);
@@ -36,8 +39,13 @@ export class AgentSessionRepository {
     return this.activeId;
   }
 
-  get messages(): readonly SessionMessage[] {
-    return this.activeMessages;
+  snapshot(): SessionTranscriptSnapshot {
+    if (!this.activeId) throw new Error("Agent session is not initialized");
+    return {
+      sessionId: this.activeId,
+      revision: this.revision,
+      messages: cloneTranscriptMessages(this.activeMessages),
+    };
   }
 
   async restoreLatestOrCreate(): Promise<AgentSession> {
@@ -70,20 +78,24 @@ export class AgentSessionRepository {
     return this.activate(session);
   }
 
-  async append(sessionId: string, messages: readonly SessionMessage[]): Promise<void> {
+  async append(sessionId: string, messages: readonly TranscriptMessage[]): Promise<void> {
     if (messages.length === 0) return;
     assertSessionId(sessionId);
+    const ownedMessages = cloneTranscriptMessages(messages);
     await this.exclusive(async () => {
       const index = await this.readIndex();
       const entry = index.sessions.find((candidate) => candidate.id === sessionId);
       if (!entry) throw new Error(`Session not found: ${sessionId}`);
 
-      const lines = `${messages.map((message) => JSON.stringify(message)).join("\n")}\n`;
+      const lines = `${ownedMessages.map((message) => JSON.stringify(message)).join("\n")}\n`;
       await appendFile(this.sessionPath(sessionId), lines, { encoding: "utf8", mode: 0o600 });
       entry.lastActiveAt = Date.now();
       await this.writeIndex(index);
     });
-    if (this.activeId === sessionId) this.activeMessages.push(...messages);
+    if (this.activeId === sessionId) {
+      this.activeMessages.push(...ownedMessages);
+      this.revision += 1;
+    }
   }
 
   async clear(sessionId: string): Promise<void> {
@@ -95,7 +107,10 @@ export class AgentSessionRepository {
       }
       await writeFile(this.sessionPath(sessionId), "", { encoding: "utf8", mode: 0o600 });
     });
-    if (this.activeId === sessionId) this.activeMessages = [];
+    if (this.activeId === sessionId) {
+      this.activeMessages = [];
+      this.revision += 1;
+    }
   }
 
   private async createPersistedSession(index: SessionIndex): Promise<AgentSession> {
@@ -112,8 +127,9 @@ export class AgentSessionRepository {
 
   private activate(session: AgentSession): AgentSession {
     this.activeId = session.id;
-    this.activeMessages = [...session.messages];
-    return { id: session.id, messages: this.activeMessages };
+    this.activeMessages = cloneTranscriptMessages(session.messages);
+    this.revision = 0;
+    return { id: session.id, messages: cloneTranscriptMessages(this.activeMessages) };
   }
 
   private async readIndex(): Promise<SessionIndex> {
@@ -142,13 +158,13 @@ export class AgentSessionRepository {
     }
   }
 
-  private async replay(sessionId: string): Promise<SessionMessage[]> {
+  private async replay(sessionId: string): Promise<TranscriptMessage[]> {
     try {
-      const messages: SessionMessage[] = [];
+      const messages: TranscriptMessage[] = [];
       for (const line of (await readFile(this.sessionPath(sessionId), "utf8")).split("\n")) {
         if (!line.trim()) continue;
         try {
-          messages.push(JSON.parse(line) as SessionMessage);
+          messages.push(JSON.parse(line) as TranscriptMessage);
         } catch {
           // Ignore a malformed partial line without discarding the valid session history.
         }

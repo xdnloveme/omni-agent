@@ -1,11 +1,17 @@
 import type { ToolLifecycleAdapter } from "./tool-lifecycle";
 import type { ToolLoopDiagnostic } from "./loop-protection";
 import type { ExtensionEvent } from "./extension-events";
-import type { AgentMessage } from "./models/messages";
+import type { TranscriptMessage } from "./messages";
 import type { ModelRuntimePort, RuntimeModelSelection } from "./models/runtime";
 import type { ToolAuthorizationDescriptor } from "./permissions";
 import type { ToolExecutionContext, ToolExecutionStrategy, ToolTimeoutPolicy } from "./execution";
 import type { ToolPreflightDescriptor } from "./tool-calls/tool-preflight";
+import type {
+  ContextEnginePort,
+  ContextMiddlewarePort,
+  ModelContextSnapshotManifest,
+} from "./context";
+import type { SessionTranscriptSnapshot } from "./session";
 
 export interface AgentToolDefinition {
   name: string;
@@ -50,7 +56,9 @@ export interface AgentConfig {
 
 export interface AgentLoopInput {
   config: AgentConfig;
-  messages: readonly AgentMessage[];
+  snapshot: SessionTranscriptSnapshot;
+  contextEngine: ContextEnginePort;
+  contextMiddleware: readonly ContextMiddlewarePort[];
   modelRuntime: ModelRuntimePort;
   agentId: string;
   cwd: string;
@@ -62,6 +70,7 @@ export interface AgentLoopInput {
 // Events emitted by the agent loop
 export type AgentEvent =
   | { type: "text_delta"; delta: string }
+  | { type: "model_context_prepared"; manifest: ModelContextSnapshotManifest }
   | { type: "tool_start"; toolName: string; toolCallId: string; input: Record<string, unknown> }
   | {
       type: "tool_end";
@@ -76,12 +85,10 @@ export type AgentEvent =
       type: "error";
       error: string;
       code?: "max_turns_reached" | "tool_loop_detected";
-      produced?: AgentMessage[];
+      produced?: readonly TranscriptMessage[];
       usage?: TokenUsage;
       turnCount?: number;
       maxTurns?: number;
       loop?: ToolLoopDiagnostic;
     }
-  | { type: "done"; produced?: AgentMessage[]; usage?: TokenUsage };
-
-export type { AgentMessage };
+  | { type: "done"; produced?: readonly TranscriptMessage[]; usage?: TokenUsage };

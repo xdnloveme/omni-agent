@@ -57,7 +57,7 @@ describe("ModelRuntime", () => {
       },
       {
         systemPrompt: "test",
-        messages: [{ role: "user", content: "hi", timestamp: 1 }],
+        messages: [{ role: "user", content: "hi" }],
         tools: [],
       },
     ))
@@ -172,7 +172,7 @@ describe("ModelRuntime", () => {
       },
       {
         systemPrompt: "test",
-        messages: [{ role: "user", content: "hi", timestamp: 1 }],
+        messages: [{ role: "user", content: "hi" }],
       },
       {
         credential: { type: "api_key", key: "request-key" },

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import type { AgentMessage } from "../models/messages";
+import type { TranscriptMessage } from "../messages";
 import type { AgentConfig, AgentEvent, RegisteredAgentTool } from "../types";
 import type { ModelRuntimePort } from "../models";
 import { runAgentLoop } from "../agent-loop";
@@ -13,6 +13,11 @@ import type { ToolLifecycleAdapter } from "../tool-lifecycle";
 import { PermissionGate } from "../permissions";
 import { ToolAuthorizationRouter, ToolCallCoordinator, ToolInputValidator } from "../tool-calls";
 import { ToolInvocationRunner } from "../execution";
+import {
+  DefaultContextEngine,
+  FullHistoryContextStrategy,
+  type ContextMiddlewarePort,
+} from "../context";
 
 const streamModel = vi.fn<ModelRuntimePort["stream"]>();
 const modelRuntime: ModelRuntimePort = { stream: streamModel };
@@ -50,14 +55,25 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
   };
 }
 
-function makeMessages(userContent: string): AgentMessage[] {
+function makeMessages(userContent: string): TranscriptMessage[] {
   return [{ role: "user", content: userContent, timestamp: Date.now() }];
 }
 
-function executeLoop(config: AgentConfig, messages: AgentMessage[], signal?: AbortSignal) {
+function executeLoop(
+  config: AgentConfig,
+  messages: TranscriptMessage[],
+  signal?: AbortSignal,
+  contextMiddleware: readonly ContextMiddlewarePort[] = [],
+) {
   return runAgentLoop({
     config,
-    messages,
+    snapshot: {
+      sessionId: "test-session",
+      revision: 1,
+      messages,
+    },
+    contextEngine: new DefaultContextEngine(new FullHistoryContextStrategy()),
+    contextMiddleware,
     modelRuntime,
     agentId: "test",
     cwd: process.cwd(),
@@ -96,8 +112,28 @@ function createCoordinator() {
  */
 async function* fakeStream(events: Array<{ type: string; [key: string]: unknown }>) {
   for (const event of events) {
-    yield event;
+    if (event.type === "done" && event.message && typeof event.message === "object") {
+      yield { ...event, message: completeAssistantMessage(event.message) };
+    } else if (event.type === "error" && event.error && typeof event.error === "object") {
+      yield { ...event, error: completeAssistantMessage(event.error) };
+    } else {
+      yield event;
+    }
   }
+}
+
+function completeAssistantMessage(value: object) {
+  return {
+    role: "assistant",
+    content: [],
+    api: "test-api",
+    provider: "test-provider",
+    model: "test-model",
+    stopReason: "stop",
+    usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    timestamp: Date.now(),
+    ...value,
+  };
 }
 
 /**
@@ -137,6 +173,7 @@ describe("runAgentLoop", () => {
     const events = await collectEvents(executeLoop(config, makeMessages("Hi")));
 
     expect(events).toEqual([
+      expect.objectContaining({ type: "model_context_prepared" }),
       { type: "text_delta", delta: "Hello " },
       { type: "text_delta", delta: "world" },
       expect.objectContaining({ type: "done" }),
@@ -166,7 +203,7 @@ describe("runAgentLoop", () => {
     expect(doneEvent!.type).toBe("done");
     if (doneEvent!.type === "done") {
       expect(doneEvent!.produced).toHaveLength(1);
-      expect(doneEvent!.produced![0]).toEqual(assistantMsg);
+      expect(doneEvent!.produced![0]).toMatchObject(assistantMsg);
     }
   });
 
@@ -249,7 +286,7 @@ describe("runAgentLoop", () => {
     }
   });
 
-  it("runs extension middleware around model and tool execution", async () => {
+  it("runs completion and tool middleware around their owned phases", async () => {
     const order: string[] = [];
     const tool = makeTool("bash");
     vi.mocked(tool.execute).mockImplementation(async () => {
@@ -260,9 +297,6 @@ describe("runAgentLoop", () => {
       tools: [tool],
       middleware: [
         {
-          beforeModel: () => {
-            order.push("before-model");
-          },
           afterModel: () => {
             order.push("after-model");
           },
@@ -305,14 +339,102 @@ describe("runAgentLoop", () => {
     await collectEvents(executeLoop(config, makeMessages("run")));
 
     expect(order).toEqual([
-      "before-model",
       "after-model",
       "before-tool",
       "execute-tool",
       "after-tool",
-      "before-model",
       "after-model",
     ]);
+  });
+
+  it("prevents afterModel observers from mutating the response or next context", async () => {
+    const tool = makeTool("bash");
+    const config = makeConfig({
+      tools: [tool],
+      middleware: [
+        {
+          afterModel(context) {
+            const response = context.response as unknown as {
+              content: Array<{ type: string; name?: string }>;
+            };
+            if (response.content[0]?.type === "toolCall") response.content[0].name = "mutated";
+            const request = context.request as unknown as { messages: Array<{ content: string }> };
+            if (typeof request.messages[0]?.content === "string") {
+              request.messages[0].content = "mutated";
+            }
+          },
+        },
+      ],
+    });
+    streamModel.mockReturnValueOnce(
+      fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [{ type: "toolCall", id: "call_1", name: "bash", arguments: {} }],
+            stopReason: "toolUse",
+            timestamp: 1,
+          },
+        },
+      ]) as never,
+    );
+    streamModel.mockReturnValueOnce(
+      fakeStream([
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+            stopReason: "stop",
+            timestamp: 2,
+          },
+        },
+      ]) as never,
+    );
+
+    const events = await collectEvents(executeLoop(config, makeMessages("run")));
+    const secondRequest = streamModel.mock.calls[1]?.[1];
+    expect(tool.execute).toHaveBeenCalledOnce();
+    expect(secondRequest.messages[0]).toMatchObject({ content: "run" });
+    expect(secondRequest.messages[1]).toMatchObject({
+      role: "assistant",
+      content: [expect.objectContaining({ type: "toolCall", name: "bash" })],
+    });
+    const done = events.at(-1);
+    expect(done?.type).toBe("done");
+    if (done?.type === "done") {
+      expect(done.produced?.[0]).toMatchObject({
+        content: [expect.objectContaining({ name: "bash" })],
+      });
+    }
+  });
+
+  it("prepares a new traceable snapshot after each tool result", async () => {
+    const tool = makeTool("bash");
+    streamModel.mockReturnValueOnce(
+      fakeStream([
+        {
+          type: "done",
+          message: {
+            content: [{ type: "toolCall", id: "call_1", name: "bash", arguments: {} }],
+            stopReason: "toolUse",
+          },
+        },
+      ]) as never,
+    );
+    streamModel.mockReturnValueOnce(
+      fakeStream([{ type: "done", message: { content: [], stopReason: "stop" } }]) as never,
+    );
+
+    const events = await collectEvents(
+      executeLoop(makeConfig({ tools: [tool] }), makeMessages("run")),
+    );
+    const snapshots = events.filter((event) => event.type === "model_context_prepared");
+    expect(snapshots).toHaveLength(2);
+    expect(snapshots[0].manifest.outputMessageCount).toBe(1);
+    expect(snapshots[1].manifest.outputMessageCount).toBe(3);
+    expect(snapshots[1].manifest.snapshotId).not.toBe(snapshots[0].manifest.snapshotId);
   });
 
   it("should emit extension events around skill_read tool calls", async () => {
@@ -717,7 +839,9 @@ describe("runAgentLoop", () => {
     const config = makeConfig();
     const events = await collectEvents(executeLoop(config, makeMessages("Hi")));
 
-    expect(events).toEqual([{ type: "error", error: "Rate limit exceeded" }]);
+    expect(events.filter((event) => event.type === "error")).toEqual([
+      { type: "error", error: "Rate limit exceeded" },
+    ]);
   });
 
   it("should return isError=true when tool is not found", async () => {

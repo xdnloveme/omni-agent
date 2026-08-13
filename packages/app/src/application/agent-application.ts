@@ -6,6 +6,8 @@ import {
   type AgentEvent,
   type StreamCallbacks,
   type ToolCallCoordinator,
+  type ContextEnginePort,
+  type ContextMiddlewarePort,
   type PermissionMode,
 } from "@omni-agent/core";
 import type { AgentSessionRepository } from "@omni-agent/core";
@@ -41,6 +43,8 @@ export class AgentApplication {
       dependencies.toolCallCoordinator,
       dependencies.agentId,
       dependencies.cwd,
+      dependencies.contextEngine,
+      dependencies.contextMiddleware,
     );
   }
 
@@ -48,11 +52,11 @@ export class AgentApplication {
     const sessionId = this.requireSessionId();
     await this.sessions.append(sessionId, [createUserMessage(input)]);
     const streamSession = createStreamSession(callbacks);
-    const events = this.runner.run(this.agentConfig, this.sessions.messages, signal, {
+    const events = this.runner.run(this.agentConfig, this.sessions.snapshot(), signal, {
       session: streamSession,
     });
     for await (const event of events) {
-      await this.persistProduced(event);
+      await this.persistProduced(sessionId, event);
     }
   }
 
@@ -136,9 +140,9 @@ export class AgentApplication {
     await this.extensions.dispose();
   }
 
-  private async persistProduced(event: AgentEvent): Promise<void> {
+  private async persistProduced(sessionId: string, event: AgentEvent): Promise<void> {
     if ((event.type === "done" || event.type === "error") && event.produced?.length) {
-      await this.sessions.append(this.requireSessionId(), event.produced);
+      await this.sessions.append(sessionId, event.produced);
     }
   }
 
@@ -165,4 +169,6 @@ export interface AgentApplicationDependencies {
   readonly configService: ConfigService;
   readonly permissionService: PermissionService;
   readonly toolCallCoordinator: ToolCallCoordinator;
+  readonly contextEngine: ContextEnginePort;
+  readonly contextMiddleware: readonly ContextMiddlewarePort[];
 }

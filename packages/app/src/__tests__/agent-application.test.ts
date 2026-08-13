@@ -4,12 +4,14 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   AgentSessionRepository,
+  DefaultContextEngine,
+  FullHistoryContextStrategy,
   ToolAuthorizationRouter,
   ToolCallCoordinator,
   ToolInputValidator,
   ToolInvocationRunner,
   type AgentConfig,
-  type AgentMessage,
+  type TranscriptMessage,
   type ModelRuntimePort,
 } from "@omni-agent/core";
 import { AgentApplication } from "../application/agent-application";
@@ -79,6 +81,8 @@ async function fixture() {
         invocationRunner: new ToolInvocationRunner(),
         inputValidator: new ToolInputValidator(),
       }),
+      contextEngine: new DefaultContextEngine(new FullHistoryContextStrategy()),
+      contextMiddleware: [],
     }),
     configService,
     dispose,
@@ -134,7 +138,7 @@ describe("AgentApplication model selection", () => {
 describe("AgentApplication session persistence", () => {
   it("persists produced messages when the turn limit is reached", async () => {
     const { app, sessions } = await fixture();
-    const produced: AgentMessage[] = [
+    const produced: TranscriptMessage[] = [
       {
         role: "assistant",
         content: [
@@ -177,7 +181,7 @@ describe("AgentApplication session persistence", () => {
 
     await app.run("keep working", {});
 
-    expect(sessions.messages).toHaveLength(3);
-    expect(sessions.messages.slice(1)).toEqual(produced);
+    expect(sessions.snapshot().messages).toHaveLength(3);
+    expect(sessions.snapshot().messages.slice(1)).toEqual(produced);
   });
 });

@@ -1,4 +1,4 @@
-import type { ToolCallContent } from "../models/messages";
+import type { ToolCallContent } from "../messages";
 import type { ToolResult } from "../types";
 
 export type LoopDecisionSource =

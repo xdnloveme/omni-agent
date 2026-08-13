@@ -1,9 +1,10 @@
-import type { AgentMessage } from "../models/messages";
+import type { TranscriptMessage } from "../messages";
 
-/**
- * Session-facing name for the stable agent message wire format.
- */
-export type SessionMessage = AgentMessage;
+export interface SessionTranscriptSnapshot {
+  readonly sessionId: string;
+  readonly revision: number;
+  readonly messages: readonly TranscriptMessage[];
+}
 
 /**
  * Metadata for a single session in the index.

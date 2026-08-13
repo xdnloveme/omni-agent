@@ -3,7 +3,7 @@ import { AgentRegistry } from "../registry/agent-registry";
 import { ToolRegistry } from "../registry/tool-registry";
 import type { AgentExtension, ExtensionDiagnostic } from "./types";
 import type { VendorPluginManager } from "@omni-agent/models";
-import type { RuntimeMiddleware } from "@omni-agent/core";
+import type { ContextMiddlewarePort, RuntimeMiddleware } from "@omni-agent/core";
 
 export interface ExtensionManagerOptions {
   cwd: string;
@@ -18,6 +18,7 @@ export class ExtensionManager {
   readonly tools: ToolRegistry;
   readonly commands: CommandRegistry;
   readonly middleware: RuntimeMiddleware[] = [];
+  readonly contextMiddleware: ContextMiddlewarePort[] = [];
   readonly diagnostics: ExtensionDiagnostic[] = [];
   private readonly cwd: string;
   private readonly active = new Map<
@@ -29,6 +30,7 @@ export class ExtensionManager {
       commands: string[];
       providers: string[];
       middleware: RuntimeMiddleware[];
+      contextMiddleware: ContextMiddlewarePort[];
     }
   >();
   private readonly modelProviders?: VendorPluginManager;
@@ -48,6 +50,7 @@ export class ExtensionManager {
     const registeredCommands: string[] = [];
     const registeredProviders: string[] = [];
     const registeredMiddleware: RuntimeMiddleware[] = [];
+    const registeredContextMiddleware: ContextMiddlewarePort[] = [];
     try {
       for (const provider of extension.contributions.providers ?? []) {
         if (!this.modelProviders) throw new Error("Model provider contributions are not enabled");
@@ -70,6 +73,10 @@ export class ExtensionManager {
         this.middleware.push(middleware);
         registeredMiddleware.push(middleware);
       }
+      for (const middleware of extension.contributions.contextMiddleware ?? []) {
+        this.contextMiddleware.push(middleware);
+        registeredContextMiddleware.push(middleware);
+      }
       await extension.activate?.({ cwd: this.cwd });
       this.active.set(extension.manifest.id, {
         extension,
@@ -78,8 +85,10 @@ export class ExtensionManager {
         commands: registeredCommands,
         providers: registeredProviders,
         middleware: registeredMiddleware,
+        contextMiddleware: registeredContextMiddleware,
       });
     } catch (error) {
+      this.removeContextMiddleware([...registeredContextMiddleware].reverse());
       this.removeMiddleware([...registeredMiddleware].reverse());
       for (const name of [...registeredCommands].reverse()) this.commands.unregister(name);
       for (const id of [...registeredAgents].reverse()) this.agents.unregister(id);
@@ -109,6 +118,7 @@ export class ExtensionManager {
   async unregister(extensionId: string): Promise<void> {
     const entry = this.active.get(extensionId);
     if (!entry) return;
+    this.removeContextMiddleware([...entry.contextMiddleware].reverse());
     this.removeMiddleware([...entry.middleware].reverse());
     for (const name of [...entry.commands].reverse()) this.commands.unregister(name);
     for (const id of [...entry.agents].reverse()) this.agents.unregister(id);
@@ -172,12 +182,49 @@ export class ExtensionManager {
       }
       providerPluginIds.add(provider.manifest.id);
     }
+    for (const middleware of extension.contributions.middleware ?? []) {
+      if (!middleware || typeof middleware !== "object") {
+        throw new Error(`Invalid runtime middleware in extension: ${id}`);
+      }
+      const legacy = middleware as RuntimeMiddleware & { beforeModel?: unknown };
+      if (legacy.beforeModel !== undefined) {
+        throw new Error(
+          `Extension ${id} uses removed beforeModel middleware; migrate it to contextMiddleware.transform`,
+        );
+      }
+      assertOptionalFunction(middleware, "afterModel", id);
+      assertOptionalFunction(middleware, "beforeExecute", id);
+      assertOptionalFunction(middleware, "afterExecute", id);
+    }
+    for (const middleware of extension.contributions.contextMiddleware ?? []) {
+      if (!middleware || typeof middleware !== "object") {
+        throw new Error(`Invalid context middleware in extension: ${id}`);
+      }
+      if (typeof middleware.name !== "string" || !middleware.name.trim()) {
+        throw new Error(`Context middleware name is required: ${id}`);
+      }
+      if (!Number.isInteger(middleware.version) || middleware.version < 1) {
+        throw new Error(
+          `Context middleware version must be a positive integer: ${middleware.name}`,
+        );
+      }
+      if (typeof middleware.transform !== "function") {
+        throw new Error(`Context middleware transform is required: ${middleware.name}`);
+      }
+    }
   }
 
   private removeMiddleware(entries: readonly RuntimeMiddleware[]): void {
     for (const middleware of entries) {
       const index = this.middleware.lastIndexOf(middleware);
       if (index >= 0) this.middleware.splice(index, 1);
+    }
+  }
+
+  private removeContextMiddleware(entries: readonly ContextMiddlewarePort[]): void {
+    for (const middleware of entries) {
+      const index = this.contextMiddleware.lastIndexOf(middleware);
+      if (index >= 0) this.contextMiddleware.splice(index, 1);
     }
   }
 
@@ -191,5 +238,12 @@ export class ExtensionManager {
         message: error instanceof Error ? error.message : String(error),
       });
     }
+  }
+}
+
+function assertOptionalFunction(value: object, key: string, extensionId: string): void {
+  const candidate = (value as Record<string, unknown>)[key];
+  if (candidate !== undefined && typeof candidate !== "function") {
+    throw new Error(`Extension ${extensionId} middleware ${key} must be a function`);
   }
 }

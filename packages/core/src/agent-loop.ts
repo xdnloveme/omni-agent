@@ -1,14 +1,18 @@
-import { toContextMessages } from "./llm-context";
+import { randomUUID } from "node:crypto";
 import type {
-  AgentMessage,
-  AssistantAgentMessage,
+  TranscriptMessage,
+  AssistantTranscriptMessage,
   ModelUsage,
   ToolCallContent,
-} from "./models/messages";
+} from "./messages";
 import type { AgentConfig, AgentEvent, AgentLoopInput, TokenUsage } from "./types";
 import type { StreamSession } from "./stream/index";
 import { throwIfAborted } from "./execution";
 import { createLoopProtection } from "./loop-protection";
+import { cloneData } from "./dataCopy";
+import { cloneTranscriptMessage } from "./messages";
+import { createContextPreparationRequest } from "./agent/contextInput";
+import { WorkingConversation } from "./agent/workingConversation";
 
 const APPROX_CHARS_PER_TOKEN = 4;
 
@@ -17,7 +21,7 @@ export interface AgentLoopOptions {
   session?: StreamSession;
 }
 
-function textContentLength(content: AgentMessage["content"]): number {
+function textContentLength(content: TranscriptMessage["content"]): number {
   if (typeof content === "string") return content.length;
   return content.reduce((total, block) => {
     if (block.type === "text") return total + block.text.length;
@@ -32,7 +36,7 @@ function textContentLength(content: AgentMessage["content"]): number {
 function estimateRequestInputTokens(
   systemPrompt: string,
   tools: AgentConfig["tools"],
-  messages: readonly AgentMessage[],
+  messages: readonly TranscriptMessage[],
 ): number {
   const systemChars = systemPrompt.length;
   const messageChars = messages.reduce(
@@ -79,7 +83,7 @@ function toTokenUsage(
  * Run the agent loop as an async generator.
  * Yields AgentEvent as the loop progresses.
  *
- * The caller provides the full conversation history (messages[]).
+ * The caller provides a detached Session transcript snapshot.
  * The loop appends assistant and tool_result messages internally and
  * yields them back via the `produced` field on the final "done" event.
  *
@@ -88,15 +92,12 @@ function toTokenUsage(
  * (TUI, harness, test mocks) without coupling to the generator protocol.
  */
 export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<AgentEvent> {
-  const { config, messages, modelRuntime, signal, options } = input;
+  const { config, contextEngine, contextMiddleware, modelRuntime, signal, options } = input;
+  const conversation = WorkingConversation.from(input.snapshot);
   const maxTurns = config.maxTurns;
   const session = options?.session;
   const loopProtection = createLoopProtection();
 
-  // Work on a mutable copy so we don't mutate the caller's array
-  const conversation: AgentMessage[] = [...messages];
-  // Track messages produced during this run
-  const produced: AgentMessage[] = [];
   // Track the latest usage from the last LLM response
   let lastUsage: TokenUsage | undefined;
   const contextWindow = config.model.contextWindow;
@@ -106,30 +107,45 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     throwIfAborted(signal);
 
     // Call LLM
-    let assistantMessage: AssistantAgentMessage | null = null;
+    let assistantMessage: AssistantTranscriptMessage | null = null;
 
-    for (const middleware of config.middleware ?? []) {
-      await middleware.beforeModel?.(config, conversation);
-    }
-    throwIfAborted(signal);
     const promptLease = loopProtection.leaseSystemPrompt(
       config.systemPrompt,
       config.tools.length > 0,
     );
+    const conversationSnapshot = conversation.snapshot();
     const estimatedInputTokens = estimateRequestInputTokens(
       promptLease.systemPrompt,
       config.tools,
-      conversation,
+      conversationSnapshot.messages,
     );
-    const eventStream = modelRuntime.stream(
-      config.model,
-      {
+    const preparedContext = await contextEngine.prepare(
+      createContextPreparationRequest({
+        identity: {
+          agentId: input.agentId,
+          sessionId: conversationSnapshot.sessionId,
+          sessionRevision: conversationSnapshot.sessionRevision,
+          modelCallId: randomUUID(),
+        },
+        conversation: conversationSnapshot,
         systemPrompt: promptLease.systemPrompt,
-        messages: toContextMessages(conversation),
         tools: config.tools,
-      },
-      { signal },
+        model: {
+          modelId: config.model.modelId,
+          contextWindow: config.model.contextWindow,
+          maxOutputTokens: config.model.maxOutputTokens,
+        },
+        middleware: contextMiddleware,
+        signal,
+      }),
     );
+    const contextEvent: AgentEvent = {
+      type: "model_context_prepared",
+      manifest: cloneData(preparedContext.manifest),
+    };
+    session?.handle(contextEvent);
+    yield contextEvent;
+    const eventStream = modelRuntime.stream(config.model, preparedContext, { signal });
     let promptDispatchObserved = false;
 
     for await (const event of eventStream) {
@@ -144,7 +160,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         yield agentEvent;
       }
       if (event.type === "done") {
-        assistantMessage = event.message;
+        assistantMessage = cloneTranscriptMessage(event.message);
       }
       if (event.type === "error") {
         const errorMsg = event.error.errorMessage ?? "LLM error";
@@ -162,13 +178,13 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       return;
     }
 
-    // Push assistant message to conversation
-    conversation.push(assistantMessage);
-    produced.push(assistantMessage);
     for (const middleware of config.middleware ?? []) {
-      await middleware.afterModel?.(config, conversation);
+      await middleware.afterModel?.(
+        cloneData({ request: preparedContext, response: assistantMessage }),
+      );
     }
     throwIfAborted(signal);
+    conversation.append(assistantMessage);
 
     // Extract usage from the assistant message. Context occupancy includes cached prompt
     // tokens; provider usage may report those separately from fresh input tokens.
@@ -177,7 +193,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     // Check stop reason
     if (assistantMessage.stopReason !== "toolUse") {
       session?.handle({ type: "done", usage: lastUsage });
-      yield { type: "done", produced, usage: lastUsage };
+      yield { type: "done", produced: conversation.produced(), usage: lastUsage };
       return;
     }
 
@@ -186,7 +202,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       (block): block is ToolCallContent => block.type === "toolCall",
     );
     loopProtection.beginToolBatch(toolCalls);
-    const toolResultMessages: AgentMessage[] = [];
+    const toolResultMessages: TranscriptMessage[] = [];
 
     for (const call of toolCalls) {
       throwIfAborted(signal);
@@ -232,7 +248,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       });
 
       // Push tool result message
-      const toolResultMsg: AgentMessage = {
+      const toolResultMsg: TranscriptMessage = {
         role: "toolResult",
         toolCallId: call.id,
         toolName: call.name,
@@ -244,8 +260,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     }
 
     const loopDecision = loopProtection.completeToolBatch();
-    conversation.push(...toolResultMessages);
-    produced.push(...toolResultMessages);
+    for (const message of toolResultMessages) conversation.append(message);
     if (loopDecision.type === "halt") {
       session?.handle({ type: "error", error: loopDecision.error });
       yield {
@@ -253,7 +268,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         error: loopDecision.error,
         code: "tool_loop_detected",
         loop: loopDecision.diagnostic,
-        produced,
+        produced: conversation.produced(),
         usage: lastUsage,
       };
       return;
@@ -269,7 +284,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       type: "error",
       error,
       code: "max_turns_reached",
-      produced,
+      produced: conversation.produced(),
       usage: lastUsage,
       turnCount: maxTurns,
       maxTurns,

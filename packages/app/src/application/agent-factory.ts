@@ -2,12 +2,15 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import {
   AgentSessionRepository,
+  DefaultContextEngine,
+  FullHistoryContextStrategy,
   isAgentId,
   ToolAuthorizationRouter,
   ToolCallCoordinator,
   ToolInvocationRunner,
   ToolInputValidator,
   type AgentConfig,
+  type ContextCapability,
   type ApprovalBroker,
   type LateToolSettlementEvent,
   type PermissionObserver,
@@ -30,6 +33,7 @@ export interface SkillCapability {
 
 export interface AgentCapabilities {
   readonly skills?: SkillCapability;
+  readonly context?: ContextCapability;
 }
 
 export interface AgentBlueprintContext {
@@ -119,6 +123,9 @@ export class AgentFactory {
         maxTurns: contribution.definition.maxTurns,
         toolLifecycleAdapters: module.capabilities.skills?.runtime.lifecycleAdapters(),
       };
+      const contextEngine = new DefaultContextEngine(
+        module.capabilities.context?.strategy ?? new FullHistoryContextStrategy(),
+      );
       const sessions = new AgentSessionRepository({
         agentId: blueprint.id,
         sessionsRoot: join(this.globalDirectory, "sessions"),
@@ -148,6 +155,8 @@ export class AgentFactory {
         configService: this.options.configService,
         permissionService: permissions.service,
         toolCallCoordinator,
+        contextEngine,
+        contextMiddleware: manager.contextMiddleware,
       });
       let disposed = false;
       return {

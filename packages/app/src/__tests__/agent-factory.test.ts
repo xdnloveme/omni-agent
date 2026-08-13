@@ -2,7 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defineAgent, type ModelRuntimePort } from "@omni-agent/core";
+import { defineAgent, type ContextStrategyPort, type ModelRuntimePort } from "@omni-agent/core";
 import {
   AgentFactory,
   type AgentBlueprint,
@@ -120,5 +120,23 @@ describe("AgentFactory", () => {
     await instance.dispose();
     await instance.dispose();
     expect(dispose).toHaveBeenCalledOnce();
+  });
+
+  it("injects an Agent context strategy through capabilities", async () => {
+    const apply = vi.fn<ContextStrategyPort["apply"]>(async (draft) => ({
+      messages: draft.messages as never,
+      decisions: [{ type: "custom" }],
+    }));
+    const instance = await (
+      await factory()
+    ).create(
+      blueprint("test", {
+        capabilities: { context: { strategy: { name: "custom", version: 1, apply } } },
+      }),
+    );
+
+    await instance.application.run("hello", {});
+    expect(apply).toHaveBeenCalledOnce();
+    await instance.dispose();
   });
 });

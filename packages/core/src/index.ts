@@ -5,6 +5,29 @@ export type { LoopProtection, ToolLoopDiagnostic } from "./loop-protection/index
 export { AgentRunner, defineAgent } from "./agent/index";
 export type { AgentDefinition, AgentRunContext, AgentRunResult } from "./agent/index";
 export {
+  DefaultContextEngine,
+  FullHistoryContextStrategy,
+  InvalidContextStrategyResultError,
+} from "./context/index";
+export type {
+  ContextCapability,
+  ContextComponentManifest,
+  ContextConversationSource,
+  ContextDecision,
+  ContextDraft,
+  ContextEnginePort,
+  ContextMiddlewareOptions,
+  ContextMiddlewarePort,
+  ContextModelLimits,
+  ContextPreparationRequest,
+  ContextStrategyOptions,
+  ContextStrategyPort,
+  ContextStrategyResult,
+  ModelCallCompletedContext,
+  ModelContextSnapshotManifest,
+  PreparedModelContext,
+} from "./context/index";
+export {
   ToolCallCoordinator,
   ToolDefinitionValidator,
   ToolInputValidator,
@@ -82,7 +105,7 @@ export type {
   ToolLifecycleEndInput,
   ToolLifecycleStartInput,
 } from "./tool-lifecycle";
-export { toContextMessages } from "./llm-context";
+export { toContextMessages } from "./context/index";
 export { isAgentId, isToolOriginId } from "./identifiers";
 export type {
   AgentConfig,
@@ -95,13 +118,11 @@ export type {
 } from "./types";
 export type { ExtensionEvent } from "./extension-events";
 export type {
-  AgentMessage,
-  AssistantAgentMessage,
-  JsonValue,
   ModelEvent,
   ModelRequest,
   ModelRequestOptions,
   ModelRuntimePort,
+  ModelToolSpec,
   RuntimeModelSelection,
 } from "./models";
 export { CommandRegistry } from "./commands/index";
@@ -149,6 +170,7 @@ export { InterprocessFileLock } from "./persistence/index";
 export type { InterprocessFileLockOptions } from "./persistence/index";
 export type {
   StreamEvent,
+  ModelContextPreparedEvent,
   StreamCallbacks,
   StreamState,
   AccumulatedMessage,
@@ -163,7 +185,26 @@ export {
 export type {
   AgentSession,
   AgentSessionRepositoryOptions,
-  SessionMessage,
   SessionEntry,
   SessionIndex,
+  SessionTranscriptSnapshot,
 } from "./session/index";
+export { ContentBlockType, MessageRole } from "./messages";
+export type {
+  AssistantModelContextMessage,
+  AssistantTranscriptMessage,
+  DeferredModelResponse,
+  ImageContent,
+  ModelContextMessage,
+  ModelDiagnostic,
+  ModelUsage,
+  TextContent,
+  ThinkingContent,
+  ToolCallContent,
+  ToolResultModelContextMessage,
+  ToolResultTranscriptMessage,
+  TranscriptMessage,
+  UserModelContextMessage,
+  UserTranscriptMessage,
+} from "./messages";
+export type { DeepReadonly, JsonValue } from "./data";

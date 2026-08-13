@@ -1,4 +1,4 @@
-import type { ToolCallContent } from "../models/messages";
+import type { ToolCallContent } from "../messages";
 import { RuntimePromptComposer, type RuntimePromptLease } from "../system-prompt";
 import { reduceLoopDecisions } from "./decision-reducer";
 import { LOOP_PROTECTION_STABLE_PROMPT, toLoopPromptSection } from "./prompt-policy";

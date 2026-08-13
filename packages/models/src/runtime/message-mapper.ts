@@ -7,9 +7,23 @@ import type {
   TSchema,
   Usage,
 } from "@earendil-works/pi-ai";
-import type { AgentMessage, AssistantAgentMessage, ModelRequest } from "@omni-agent/core";
+import type {
+  AssistantTranscriptMessage,
+  DeepReadonly,
+  ModelContextMessage,
+  ModelRequest,
+} from "@omni-agent/core";
 
-function toBackendUsage(usage: AssistantAgentMessage["usage"]): Usage {
+const ZERO_USAGE: Usage = {
+  input: 0,
+  output: 0,
+  cacheRead: 0,
+  cacheWrite: 0,
+  totalTokens: 0,
+  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+};
+
+function toBackendUsage(usage: DeepReadonly<AssistantTranscriptMessage["usage"]>): Usage {
   return {
     input: usage.input,
     output: usage.output,
@@ -18,20 +32,20 @@ function toBackendUsage(usage: AssistantAgentMessage["usage"]): Usage {
     reasoning: usage.reasoning,
     totalTokens:
       usage.totalTokens ?? usage.input + usage.output + usage.cacheRead + usage.cacheWrite,
-    cost: usage.cost ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+    cost: usage.cost
+      ? { ...usage.cost }
+      : { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
   };
 }
 
-export function toBackendMessages(messages: AgentMessage[]): Message[] {
+export function toBackendMessages(messages: ModelRequest["messages"]): Message[] {
   return messages.map((message): Message => {
     if (message.role === "user") {
       return {
         role: "user",
         content:
-          typeof message.content === "string"
-            ? message.content
-            : message.content.map((content) => ({ ...content })),
-        timestamp: message.timestamp,
+          typeof message.content === "string" ? message.content : mutableClone(message.content),
+        timestamp: 0,
       };
     }
     if (message.role === "toolResult") {
@@ -39,47 +53,39 @@ export function toBackendMessages(messages: AgentMessage[]): Message[] {
         role: "toolResult",
         toolCallId: message.toolCallId,
         toolName: message.toolName,
-        content: message.content.map((content) => ({ ...content })),
-        details: message.details,
-        usage: message.usage && toBackendUsage(message.usage),
-        addedToolNames: message.addedToolNames,
+        content: mutableClone(message.content),
+        addedToolNames: message.addedToolNames && [...message.addedToolNames],
         isError: message.isError,
-        timestamp: message.timestamp,
+        timestamp: 0,
       };
     }
     return {
       role: "assistant",
-      content: message.content.map((content) => ({ ...content })),
+      content: mutableClone(message.content),
       api: message.api as Api,
       provider: message.provider,
       model: message.model,
       responseModel: message.responseModel,
-      responseId: message.responseId,
-      diagnostics: message.diagnostics?.map((diagnostic) => ({
-        ...diagnostic,
-        error: diagnostic.error && { ...diagnostic.error },
-        details: diagnostic.details && { ...diagnostic.details },
-      })),
-      usage: toBackendUsage(message.usage),
+      usage: mutableClone(ZERO_USAGE),
       stopReason: message.stopReason,
-      deferred: message.deferred && { ...message.deferred },
-      errorMessage: message.errorMessage,
+      deferred: mutableClone(message.deferred),
       rawStopReason: message.rawStopReason,
-      timestamp: message.timestamp,
+      timestamp: 0,
     };
   });
 }
 
-export function fromBackendMessages(messages: Message[]): AgentMessage[] {
-  return messages.map((message): AgentMessage => {
+function mutableClone<T>(value: unknown): T {
+  return structuredClone(value) as T;
+}
+
+export function fromBackendContextMessages(messages: Message[]): ModelContextMessage[] {
+  return messages.map((message): ModelContextMessage => {
     if (message.role === "user") {
       return {
         role: "user",
         content:
-          typeof message.content === "string"
-            ? message.content
-            : message.content.map((content) => ({ ...content })),
-        timestamp: message.timestamp,
+          typeof message.content === "string" ? message.content : mutableClone(message.content),
       };
     }
     if (message.role === "toolResult") {
@@ -87,36 +93,52 @@ export function fromBackendMessages(messages: Message[]): AgentMessage[] {
         role: "toolResult",
         toolCallId: message.toolCallId,
         toolName: message.toolName,
-        content: message.content.map((content) => ({ ...content })),
-        details: message.details,
-        usage: message.usage && {
-          input: message.usage.input,
-          output: message.usage.output,
-          cacheRead: message.usage.cacheRead,
-          cacheWrite: message.usage.cacheWrite,
-          reasoning: message.usage.reasoning,
-          totalTokens: message.usage.totalTokens,
-          cost: { ...message.usage.cost },
-        },
-        addedToolNames: message.addedToolNames,
+        content: mutableClone(message.content),
+        addedToolNames: message.addedToolNames && [...message.addedToolNames],
         isError: message.isError,
-        timestamp: message.timestamp,
       };
     }
-    return fromBackendMessage(message);
+    return {
+      role: "assistant",
+      content: mutableClone(message.content),
+      api: message.api,
+      provider: message.provider,
+      model: message.model,
+      responseModel: message.responseModel,
+      stopReason: message.stopReason,
+      deferred: mutableClone(message.deferred),
+      rawStopReason: message.rawStopReason,
+    };
   });
 }
 
-export function toBackendAssistantMessage(message: AssistantAgentMessage): AssistantMessage {
-  const converted = toBackendMessages([message])[0];
-  if (converted.role !== "assistant") throw new Error("Expected an assistant message");
-  return converted;
-}
-
-export function fromBackendMessage(message: AssistantMessage): AssistantAgentMessage {
+export function toBackendAssistantMessage(message: AssistantTranscriptMessage): AssistantMessage {
   return {
     role: "assistant",
-    content: message.content.map((content) => ({ ...content })),
+    content: mutableClone(message.content),
+    api: message.api as Api,
+    provider: message.provider,
+    model: message.model,
+    responseModel: message.responseModel,
+    responseId: message.responseId,
+    diagnostics: message.diagnostics?.map((diagnostic) => ({
+      ...diagnostic,
+      error: diagnostic.error && { ...diagnostic.error },
+      details: mutableClone(diagnostic.details),
+    })),
+    usage: toBackendUsage(message.usage),
+    stopReason: message.stopReason,
+    deferred: mutableClone(message.deferred),
+    errorMessage: message.errorMessage,
+    rawStopReason: message.rawStopReason,
+    timestamp: message.timestamp,
+  };
+}
+
+export function fromBackendMessage(message: AssistantMessage): AssistantTranscriptMessage {
+  return {
+    role: "assistant",
+    content: mutableClone(message.content),
     api: message.api,
     provider: message.provider,
     model: message.model,
@@ -125,7 +147,7 @@ export function fromBackendMessage(message: AssistantMessage): AssistantAgentMes
     diagnostics: message.diagnostics?.map((diagnostic) => ({
       ...diagnostic,
       error: diagnostic.error && { ...diagnostic.error },
-      details: diagnostic.details && { ...diagnostic.details },
+      details: mutableClone(diagnostic.details),
     })),
     usage: {
       input: message.usage.input,
@@ -137,7 +159,7 @@ export function fromBackendMessage(message: AssistantMessage): AssistantAgentMes
       cost: { ...message.usage.cost },
     },
     stopReason: message.stopReason,
-    deferred: message.deferred && { ...message.deferred },
+    deferred: mutableClone(message.deferred),
     errorMessage: message.errorMessage,
     rawStopReason: message.rawStopReason,
     timestamp: message.timestamp,
@@ -149,7 +171,7 @@ function toBackendTools(tools: ModelRequest["tools"]): Tool[] | undefined {
   return tools.map((tool) => ({
     name: tool.name,
     description: tool.description,
-    parameters: tool.schema as TSchema,
+    parameters: mutableClone<TSchema>(tool.schema),
   }));
 }
 

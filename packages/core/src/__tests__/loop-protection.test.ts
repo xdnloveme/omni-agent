@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { ToolCallContent } from "../models/messages";
+import type { ToolCallContent } from "../messages";
 import { createLoopProtection } from "../loop-protection";
 import { buildToolResultSignature, stableStringify } from "../loop-protection/signatures";
 import { RuntimePromptComposer, type RuntimePromptSection } from "../system-prompt";

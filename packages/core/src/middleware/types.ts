@@ -1,10 +1,10 @@
-import type { AgentMessage } from "../models/messages";
-import type { AgentConfig, ToolResult } from "../types";
+import type { DeepReadonly } from "../data";
+import type { ModelCallCompletedContext } from "../context";
+import type { ToolResult } from "../types";
 import type { AuthorizedExecutionContext } from "../execution";
 
 export interface RunMiddleware {
-  beforeModel?(config: AgentConfig, messages: readonly AgentMessage[]): void | Promise<void>;
-  afterModel?(config: AgentConfig, messages: readonly AgentMessage[]): void | Promise<void>;
+  afterModel?(context: DeepReadonly<ModelCallCompletedContext>): void | Promise<void>;
 }
 
 export interface ToolExecutionMiddleware {

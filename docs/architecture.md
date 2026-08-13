@@ -27,7 +27,7 @@ domain-neutral tools may be promoted to `packages/tools`.
 
 ## Models and providers
 
-Core exposes only the stable `ModelRuntimePort`, `AgentMessage`, and `ModelEvent`
+Core exposes only the stable `ModelRuntimePort`, `ModelContextMessage`, and `ModelEvent`
 contracts. `packages/models` owns the application-scoped provider collection,
 provider construction, authentication persistence, and protocol conversion at the
 runtime boundary. The concrete backend library is an implementation detail.
@@ -94,10 +94,13 @@ The extension manager validates all contributions before committing them and
 rolls back tools, agents, and commands when activation fails.
 Provider contributions participate in the same transaction and are removed and
 disposed in reverse registration order when activation fails.
-Middleware contributions are stored by the extension manager. Model middleware is
-orchestrated by the Agent loop; tool execution middleware is invoked by
-`ToolInvocationRunner` only after authorization. Unregistering an extension removes
-the same middleware instances from the live application.
+Middleware contributions are stored by the extension manager in two independent
+registries. Context middleware transforms only a detached `ContextDraft`; lifecycle
+middleware observes a detached completed model call or wraps authorized tool execution.
+`ToolInvocationRunner` invokes tool middleware only after authorization. Unregistering
+an extension removes both middleware kinds in reverse registration order. The removed
+`beforeModel(config, messages)` hook has no compatibility execution path; extensions
+must migrate it to `contextMiddleware.transform`.
 
 Each installed Agent exports an `AgentBlueprint`. The application-scoped
 `AgentFactory` is the only assembly entry point: it validates the blueprint,
@@ -160,6 +163,90 @@ on startup and creates a Session only when the directory is empty or `/new` is
 requested. Model providers, catalogs, and credentials remain shared
 infrastructure; model selection may be overridden per Agent. Prompts, tools,
 capabilities, Runner, Session, and mutable runtime state remain instance-local.
+
+## Context engineering and data ownership
+
+Model context is an ephemeral projection, not the Session transcript. The runtime has
+three explicit ownership layers:
+
+```text
+SessionTranscriptSnapshot
+  -> WorkingConversation
+  -> Agent Context Input Adapter
+  -> ContextConversationSource
+  -> detached ContextDraft
+  -> Context middleware
+  -> Context strategy
+  -> Context assembly
+  -> ModelContextMessage
+  -> PreparedModelContext
+  -> ModelRuntimePort
+```
+
+`AgentSessionRepository` owns persisted `TranscriptMessage` state. It copies messages on append,
+returns a detached snapshot, and maintains a process-local revision for the active
+Session. `WorkingConversation` owns one Agent run, including assistant and tool-result
+messages that will be persisted when the run terminates. It has no Repository, context,
+or model dependency.
+
+Transcript and model messages are distinct semantic contracts. `TranscriptMessage`
+retains timestamps, usage, diagnostics, response IDs, errors, deferred state, tool-result
+details, and routing metadata. `ModelContextMessage` contains only model-visible content,
+tool-call pairing, and the routing fields needed for continuing an assistant response.
+The system prompt remains a separate request field and is never represented as a
+transcript message.
+
+The only Agent-to-Context boundary is `agent/contextInput.ts`. It copies a
+`WorkingConversationSnapshot` into a Context-owned `ContextConversationSource` and
+projects executable `RegisteredAgentTool` values into pure `ModelToolSpec` definitions.
+Consequently the Context Engine's public request does not reference Working Conversation
+or executable tools.
+
+The Context module is contained under `packages/core/src/context`:
+
+```text
+contracts <- strategies
+contracts <- assembly
+contracts, strategies, assembly <- runtime
+```
+
+The contract dependency direction is strictly one-way:
+
+```text
+data -> messages -> model contracts -> context -> agent -> app composition
+```
+
+Contracts do not depend on the other Context layers. Strategies and assembly do not
+depend on each other. The engine only orchestrates the stages and never loads or saves a
+Session or calls a model. `FullHistoryContextStrategy` is the default and preserves all
+messages without token budgeting, compression, selection, retrieval, or summarization.
+An Agent may replace it through its Context capability.
+
+Every ownership boundary copies arrays, message objects, content blocks, tool arguments,
+diagnostic data, tool-result details, and model-visible schemas. TypeScript
+`DeepReadonly` prevents accidental mutation in extension contracts, while runtime copies
+provide the actual isolation. Immutable scalar and image-data strings may be shared.
+
+Executable `RegisteredAgentTool` values remain in the tool-call path. The Agent adapter
+projects them to `ModelToolSpec`, which contains only name, description, schema, and
+strictness before Context preparation begins. `PreparedModelContext` and `ModelRequest` therefore cannot expose tool
+execution, authorization, timeout, or host policy to a Provider.
+
+Assembly owns the single `TranscriptMessage` to `ModelContextMessage` projection and
+creates a snapshot
+manifest for each successful model call. The manifest records identities, strategy and
+middleware versions, message counts, decisions, and stable SHA-256 digests; it contains
+no message text. A `model_context_prepared` event exposes the manifest to optional stream
+observers without adding it to the Session or accumulated conversation output. Manifests
+are not persisted.
+
+`ModelRuntimePort` receives only `ModelContextMessage` and `ModelToolSpec`. The Provider
+mapper creates a new backend Context, deep-copies content, arguments, deferred state, and
+schemas, and adds backend-library transport placeholders such as `timestamp: 0` and zero
+usage. Those placeholders do not leak back into the model-domain message contract.
+
+See [`docs/context-engineering.md`](context-engineering.md) for extension contracts and
+the lifecycle migration.
 
 Core composes model prompts in three layers: the Agent-owned base prompt, stable
 runtime-owned policy sections, and one-shot runtime guidance. The runtime composer never

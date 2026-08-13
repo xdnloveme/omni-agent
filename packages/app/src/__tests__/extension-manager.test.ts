@@ -48,7 +48,7 @@ describe("ExtensionManager", () => {
   it("removes all contributions when an extension is unregistered", async () => {
     const manager = new ExtensionManager({ cwd: process.cwd() });
     const removable = extension("removable");
-    const middleware = { beforeModel() {} };
+    const middleware = { afterModel() {} };
     removable.contributions.middleware = [middleware];
     await manager.register(removable);
     expect(manager.middleware).toEqual([middleware]);
@@ -57,6 +57,16 @@ describe("ExtensionManager", () => {
     expect(manager.tools.has("removable_tool")).toBe(false);
     expect(manager.list()).toEqual([]);
     expect(manager.middleware).toEqual([]);
+  });
+
+  it("rejects removed beforeModel middleware with a migration error", async () => {
+    const manager = new ExtensionManager({ cwd: process.cwd() });
+    const legacy = extension("legacy-model-middleware");
+    legacy.contributions.middleware = [{ beforeModel() {} } as never];
+
+    await expect(manager.register(legacy)).rejects.toThrow(
+      "migrate it to contextMiddleware.transform",
+    );
   });
 
   it("rolls back all contributions when activation fails", async () => {
@@ -69,6 +79,44 @@ describe("ExtensionManager", () => {
     expect(manager.agents.has("broken_agent")).toBe(false);
     expect(manager.tools.has("broken_tool")).toBe(false);
     expect(manager.middleware).toEqual([]);
+  });
+
+  it("keeps context middleware ordered and rolls it back atomically", async () => {
+    const manager = new ExtensionManager({ cwd: process.cwd() });
+    const broken = extension("broken-context", () => {
+      throw new Error("activation failed");
+    });
+    const first = {
+      name: "first",
+      version: 1,
+      transform(draft: never) {
+        return draft;
+      },
+    };
+    const second = { ...first, name: "second" };
+    broken.contributions.contextMiddleware = [first, second];
+
+    await expect(manager.register(broken)).rejects.toThrow("activation failed");
+    expect(manager.contextMiddleware).toEqual([]);
+  });
+
+  it("removes context middleware in extension disposal order", async () => {
+    const manager = new ExtensionManager({ cwd: process.cwd() });
+    const contribution = extension("context-owner");
+    const first = {
+      name: "first",
+      version: 1,
+      transform(draft: never) {
+        return draft;
+      },
+    };
+    const second = { ...first, name: "second" };
+    contribution.contributions.contextMiddleware = [first, second];
+
+    await manager.register(contribution);
+    expect(manager.contextMiddleware).toEqual([first, second]);
+    await manager.unregister("context-owner");
+    expect(manager.contextMiddleware).toEqual([]);
   });
 
   it("keeps the activation error when extension cleanup also fails", async () => {

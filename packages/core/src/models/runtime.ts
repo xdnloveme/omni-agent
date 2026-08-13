@@ -1,8 +1,12 @@
-import type { RegisteredAgentTool } from "../types";
-import type { AgentMessage, AssistantAgentMessage } from "./messages";
+import type { DeepReadonly, JsonValue } from "../data";
+import type { AssistantTranscriptMessage, ModelContextMessage } from "../messages";
 
-export type JsonValue =
-  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
+export interface ModelToolSpec {
+  readonly name: string;
+  readonly description: string;
+  readonly schema: DeepReadonly<Record<string, unknown>>;
+  readonly strict?: boolean;
+}
 
 export interface RuntimeModelSelection {
   vendorId: string;
@@ -18,9 +22,9 @@ export interface RuntimeModelSelection {
 }
 
 export interface ModelRequest {
-  systemPrompt: string;
-  messages: AgentMessage[];
-  tools?: RegisteredAgentTool[];
+  readonly systemPrompt: string;
+  readonly messages: readonly DeepReadonly<ModelContextMessage>[];
+  readonly tools?: readonly ModelToolSpec[];
 }
 
 export interface ModelRequestOptions {
@@ -32,8 +36,8 @@ export interface ModelRequestOptions {
 
 export type ModelEvent =
   | { type: "text_delta"; delta: string }
-  | { type: "done"; message: AssistantAgentMessage }
-  | { type: "error"; error: AssistantAgentMessage };
+  | { type: "done"; message: AssistantTranscriptMessage }
+  | { type: "error"; error: AssistantTranscriptMessage };
 
 export interface ModelRuntimePort {
   stream(

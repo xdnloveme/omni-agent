@@ -2,6 +2,7 @@ import type {
   AgentDefinition,
   AgentToolDefinition,
   Command,
+  ContextMiddlewarePort,
   RuntimeMiddleware,
 } from "@omni-agent/core";
 import type { VendorPlugin } from "@omni-agent/models";
@@ -21,6 +22,7 @@ export interface AgentExtensionContributions {
   tools?: AgentToolDefinition[];
   commands?: Command[];
   middleware?: RuntimeMiddleware[];
+  contextMiddleware?: ContextMiddlewarePort[];
   providers?: VendorPlugin[];
 }
 

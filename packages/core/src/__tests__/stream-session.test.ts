@@ -10,6 +10,7 @@ describe("StreamSession", () => {
   beforeEach(() => {
     callbacks = {
       onTextChunk: vi.fn(),
+      onModelContextPrepared: vi.fn(),
       onToolStart: vi.fn(),
       onToolEnd: vi.fn(),
       onExtensionEvent: vi.fn(),
@@ -56,6 +57,34 @@ describe("StreamSession", () => {
       expect(msgs).toHaveLength(1);
       expect(msgs[0].type).toBe("text");
       expect(msgs[0].content).toBe("Hi");
+    });
+  });
+
+  describe("model context events", () => {
+    it("notifies observers without accumulating a conversation message", () => {
+      const manifest = {
+        snapshotId: "snapshot",
+        modelCallId: "call",
+        agentId: "coding",
+        sessionId: "session",
+        sessionRevision: 1,
+        strategy: { name: "full_history", version: 1 },
+        middleware: [],
+        sourceMessageCount: 1,
+        outputMessageCount: 1,
+        sourceDigest: "source",
+        outputDigest: "output",
+        systemPromptDigest: "system",
+        toolsetDigest: "tools",
+        decisions: [{ type: "preserve_all" }],
+        createdAt: 1,
+      };
+
+      session.handle({ type: "model_context_prepared", manifest });
+
+      expect(callbacks.onModelContextPrepared).toHaveBeenCalledWith(manifest);
+      expect(session.getAccumulatedMessages()).toEqual([]);
+      expect(session.state).toBe("idle");
     });
   });
 

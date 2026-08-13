@@ -3,7 +3,10 @@ import {
   type AssistantMessage,
   type ProviderStreams,
 } from "@earendil-works/pi-ai";
-import { fromBackendMessages, toBackendAssistantMessage } from "../../runtime/message-mapper";
+import {
+  fromBackendContextMessages,
+  toBackendAssistantMessage,
+} from "../../runtime/message-mapper";
 import type { ModelTransport, ModelTransportModel } from "./types";
 
 function initialMessage(model: ModelTransportModel): AssistantMessage {
@@ -52,7 +55,7 @@ export function createTransportStreams(transport: ModelTransport): ProviderStrea
           transportModel,
           {
             systemPrompt: context.systemPrompt,
-            messages: fromBackendMessages(context.messages),
+            messages: fromBackendContextMessages(context.messages),
             tools: (context.tools ?? []).map((tool) => ({
               name: tool.name,
               description: tool.description,

@@ -1,0 +1,76 @@
+import { throwIfAborted } from "../../execution";
+import type {
+  ContextEnginePort,
+  ContextPreparationRequest,
+  ContextStrategyPort,
+} from "../contracts/ports";
+import type {
+  ContextComponentManifest,
+  ContextDraft,
+  PreparedModelContext,
+} from "../contracts/types";
+import { ContextAssembler, assertContextDraft } from "../assembly/assembler";
+import { cloneContextDraft, createContextDraft } from "../assembly/draft";
+
+export class DefaultContextEngine implements ContextEnginePort {
+  private readonly assembler = new ContextAssembler();
+
+  constructor(private readonly strategy: ContextStrategyPort) {}
+
+  async prepare(request: ContextPreparationRequest): Promise<PreparedModelContext> {
+    throwIfAborted(request.signal);
+    assertComponent(this.strategy, "Context strategy");
+    if (typeof this.strategy.apply !== "function") {
+      throw new Error(`Context strategy apply is required: ${this.strategy.name}`);
+    }
+    let current = createContextDraft(request);
+    const middlewareManifest: ContextComponentManifest[] = [];
+    const options = {
+      agentId: request.identity.agentId,
+      sessionId: request.identity.sessionId,
+      modelCallId: request.identity.modelCallId,
+      signal: request.signal,
+    };
+
+    for (const middleware of request.middleware) {
+      throwIfAborted(request.signal);
+      assertComponent(middleware, "Context middleware");
+      if (typeof middleware.transform !== "function") {
+        throw new Error(`Context middleware transform is required: ${middleware.name}`);
+      }
+      const input = cloneContextDraft(current);
+      const output = await middleware.transform(input, options);
+      if (output === input) {
+        throw new Error(`Context middleware must return a new draft: ${middleware.name}`);
+      }
+      assertContextDraft(output);
+      current = cloneContextDraft(output);
+      middlewareManifest.push({ name: middleware.name, version: middleware.version });
+    }
+
+    throwIfAborted(request.signal);
+    const strategyInput: ContextDraft = cloneContextDraft(current);
+    const result = await this.strategy.apply(strategyInput, options);
+    throwIfAborted(request.signal);
+
+    return this.assembler.assemble({
+      identity: request.identity,
+      transformedDraft: current,
+      result,
+      strategy: { name: this.strategy.name, version: this.strategy.version },
+      middleware: middlewareManifest,
+    });
+  }
+}
+
+function assertComponent(
+  component: { readonly name: string; readonly version: number },
+  label: string,
+): void {
+  if (typeof component.name !== "string" || !component.name.trim()) {
+    throw new Error(`${label} name is required`);
+  }
+  if (!Number.isInteger(component.version) || component.version < 1) {
+    throw new Error(`${label} version must be a positive integer: ${component.name}`);
+  }
+}

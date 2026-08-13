@@ -1,11 +1,10 @@
-import type { AgentMessage, AssistantAgentMessage } from "../models/messages";
-import type { SessionMessage } from "./types";
+import type { TranscriptMessage, AssistantTranscriptMessage } from "../messages";
 
 /**
- * Create a user message in the stable agent message format.
+ * Create a user message in the stable transcript wire format.
  */
-export function createUserMessage(content: string): SessionMessage {
-  const msg: AgentMessage = {
+export function createUserMessage(content: string): TranscriptMessage {
+  const msg: TranscriptMessage = {
     role: "user",
     content,
     timestamp: Date.now(),
@@ -16,7 +15,9 @@ export function createUserMessage(content: string): SessionMessage {
 /**
  * Store a normalized assistant message without changing its wire representation.
  */
-export function createAssistantMessage(assistantMessage: AssistantAgentMessage): SessionMessage {
+export function createAssistantMessage(
+  assistantMessage: AssistantTranscriptMessage,
+): TranscriptMessage {
   return assistantMessage;
 }
 
@@ -28,8 +29,8 @@ export function createToolResultMessage(
   toolName: string,
   content: Array<{ type: "text"; text: string }>,
   isError: boolean,
-): SessionMessage {
-  const msg: AgentMessage = {
+): TranscriptMessage {
+  const msg: TranscriptMessage = {
     role: "toolResult",
     toolCallId,
     toolName,

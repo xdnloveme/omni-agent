@@ -1,29 +1,12 @@
-export interface TextContent {
-  type: "text";
-  text: string;
-  textSignature?: string;
-}
+import type { DeepReadonly, JsonValue } from "../data";
+import { cloneData } from "../dataCopy";
+import type { ImageContent, TextContent, ThinkingContent, ToolCallContent } from "./content";
 
-export interface ThinkingContent {
-  type: "thinking";
-  thinking: string;
-  thinkingSignature?: string;
-  redacted?: boolean;
-}
-
-export interface ImageContent {
-  type: "image";
-  data: string;
-  mimeType: string;
-}
-
-export interface ToolCallContent {
-  type: "toolCall";
-  id: string;
-  name: string;
-  arguments: Record<string, unknown>;
-  thoughtSignature?: string;
-}
+export const MessageRole = {
+  User: "user",
+  Assistant: "assistant",
+  ToolResult: "toolResult",
+} as const;
 
 export interface ModelUsage {
   input: number;
@@ -60,16 +43,16 @@ export interface DeferredModelResponse {
   id: string;
   expiresAt?: number;
   pollAfterMs?: number;
-  data?: import("./runtime").JsonValue;
+  data?: JsonValue;
 }
 
-export interface UserAgentMessage {
+export interface UserTranscriptMessage {
   role: "user";
   content: string | Array<TextContent | ImageContent>;
   timestamp: number;
 }
 
-export interface AssistantAgentMessage {
+export interface AssistantTranscriptMessage {
   role: "assistant";
   content: Array<TextContent | ThinkingContent | ToolCallContent>;
   api: string;
@@ -86,7 +69,7 @@ export interface AssistantAgentMessage {
   rawStopReason?: string;
 }
 
-export interface ToolResultAgentMessage {
+export interface ToolResultTranscriptMessage {
   role: "toolResult";
   toolCallId: string;
   toolName: string;
@@ -98,4 +81,15 @@ export interface ToolResultAgentMessage {
   timestamp: number;
 }
 
-export type AgentMessage = UserAgentMessage | AssistantAgentMessage | ToolResultAgentMessage;
+export type TranscriptMessage =
+  UserTranscriptMessage | AssistantTranscriptMessage | ToolResultTranscriptMessage;
+
+export function cloneTranscriptMessage<T extends TranscriptMessage>(message: DeepReadonly<T>): T {
+  return cloneData(message) as T;
+}
+
+export function cloneTranscriptMessages(
+  messages: readonly DeepReadonly<TranscriptMessage>[],
+): TranscriptMessage[] {
+  return messages.map((message) => cloneTranscriptMessage(message));
+}

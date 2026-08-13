@@ -1,5 +1,5 @@
 import type { StoredCredential } from "../../credentials/types";
-import type { AgentMessage, ModelEvent } from "@omni-agent/core";
+import type { ModelContextMessage, ModelEvent } from "@omni-agent/core";
 
 export interface CompatibleModelDefinition {
   readonly id: string;
@@ -33,7 +33,7 @@ export interface ModelTransportModel {
 
 export interface ModelTransportRequest {
   readonly systemPrompt?: string;
-  readonly messages: readonly AgentMessage[];
+  readonly messages: readonly ModelContextMessage[];
   readonly tools: readonly {
     readonly name: string;
     readonly description: string;

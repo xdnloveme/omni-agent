@@ -35,6 +35,9 @@ export class StreamSession {
       case "text_delta":
         this.handleTextDelta(event.delta);
         break;
+      case "model_context_prepared":
+        this._callbacks.onModelContextPrepared?.(event.manifest);
+        break;
       case "tool_use_start":
         this.handleToolStart(event.toolName, event.toolCallId, event.input);
         break;
