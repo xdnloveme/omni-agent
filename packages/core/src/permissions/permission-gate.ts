@@ -19,8 +19,8 @@ import type {
 } from "./types";
 import {
   createToolRoutineApprovalScope,
+  isPersistentApprovalReference,
   isPersistentApprovalScope,
-  isPersistentApprovalScopeKey,
 } from "./persistent-approval";
 
 export type PermissionControlledTool = RegisteredAgentTool & {
@@ -94,19 +94,17 @@ export class PermissionGate {
       return this.resolveAllowed(request, candidateCall, assessment, "policy", startedAt);
     }
     const requiredApprovals = resolvePersistentApprovals(request.tool.name, assessment, decision);
-    const candidateKeys = [
-      ...new Set(requiredApprovals.flatMap((requirement) => requirement.satisfiedBy)),
-    ];
+    const candidates = uniqueGrantCandidates(requiredApprovals);
     const grantedKeys = requiredApprovals.length
       ? await this.options.grants.getGrantedScopeKeys(
           request.context.agentId,
           request.context.toolIdentity,
-          candidateKeys,
+          candidates,
         )
       : [];
     const granted = new Set(grantedKeys);
     const missingApprovals = requiredApprovals.filter((requirement) =>
-      requirement.satisfiedBy.every((key) => !granted.has(key)),
+      requirement.satisfiedBy.every(({ key }) => !granted.has(key)),
     );
     if (requiredApprovals.length > 0 && missingApprovals.length === 0) {
       return this.resolveAllowed(
@@ -257,6 +255,18 @@ export class PermissionGate {
   }
 }
 
+function uniqueGrantCandidates(
+  requirements: readonly PersistentApprovalRequirement[],
+): Array<{ key: string; kind: PersistentApprovalScope["kind"] }> {
+  return [
+    ...new Map(
+      requirements.flatMap(({ satisfiedBy }) =>
+        satisfiedBy.map((reference) => [`${reference.kind}\0${reference.key}`, reference] as const),
+      ),
+    ).values(),
+  ];
+}
+
 const PERMISSION_RISKS = new Set([
   "read",
   "write",
@@ -327,7 +337,7 @@ function resolvePersistentApprovals(
 }
 
 function requirement(approval: PersistentApprovalScope): PersistentApprovalRequirement {
-  return { approval, satisfiedBy: [approval.key] };
+  return { approval, satisfiedBy: [{ key: approval.key, kind: approval.kind }] };
 }
 
 function assertPersistentApprovalRequirement(value: PersistentApprovalRequirement): void {
@@ -338,8 +348,9 @@ function assertPersistentApprovalRequirement(value: PersistentApprovalRequiremen
   if (
     !Array.isArray(value.satisfiedBy) ||
     value.satisfiedBy.length === 0 ||
-    new Set(value.satisfiedBy).size !== value.satisfiedBy.length ||
-    !value.satisfiedBy.every(isPersistentApprovalScopeKey)
+    !value.satisfiedBy.every(isPersistentApprovalReference) ||
+    new Set(value.satisfiedBy.map(({ kind, key }) => `${kind}\0${key}`)).size !==
+      value.satisfiedBy.length
   ) {
     throw new Error("Persistent approval requirement satisfaction keys are invalid");
   }

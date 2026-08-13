@@ -63,28 +63,43 @@ describe("filesystem permission assessment", () => {
     directories.push(root);
     await fs.mkdir(workspace);
     await fs.mkdir(external);
+    await fs.mkdir(path.join(external, "nested"));
     const canonicalExternal = await fs.realpath(external);
 
     const ordinary = await assessFilePath(path.join(external, "review.diff"), workspace, "read");
+    const nested = await assessFilePath(
+      path.join(external, "nested", "review.diff"),
+      workspace,
+      "read",
+    );
     const sensitive = await assessFilePath(path.join(workspace, ".env"), workspace, "read");
 
     expect(ordinary.persistentApprovalRequirements?.[0]?.approval).toMatchObject({
       kind: "filesystem_read_directory",
       label: `Always allow reads under ${canonicalExternal}`,
     });
-    expect(ordinary.persistentApprovalRequirements?.[0]?.satisfiedBy).toContain(
-      ordinary.persistentApprovalRequirements?.[0]?.approval.key,
-    );
+    expect(ordinary.persistentApprovalRequirements?.[0]?.satisfiedBy).toContainEqual({
+      key: ordinary.persistentApprovalRequirements?.[0]?.approval.key,
+      kind: "filesystem_read_directory",
+    });
+    expect(nested.persistentApprovalRequirements?.[0]?.satisfiedBy).toContainEqual({
+      key: ordinary.persistentApprovalRequirements?.[0]?.approval.key,
+      kind: "filesystem_read_directory",
+    });
     expect(sensitive.persistentApprovalRequirements?.[0]?.approval).toMatchObject({
       kind: "filesystem_read_file",
       label: `Always allow reading ${path.join(await fs.realpath(workspace), ".env")}`,
     });
     expect(sensitive.persistentApprovalRequirements?.[0]?.satisfiedBy).toEqual([
-      sensitive.persistentApprovalRequirements?.[0]?.approval.key,
+      {
+        key: sensitive.persistentApprovalRequirements?.[0]?.approval.key,
+        kind: "filesystem_read_file",
+      },
     ]);
-    expect(sensitive.persistentApprovalRequirements?.[0]?.satisfiedBy).not.toContain(
-      ordinary.persistentApprovalRequirements?.[0]?.approval.key,
-    );
+    expect(sensitive.persistentApprovalRequirements?.[0]?.satisfiedBy).not.toContainEqual({
+      key: ordinary.persistentApprovalRequirements?.[0]?.approval.key,
+      kind: "filesystem_read_directory",
+    });
   });
 
   it("uses a separate directory scope for external writes", async () => {

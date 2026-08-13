@@ -29,9 +29,11 @@ export interface PersistentApprovalScope {
   label: string;
 }
 
+export type PersistentApprovalReference = Pick<PersistentApprovalScope, "key" | "kind">;
+
 export interface PersistentApprovalRequirement {
   approval: PersistentApprovalScope;
-  satisfiedBy: readonly string[];
+  satisfiedBy: readonly PersistentApprovalReference[];
 }
 
 export interface PermissionGrant {

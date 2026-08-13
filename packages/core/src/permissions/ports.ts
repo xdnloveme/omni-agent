@@ -2,6 +2,7 @@ import type {
   ApprovalRequest,
   ApprovalResponse,
   PermissionGrant,
+  PersistentApprovalReference,
   PermissionMode,
   PermissionPolicyContext,
   PermissionPolicyDecision,
@@ -24,7 +25,7 @@ export interface PermissionGrantStore {
   getGrantedScopeKeys(
     agentId: string,
     toolIdentity: string,
-    scopeKeys: readonly string[],
+    candidates: readonly PersistentApprovalReference[],
   ): Promise<readonly string[]>;
   saveGrants(agentId: string, grants: readonly PermissionGrant[]): Promise<void>;
 }

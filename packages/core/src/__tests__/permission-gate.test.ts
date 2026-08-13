@@ -137,7 +137,8 @@ describe("PermissionGate", () => {
   it("uses a stored grant only for an eligible routine decision", async () => {
     const broker = { request: vi.fn(async () => "deny" as const) };
     const getGrantedScopeKeys = vi.fn(
-      async (_agentId, _toolIdentity, scopeKeys: readonly string[]) => scopeKeys,
+      async (_agentId: string, _toolIdentity: string, candidates: readonly { key: string }[]) =>
+        candidates.map(({ key }) => key),
     );
     const storedGrants = {
       ...grants(),
@@ -155,7 +156,9 @@ describe("PermissionGate", () => {
         context: context(),
       }),
     ).resolves.toMatchObject({ outcome: "allowed", source: "automatic_approval" });
-    expect(getGrantedScopeKeys).toHaveBeenCalledWith("test", "test:test_tool", ["tool:routine"]);
+    expect(getGrantedScopeKeys).toHaveBeenCalledWith("test", "test:test_tool", [
+      { key: "tool:routine", kind: "tool_routine" },
+    ]);
     expect(broker.request).not.toHaveBeenCalled();
 
     const highRisk = new PermissionGate({
@@ -237,11 +240,14 @@ describe("PermissionGate", () => {
             persistentApprovalRequirements: [
               {
                 approval: {
-                  key: directoryKey,
+                  key: fileKey,
                   kind: "filesystem_read_directory",
                   label: "Always allow reads under /tmp/reviews",
                 },
-                satisfiedBy: [fileKey, directoryKey],
+                satisfiedBy: [
+                  { key: fileKey, kind: "filesystem_read_directory" },
+                  { key: directoryKey, kind: "filesystem_read_directory" },
+                ],
               },
             ],
             enforcement: "policy",
@@ -338,7 +344,7 @@ function executableAssessment(scopes: readonly { key: string; label: string }[])
     operationClass: "sensitive" as const,
     persistentApprovalRequirements: scopes.map(({ key, label }) => ({
       approval: { key, kind: "bash_executable" as const, label },
-      satisfiedBy: [key],
+      satisfiedBy: [{ key, kind: "bash_executable" as const }],
     })),
     enforcement: "policy" as const,
     reasons: ["unknown"],

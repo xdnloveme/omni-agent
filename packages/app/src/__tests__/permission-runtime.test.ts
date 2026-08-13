@@ -42,7 +42,7 @@ const context = (
       ? {
           persistentApprovalRequirements: persistentApprovalRequirements.map((approval) => ({
             approval,
-            satisfiedBy: [approval.key],
+            satisfiedBy: [{ key: approval.key, kind: approval.kind }],
           })),
         }
       : {}),
@@ -260,7 +260,10 @@ describe("permission runtime composition", () => {
           operationClass: "sensitive",
           persistentApprovalRequirements: scopes.map((approval) => ({
             approval,
-            satisfiedBy: [approval.key, "tool:routine"],
+            satisfiedBy: [
+              { key: approval.key, kind: approval.kind },
+              { key: "tool:routine", kind: "tool_routine" as const },
+            ],
           })),
           enforcement: "policy",
           reasons: ["unknown"],

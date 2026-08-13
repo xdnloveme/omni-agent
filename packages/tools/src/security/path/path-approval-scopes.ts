@@ -15,7 +15,13 @@ export function createPathReadDirectoryRequirement(
     directory,
     `Always allow reads under ${directory}`,
   );
-  return { approval, satisfiedBy: ancestorScopes(directory, "filesystem:read:directory") };
+  return {
+    approval,
+    satisfiedBy: ancestorScopes(directory, "filesystem:read:directory").map((key) => ({
+      key,
+      kind: approval.kind,
+    })),
+  };
 }
 
 export function createPathReadFileRequirement(file: string): PersistentApprovalRequirement {
@@ -25,7 +31,7 @@ export function createPathReadFileRequirement(file: string): PersistentApprovalR
     file,
     `Always allow reading ${file}`,
   );
-  return { approval, satisfiedBy: [approval.key] };
+  return { approval, satisfiedBy: [{ key: approval.key, kind: approval.kind }] };
 }
 
 export function createPathWriteDirectoryRequirement(
@@ -37,7 +43,13 @@ export function createPathWriteDirectoryRequirement(
     directory,
     `Always allow writes under ${directory}`,
   );
-  return { approval, satisfiedBy: ancestorScopes(directory, "filesystem:write:directory") };
+  return {
+    approval,
+    satisfiedBy: ancestorScopes(directory, "filesystem:write:directory").map((key) => ({
+      key,
+      kind: approval.kind,
+    })),
+  };
 }
 
 export function parentDirectory(target: string): string {

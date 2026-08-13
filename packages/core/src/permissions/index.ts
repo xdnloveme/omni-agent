@@ -5,7 +5,11 @@ export type {
   PermissionGateRequest,
   PermissionGateResult,
 } from "./permission-gate";
-export { createToolRoutineApprovalScope, isPersistentApprovalScope } from "./persistent-approval";
+export {
+  createToolRoutineApprovalScope,
+  isAgentScopedApprovalKind,
+  isPersistentApprovalScope,
+} from "./persistent-approval";
 export {
   formatSanitizedToolInput,
   sanitizePermissionLabel,
@@ -32,6 +36,7 @@ export type {
   PermissionPresentation,
   PersistentApprovalScope,
   PersistentApprovalRequirement,
+  PersistentApprovalReference,
   PersistentApprovalScopeKind,
   PermissionRequestedEvent,
   PermissionResolvedEvent,

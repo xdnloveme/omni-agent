@@ -33,10 +33,39 @@ describe("PermissionService", () => {
     await expect(service.getMode("coding")).resolves.toBe("standard");
     await service.saveGrants("coding", [grant]);
     await expect(
-      service.getGrantedScopeKeys("coding", grant.toolIdentity, [grant.scopeKey]),
+      service.getGrantedScopeKeys("coding", grant.toolIdentity, [
+        { key: grant.scopeKey, kind: grant.scopeKind },
+      ]),
     ).resolves.toEqual([grant.scopeKey]);
     await expect(
-      service.getGrantedScopeKeys("other", grant.toolIdentity, [grant.scopeKey]),
+      service.getGrantedScopeKeys("other", grant.toolIdentity, [
+        { key: grant.scopeKey, kind: grant.scopeKind },
+      ]),
+    ).resolves.toEqual([]);
+  });
+
+  it("shares recursive filesystem capabilities across tools but not access modes", async () => {
+    const { service } = await fixture();
+    const directoryKey = `filesystem:read:directory:${"a".repeat(64)}`;
+    await service.saveGrants("coding", [
+      {
+        toolIdentity: "builtin-coding:glob",
+        toolName: "glob",
+        scopeKey: directoryKey,
+        scopeKind: "filesystem_read_directory",
+        label: "Always allow reads under /A",
+      },
+    ]);
+
+    await expect(
+      service.getGrantedScopeKeys("coding", "builtin-coding:file_read", [
+        { key: directoryKey, kind: "filesystem_read_directory" },
+      ]),
+    ).resolves.toEqual([directoryKey]);
+    await expect(
+      service.getGrantedScopeKeys("coding", "builtin-coding:file_edit", [
+        { key: directoryKey, kind: "filesystem_write_directory" },
+      ]),
     ).resolves.toEqual([]);
   });
 

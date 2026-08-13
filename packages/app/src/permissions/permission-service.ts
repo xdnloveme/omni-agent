@@ -1,7 +1,9 @@
 import { createHash } from "node:crypto";
 import {
   isAgentId,
+  isAgentScopedApprovalKind,
   type PermissionGrant,
+  type PersistentApprovalReference,
   type PermissionGrantStore,
   type PermissionMode,
 } from "@omni-agent/core";
@@ -40,11 +42,16 @@ export class PermissionService implements PermissionGrantStore {
   async getGrantedScopeKeys(
     agentId: string,
     toolIdentity: string,
-    scopeKeys: readonly string[],
+    candidates: readonly PersistentApprovalReference[],
   ): Promise<readonly string[]> {
-    const requested = new Set(scopeKeys);
+    const requested = new Set(candidates.map(({ key, kind }) => grantScopeIdentity(kind, key)));
     return (await this.readAgent(agentId)).persistentApprovals
-      .filter((grant) => grant.toolIdentity === toolIdentity && requested.has(grant.scopeKey))
+      .filter((grant) => {
+        return (
+          requested.has(grantScopeIdentity(grant.scopeKind, grant.scopeKey)) &&
+          (isAgentScopedApprovalKind(grant.scopeKind) || grant.toolIdentity === toolIdentity)
+        );
+      })
       .map((grant) => grant.scopeKey);
   }
 
@@ -54,17 +61,11 @@ export class PermissionService implements PermissionGrantStore {
       throw new Error("Invalid persistent approval grants");
     }
     const uniqueGrants = [
-      ...new Map(
-        grants.map((grant) => [`${grant.toolIdentity}\0${grant.scopeKey}`, grant] as const),
-      ).values(),
+      ...new Map(grants.map((grant) => [grantIdentity(grant), grant] as const)).values(),
     ];
     await this.updateAgent(agentId, (current) => {
-      const existing = new Set(
-        current.persistentApprovals.map((entry) => `${entry.toolIdentity}\0${entry.scopeKey}`),
-      );
-      const additions = uniqueGrants.filter(
-        (grant) => !existing.has(`${grant.toolIdentity}\0${grant.scopeKey}`),
-      );
+      const existing = new Set(current.persistentApprovals.map(grantIdentity));
+      const additions = uniqueGrants.filter((grant) => !existing.has(grantIdentity(grant)));
       if (!additions.length) return current;
       return {
         ...current,
@@ -133,9 +134,17 @@ export class PermissionService implements PermissionGrantStore {
 }
 
 function grantId(grant: PermissionGrant): string {
-  return createHash("sha256")
-    .update(`${grant.toolIdentity}\0${grant.scopeKey}`)
-    .digest("base64url");
+  return createHash("sha256").update(grantIdentity(grant)).digest("base64url");
+}
+
+function grantIdentity(grant: PermissionGrant): string {
+  return isAgentScopedApprovalKind(grant.scopeKind)
+    ? `agent\0${grant.scopeKind}\0${grant.scopeKey}`
+    : `tool\0${grant.toolIdentity}\0${grant.scopeKey}`;
+}
+
+function grantScopeIdentity(kind: PermissionGrant["scopeKind"], scopeKey: string): string {
+  return `${kind}\0${scopeKey}`;
 }
 
 function assertAgentId(agentId: string): void {
