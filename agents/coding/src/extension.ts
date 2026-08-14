@@ -1,6 +1,7 @@
 import type { AgentExtension } from "@omni-agent/app";
 import {
   createSkillsContributor,
+  composeStableSystemPrompt,
   defaultContributors,
   type SkillRuntime,
   type SystemPromptContributor,
@@ -23,10 +24,8 @@ export function createCodingExtension(
     createSkillsContributor(skillRuntime.registry),
   ];
   const buildSystemPrompt = async () => {
-    const sections = [CODING_SYSTEM_PROMPT.trim()];
     const dynamic = await Promise.all(contributors.map((contributor) => contributor(cwd)));
-    for (const section of dynamic) if (section) sections.push(section);
-    return sections.join("\n\n");
+    return composeStableSystemPrompt(CODING_SYSTEM_PROMPT, dynamic);
   };
   const tools = [...localCodingToolset, ...webResearchToolset, skillRuntime.tool()];
   return {

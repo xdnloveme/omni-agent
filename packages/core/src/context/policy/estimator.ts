@@ -2,7 +2,7 @@ import type { DeepReadonly } from "../../data";
 import type { ContextEntry, ContextFrame, ContextTokenEstimate } from "../contracts/types";
 import type { ContextTokenEstimatorPort } from "../contracts/ports";
 import { serializeContextValue } from "../digest";
-import { estimateContextTextTokens } from "../tokenEstimate";
+import { estimateContextTextTokens } from "../../tokenEstimate";
 
 const MESSAGE_OVERHEAD_TOKENS = 4;
 const CONTENT_BLOCK_OVERHEAD_TOKENS = 2;

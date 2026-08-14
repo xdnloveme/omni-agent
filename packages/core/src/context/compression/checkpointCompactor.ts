@@ -13,7 +13,7 @@ import type {
   ContextTokenEstimate,
 } from "../contracts/types";
 import { digestContextValue } from "../digest";
-import { estimateContextTextTokens } from "../tokenEstimate";
+import { estimateContextTextTokens } from "../../tokenEstimate";
 import { DEFAULT_CONTEXT_COMPRESSION_BUDGET } from "./budget";
 import { toCheckpointEntry } from "./checkpointEntry";
 import type { ContextSummaryGeneratorPort, ContextSummaryRequest } from "./contracts";

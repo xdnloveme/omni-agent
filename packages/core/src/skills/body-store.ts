@@ -3,6 +3,8 @@ import { parseSkillMarkdown } from "./frontmatter";
 import { renderLoadedSkill } from "./prompt";
 import type { LoadedSkill, SkillMetadata, SkillReadResult } from "./types";
 import { SkillReadStatus } from "./constants";
+import { assertPromptContributionBudget, PROMPT_CONTRIBUTION_BUDGETS } from "../promptBudget";
+import { estimateContextTextTokens } from "../tokenEstimate";
 
 interface CachedBody {
   filePath: string;
@@ -23,11 +25,16 @@ export class SkillBodyStore {
 
     const raw = await readFile(skill.filePath, "utf-8");
     const { body } = parseSkillMarkdown(raw);
+    assertPromptContributionBudget(
+      `skill body: ${skill.name}`,
+      body,
+      PROMPT_CONTRIBUTION_BUDGETS.skillBody,
+    );
     const loaded: LoadedSkill = {
       ...skill,
       body,
       loadedAt: Date.now(),
-      tokenEstimate: estimateTokens(body),
+      tokenEstimate: estimateContextTextTokens(body),
     };
     const result: SkillReadResult = {
       status: SkillReadStatus.Loaded,
@@ -48,8 +55,4 @@ export class SkillBodyStore {
 
 function createCacheKey(skill: Pick<SkillMetadata, "name" | "filePath">): string {
   return `${skill.name}\u0000${skill.filePath}`;
-}
-
-function estimateTokens(text: string): number {
-  return Math.max(1, Math.ceil(text.length / 4));
 }

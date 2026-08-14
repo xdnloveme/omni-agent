@@ -60,6 +60,7 @@ export const webSearchTool: AgentToolDefinition = {
     "Usage:\n" +
     "- Use when you need up-to-date information not available in the local codebase.\n" +
     "- Returns an array of results, each with `title`, `url`, and `snippet`.\n" +
+    "- When search results support an important conclusion, retain the supporting source URL in the answer so the claim remains auditable.\n" +
     "- No API key required — uses DuckDuckGo HTML search.\n" +
     "- Default returns 5 results; adjust with `max_results`.\n\n" +
     "When to use:\n" +

@@ -10,6 +10,7 @@ import { digestContextValue } from "../digest";
 import { encodeCheckpointPromptJson } from "../encoding";
 
 export const CHECKPOINT_PROMPT_VERSION = 2;
+export const CHECKPOINT_SOURCE_PROJECTION_VERSION = 1;
 
 export const CHECKPOINT_SUMMARY_HEADINGS = [
   "## Conversation Facts & Findings",
@@ -69,7 +70,7 @@ OUTPUT CONTRACT:
 - Do not output JSON, analysis, hidden reasoning, acknowledgements, preambles,
   tool calls, or additional XML-like wrapper tags.`;
 
-const CHECKPOINT_USER_TEMPLATE = `Create a continuation checkpoint from the historical context below.
+export const CHECKPOINT_USER_TEMPLATE = `Create a continuation checkpoint from the historical context below.
 
 Maximum output: {{MAX_OUTPUT_TOKENS}} tokens.
 

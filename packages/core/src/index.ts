@@ -217,6 +217,11 @@ export type {
 export { createSkillsContributor, defaultContributors } from "./system-prompt/index";
 export type { SystemPromptContributor } from "./system-prompt/index";
 export {
+  composeStableSystemPrompt,
+  PROMPT_CONTRIBUTION_BUDGETS,
+  PromptContributionBudgetError,
+} from "./system-prompt/index";
+export {
   SKILL_FILE_NAME,
   SKILL_TOOL_NAME,
   SKILL_DIR_NAMES,

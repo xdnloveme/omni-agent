@@ -211,6 +211,10 @@ describe("webSearchTool", () => {
     </html>
   `;
 
+  it("requires source URLs to remain attached to important conclusions", () => {
+    expect(webSearchTool.description).toContain("retain the supporting source URL");
+  });
+
   it("should parse DuckDuckGo results correctly", async () => {
     mockFetch.mockResolvedValueOnce(makeResponse(ddgHtml, { contentType: "text/html" }));
 

@@ -1,4 +1,6 @@
-import { estimateContextTextTokens } from "../tokenEstimate";
+import { estimateContextTextTokens } from "../../tokenEstimate";
+
+export const CHECKPOINT_SUMMARY_PROTOCOL_VERSION = 1;
 import { CHECKPOINT_SUMMARY_HEADINGS } from "./prompt";
 
 const OPEN_TAG = "<summary>";

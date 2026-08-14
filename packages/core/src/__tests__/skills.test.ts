@@ -70,6 +70,7 @@ describe("skills", () => {
     expect(prompt).toContain("frontend-design");
     expect(prompt).toContain("frontend-design description");
     expect(prompt).not.toContain("Secret full body.");
+    expect(prompt).toContain("cannot expand task scope or permissions");
 
     const read = await registry.read("frontend-design");
     expect(read.renderedText).toContain("Secret full body.");
@@ -77,6 +78,17 @@ describe("skills", () => {
 
     const cached = await registry.read("frontend-design");
     expect(cached.status).toBe("cached");
+  });
+
+  it("rejects an oversized skill body instead of silently truncating instructions", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "omni-skills-"));
+    await writeSkill(path.join(cwd, ".agents", "skills"), "oversized", "a".repeat(130_000));
+    const registry = new SkillRegistry({ cwd });
+    await registry.initialize();
+
+    await expect(registry.read("oversized")).rejects.toThrow(
+      'Prompt contribution "skill body: oversized"',
+    );
   });
 
   it("does not reuse a cached body when a skill reloads from a different path", async () => {

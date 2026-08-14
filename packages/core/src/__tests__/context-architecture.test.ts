@@ -186,14 +186,22 @@ describe("context architecture", () => {
     expect(
       sources.filter(({ source }) => /function\s+createCheckpointSourceEntries\s*\(/.test(source)),
     ).toHaveLength(1);
-    for (const functionName of [
-      "encodeCheckpointPromptJson",
-      "escapeContextMarkupText",
-      "escapeContextMarkupAttribute",
-      "validateCheckpointSummary",
-    ]) {
+    for (const functionName of ["encodeCheckpointPromptJson", "validateCheckpointSummary"]) {
       expect(
         sources.filter(({ source }) =>
+          new RegExp(`function\\s+${functionName}\\s*\\(`).test(source),
+        ),
+      ).toHaveLength(1);
+    }
+    const coreSources = await Promise.all(
+      (await sourceFiles(coreRoot)).map(async (file) => ({
+        file,
+        source: await readFile(file, "utf8"),
+      })),
+    );
+    for (const functionName of ["escapeMarkupText", "escapeMarkupAttribute"]) {
+      expect(
+        coreSources.filter(({ source }) =>
           new RegExp(`function\\s+${functionName}\\s*\\(`).test(source),
         ),
       ).toHaveLength(1);
