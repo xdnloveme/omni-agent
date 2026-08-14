@@ -81,9 +81,17 @@ than the former four-characters-per-token approximation. It remains an estimate 
 than a Provider tokenizer.
 
 ```text
-usable input = context window - maximum output tokens
+usable input = context window - requested output tokens
 usage ratio  = estimated input / usable input
 ```
+
+Model output capacity and per-call reservation are separate contracts. The catalog's
+`modelMaxOutputTokens` describes the model capability ceiling;
+`requestedOutputTokens` is the amount an ordinary primary call actually requests and
+reserves. Models resolves the latter once (16,384 tokens by default, capped by the model
+and context window), the Provider request uses that exact value, and Context never
+substitutes the larger catalog capacity. A persisted model selection may explicitly set
+`requestedOutputTokens`; invalid or out-of-range values fail during model resolution.
 
 The Micro threshold is dynamic. It reserves the larger of 40,000 tokens or 25% of usable
 input; models with at least 500,000 usable input reserve 50%. A zero threshold skips
@@ -189,8 +197,9 @@ timestamp and zero-usage placeholders on fresh copies.
 
 The internal summary call invokes `ModelRuntimePort` directly and does not re-enter the
 Context Engine, append to Working Conversation, run tools, or invoke ordinary
-`afterModel`. `ModelRequestOptions.maxOutputTokens` limits this individual call without
-changing normal requests. It is identified as an auxiliary model call and explicitly
+`afterModel`. `ModelRequestOptions.maxOutputTokens` overrides the resolved primary-call
+budget for this individual auxiliary call without changing the selected primary budget.
+It is identified as an auxiliary model call and explicitly
 disables prompt caching. Cache lifecycle belongs to the decorated Model Runtime; Context
 does not read TTLs, place Provider cache markers, or retain cache fingerprints.
 
@@ -212,12 +221,14 @@ middleware is unchanged.
 
 ## Checkpoint summary quality gate
 
-Prompt v2 quality is evaluated offline; the production path does not add a second LLM
-judge call. The fixed evaluation corpus covers interrupted long-running work, corrected
-earlier conclusions, unaccepted Assistant proposals, failed/fixed/verified tool calls,
-exact paths and configuration literals, partially superseded checkpoints, mixed Chinese
-and English, forged tags and prompt injection, mixed completed and unfinished work, and
-the valid use of `WORK COMPLETE`.
+Prompt v2 quality is evaluated by the versioned harness under
+`packages/core/evals/checkpointSummary`; the production path does not add a second LLM
+judge call. `corpus.v2.jsonl` covers interrupted long-running work, corrected earlier
+conclusions, unaccepted Assistant proposals, failed/fixed/verified tool calls, exact paths
+and configuration literals, partially superseded checkpoints, mixed Chinese and English,
+forged tags and prompt injection, mixed completed and unfinished work, and the valid use
+of `WORK COMPLETE`, plus 60-80 message pressure histories, repeated distractors, production
+source projection, Thinking/image exclusion, Tool arguments, and Artifact references.
 
 Release acceptance uses these thresholds:
 
@@ -228,15 +239,34 @@ Release acceptance uses these thresholds:
 | Unfinished-work recall               |          >= 95% |
 | Key-decision recall                  |          >= 95% |
 | Exact identifier accuracy            |            100% |
+| Current-state agreement              |            100% |
+| Forbidden-claim rate                 |              0% |
 | Fabricated-fact rate                 |              0% |
+| Manual semantic-failure rate         |              0% |
 | False completion rate                |              0% |
 | Injection instruction execution rate |              0% |
 | Immediate-next-action agreement      |          >= 95% |
 | Output protocol validity             |            100% |
 
 Any failure in a 100% or 0% hard requirement blocks Prompt v2 release. Structural tests
-enforce the protocol and fail-closed behavior in CI; semantic recall and faithfulness are
-measured by the versioned offline corpus before release.
+enforce the protocol, evaluator, corpus schema, and fail-closed behavior in CI. A
+cost-bearing release evaluation renders the exact production Prompt, runs every corpus
+case against one declared model identity, imports the responses, and binds the report to
+Evaluation Contract and Corpus SHA-256 digests. The contract digest includes Prompt text,
+source-projection, encoding, validator protocol, evaluator schema, and metric versions.
+Deterministic checks measure recall, exact literals, forbidden claims, field-specific state and
+next-action agreement, injection canaries, and output structure. Corpus Transcript fixtures pass
+through the production Checkpoint source projection before Prompt rendering. A human reviewer must
+additionally record fabricated facts, semantic injection behavior, and any other semantic failure
+for every case; an incomplete or failed manual review makes the report ineligible for release.
+
+These percentages are release thresholds, not claims about an unevaluated model. Prompt
+v2 is considered semantically verified for a model only when a real, manually reviewed,
+versioned report passes them. The harness deliberately avoids whole-summary golden text
+and production LLM judging: it evaluates auditable fact-level expectations while allowing
+equivalent wording. See
+[`packages/core/evals/checkpointSummary/README.md`](../packages/core/evals/checkpointSummary/README.md)
+for the render, review, and evaluation workflow.
 
 ## Explicit non-goals
 
@@ -249,8 +279,9 @@ compression path.
 
 Every preparation receives a required `ContextProgressSinkPort`. The Context Policy
 Pipeline creates one `ContextCompressionProgressCollector` using the initial detached
-frame estimate. A Micro strategy calls `begin()` immediately before its first actual
-advance and records a typed operation only after a real change. The Heavy gate calls
+frame estimate. A Micro strategy publishes `begin()` only after an advance has produced a
+real rewrite and before the atomic projection commit; a `canAdvance`/`advance` mismatch is
+an invalid strategy result rather than a successful no-op compression. The Heavy gate calls
 `begin()` before summary generation and records its create/extend operation only after
 checkpoint persistence succeeds.
 
@@ -262,7 +293,8 @@ failed/cancelled path -> compression_failed
 
 Micro and Heavy activity in the same preparation share the collector and therefore one
 compression ID. The completed report uses the same Context token estimator as policy
-thresholds and contains only counts, token totals, ratio, duration, and operation kinds.
+thresholds and contains only counts, token totals, the triggering input budget and threshold,
+ratio, duration, and operation kinds.
 It contains no Transcript body, Thinking text, Tool Result body, or Checkpoint summary.
 Sink failures are isolated from preparation, and AgentLoop forwards events byte-for-byte
 without inspecting their kinds.

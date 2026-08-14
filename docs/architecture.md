@@ -88,6 +88,20 @@ plugins but must not contain provider construction, model definitions, or
 vendor-specific request logic. Providers are never split into directories by
 individual model name.
 
+## System prompt contributions
+
+The Coding Agent owns its base prompt. Core supplies domain-neutral contributors for the working
+directory, project rules, and the Skill index. Project rules and Skill XML declare their authority
+and task scope explicitly: neither can override runtime safety, expand the user's requested scope,
+or grant permissions. Web search results retain source URLs when they support important conclusions.
+
+All prompt contribution limits use the same UTF-8-aware text estimator as Context budgeting.
+Project rules, the Skill index, loaded Skill bodies, and the complete stable prompt each have one
+explicit budget. Exceeding a budget raises `PromptContributionBudgetError`; content is never
+silently truncated and there is no alternate unbounded assembly path. Runtime-only loop-protection
+sections remain owned by `RuntimePromptComposer` and are still included in the final Context token
+estimate before dispatch.
+
 ## Prompt cache ownership
 
 Prompt cache content is remote Provider state. Omni Agent owns only cache intent,
@@ -325,7 +339,10 @@ identities, middleware and policy-stage versions, before/after estimates, checkp
 lineage, message counts, decisions, and stable SHA-256 digests; it contains no message
 text. A `model_context_prepared` event exposes it without adding it to the Session.
 
-Compression uses `usableInputBudget = contextWindow - maxOutputTokens`. Stable Micro uses
+Compression uses `usableInputBudget = contextWindow - requestedOutputTokens`. The catalog's
+`modelMaxOutputTokens` is only a capability ceiling; Models resolves a distinct per-call
+`requestedOutputTokens` budget (16,384 by default, capped by the model and context window),
+and the same value is sent to the Provider and recorded in the Context manifest. Stable Micro uses
 the dynamic warning-buffer threshold documented below. The mandatory Heavy gate starts at
 90%, limits its internal summary to 10% of usable input, and targets a post-checkpoint
 context at or below 50%. It preserves
@@ -361,6 +378,16 @@ Session lock. Parent records must already exist, coverage must strictly increase
 duplicates are idempotent, and conflicting IDs fail without replacing the sidecar.
 Checkpoint summaries remain unescaped at rest; XML escaping is owned exclusively by the
 final Context-entry projection, so stored digests and model-visible markup cannot diverge.
+
+Heavy-summary semantic evaluation is offline release infrastructure, not a runtime Context
+stage. Its versioned Transcript fixtures pass through the production source projection and Prompt
+builder, including long-history pressure cases. Each report records one model identity and binds
+results to Corpus and Evaluation Contract digests; the latter covers the Prompt, source projection,
+encoding, validator protocol, evaluator schema, and metrics. Deterministic checks cover protocol,
+fact-level recall, exact identifiers, false completion, field-specific state/next action, and
+injection canaries. Manual review is mandatory for fabrication, semantic injection, and all other
+semantic failures. No report can establish quality for another contract, corpus, or model, and no
+evaluation runner or judge call is reachable from AgentLoop.
 
 `ModelRuntimePort` receives only `ModelContextMessage` and `ModelToolSpec`. The Provider
 mapper creates a new backend Context, deep-copies content, arguments, deferred state, and
@@ -554,6 +581,12 @@ stages report only domain operations to a Pipeline-owned collector; the collecto
 started event and one terminal completed/failed event. Stable replay, threshold skips,
 cache deferral, and no-candidate paths emit nothing. These events are observation-only and
 never enter Session, Model Context, or checkpoint storage.
+
+The CLI labels `inputTokens / usableInputBudget` as Context pressure because that is the
+ratio used by Micro and Heavy. Wide rendering also shows `inputTokens / contextWindow` as
+Window usage and keeps Cache hit beside it. Compression disclosures receive the triggering
+input total, usable budget, and threshold from the immutable progress DTO; CLI never
+recomputes compression policy or reads Context decisions.
 
 Commands depend on Core's `CommandInteractionPort`, not a TUI type or `AgentConfig`.
 Skill reload asks `AgentApplication.refreshInstructions()` to rebuild instructions; CLI

@@ -174,6 +174,7 @@ describe("CLI stream presenters", () => {
       modelCallId: "call",
       beforeTokens: 100,
       startedKind: "artifact_projection",
+      trigger: { inputTokens: 100, usableInputBudget: 120, thresholdTokens: 90 },
     });
     const completed = presenter.present({
       type: "compression_completed",
@@ -184,6 +185,7 @@ describe("CLI stream presenters", () => {
         afterTokens: 50,
         tokenDelta: 50,
         reductionRatio: 0.5,
+        trigger: { inputTokens: 100, usableInputBudget: 120, thresholdTokens: 90 },
         operations: [
           { kind: "artifact_projection", affectedCount: 2 },
           { kind: "thinking_projection", affectedCount: 3 },
@@ -195,6 +197,7 @@ describe("CLI stream presenters", () => {
     expect(completed.id).toBe(started.id);
     expect(completed.summary).toContain("↓50.0%");
     expect(completed.summary).toContain("Artifact + Thinking + Heavy");
+    expect(completed.details()).toContain("trigger threshold: 90");
   });
 
   it("shows cache hit only for the successful report matching the latest context", () => {
@@ -216,13 +219,16 @@ describe("CLI stream presenters", () => {
       contextSnapshotId: "latest",
       cacheHitRate: 0.68,
     } as never);
-    expect(
-      presenter.present({
-        inputTokens: 47_600,
-        outputTokens: 100,
-        totalTokens: 47_700,
-        contextWindow: 128_000,
-      }).full,
-    ).toContain("Cache hit: 68%");
+    const metrics = presenter.present({
+      inputTokens: 47_600,
+      outputTokens: 100,
+      totalTokens: 47_700,
+      contextWindow: 128_000,
+      usableInputBudget: 120_000,
+      requestedOutputTokens: 8_000,
+    });
+    expect(metrics.full).toContain("Context: 47,600 / 120,000 input tokens (40%)");
+    expect(metrics.full).toContain("Window: 37%");
+    expect(metrics.full).toContain("Cache hit: 68%");
   });
 });

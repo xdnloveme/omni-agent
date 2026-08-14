@@ -21,14 +21,15 @@ export class RunMetricsPresenter {
   }
 
   present(usage: TokenUsage): RunMetricsViewModel {
-    const percent = Math.round((usage.inputTokens / usage.contextWindow) * 100);
+    const pressurePercent = Math.round((usage.inputTokens / usage.usableInputBudget) * 100);
+    const windowPercent = Math.round((usage.inputTokens / usage.contextWindow) * 100);
     const cache = formatCacheRate(this.latestCache?.cacheHitRate);
     const input = `${usage.estimated ? "~" : ""}${usage.inputTokens.toLocaleString()}`;
     return {
-      full: `Context: ${input} / ${usage.contextWindow.toLocaleString()} tokens (${percent}%) · Cache hit: ${cache}`,
-      compact: `Context ${percent}% · Cache hit ${cache}`,
-      minimal: `Ctx ${percent}% · Cache ${cache}`,
-      usagePercent: percent,
+      full: `Context: ${input} / ${usage.usableInputBudget.toLocaleString()} input tokens (${pressurePercent}%) · Window: ${windowPercent}% · Cache hit: ${cache}`,
+      compact: `Context ${pressurePercent}% · Cache hit ${cache}`,
+      minimal: `Ctx ${pressurePercent}% · Cache ${cache}`,
+      usagePercent: pressurePercent,
     };
   }
 }

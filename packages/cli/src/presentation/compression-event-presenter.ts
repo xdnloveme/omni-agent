@@ -1,6 +1,8 @@
 import type {
   ContextCompressionKind,
   ContextCompressionOperationSummary,
+  ContextCompressionReport,
+  ContextCompressionTrigger,
   ContextProgressEvent,
 } from "@omni-agent/core";
 import type { DisclosureViewModel } from "./view-models";
@@ -29,7 +31,10 @@ export class CompressionEventPresenter {
           state: "running",
           startedAt: this.now(),
           tone: "neutral",
-          details: () => [`type: ${TYPE_LABELS[event.startedKind].full}`],
+          details: () => [
+            `type: ${TYPE_LABELS[event.startedKind].full}`,
+            ...triggerDetails(event.trigger),
+          ],
           initiallyExpanded: false,
         };
       case "compression_completed": {
@@ -95,13 +100,7 @@ function reductionSummary(
   return `${ratio > 0 ? "↓" : "↑"}${Math.abs(ratio * 100).toFixed(1)}%${suffix}`;
 }
 
-function completedDetails(report: {
-  readonly beforeTokens: number;
-  readonly afterTokens: number;
-  readonly reductionRatio: number;
-  readonly operations: readonly ContextCompressionOperationSummary[];
-  readonly durationMs: number;
-}): readonly string[] {
+function completedDetails(report: ContextCompressionReport): readonly string[] {
   const lines = ["types:"];
   for (const operation of report.operations) {
     lines.push(`  - ${TYPE_LABELS[operation.kind].full}`);
@@ -111,11 +110,23 @@ function completedDetails(report: {
   for (const operation of report.operations) lines.push(`  - ${operationText(operation)}`);
   if (report.operations.length === 0) lines.push("  - No token-bearing content changed");
   lines.push(
+    ...triggerDetails(report.trigger),
     `tokens: ${report.beforeTokens.toLocaleString()} → ${report.afterTokens.toLocaleString()}`,
     `reduction: ${(report.reductionRatio * 100).toFixed(1)}%`,
     `duration: ${formatDuration(report.durationMs)}`,
   );
   return lines;
+}
+
+function triggerDetails(trigger: ContextCompressionTrigger): readonly string[] {
+  const pressure =
+    trigger.usableInputBudget > 0
+      ? ((trigger.inputTokens / trigger.usableInputBudget) * 100).toFixed(1)
+      : "—";
+  return [
+    `trigger pressure: ${trigger.inputTokens.toLocaleString()} / ${trigger.usableInputBudget.toLocaleString()} (${pressure}%)`,
+    `trigger threshold: ${trigger.thresholdTokens.toLocaleString()}`,
+  ];
 }
 
 function operationText(operation: ContextCompressionOperationSummary): string {
