@@ -30,7 +30,8 @@ const selection: RuntimeModelSelection = {
   providerId: "anthropic",
   modelId: "claude-test",
   contextWindow: 128_000,
-  maxOutputTokens: 4_096,
+  modelMaxOutputTokens: 4_096,
+  requestedOutputTokens: 4_096,
 };
 
 const request: ModelRequest = {
@@ -66,6 +67,7 @@ describe("model cache infrastructure", () => {
     expect(secondReport?.report.lifecycle).toBe("append_only");
     expect(secondReport?.report.scopeId).toBe(firstReport?.report.scopeId);
     expect(seen[0]?.providerCache).toMatchObject({ cacheRetention: "short" });
+    expect(seen[0]?.maxOutputTokens).toBe(selection.requestedOutputTokens);
     expect(seen[0]?.providerCache.sessionId).toBe(firstReport?.report.scopeId);
     expect(first.map((event) => event.type)).toEqual(["text_delta", "cache_report", "done"]);
   });

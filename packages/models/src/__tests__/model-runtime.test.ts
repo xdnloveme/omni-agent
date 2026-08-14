@@ -17,6 +17,7 @@ function executionOptions(
 ): ModelTransportExecutionOptions {
   return {
     providerCache: { cacheRetention: "none" },
+    maxOutputTokens: 4_096,
     ...overrides,
   };
 }
@@ -73,7 +74,8 @@ describe("ModelRuntime", () => {
         providerId: "test-vendor",
         modelId: "test-model",
         contextWindow: 128_000,
-        maxOutputTokens: 4_096,
+        modelMaxOutputTokens: 4_096,
+        requestedOutputTokens: 4_096,
       },
       {
         systemPrompt: "test",
@@ -127,7 +129,8 @@ describe("ModelRuntime", () => {
         providerId: "deferred-vendor",
         modelId: "deferred-model",
         contextWindow: 128_000,
-        maxOutputTokens: 4_096,
+        modelMaxOutputTokens: 4_096,
+        requestedOutputTokens: 4_096,
       },
       { systemPrompt: "test", messages: [], tools: [] },
       executionOptions(),
@@ -164,7 +167,7 @@ describe("ModelRuntime", () => {
               async *stream(model, request, options) {
                 seen.push(
                   model.id,
-                  String(model.maxOutputTokens),
+                  String(model.requestedOutputTokens),
                   request.messages[0]?.role ?? "missing",
                   options.apiKey ?? "missing",
                 );
@@ -197,7 +200,8 @@ describe("ModelRuntime", () => {
         providerId: "custom-protocol",
         modelId: "custom-model",
         contextWindow: 32_000,
-        maxOutputTokens: 4_096,
+        modelMaxOutputTokens: 4_096,
+        requestedOutputTokens: 4_096,
       },
       {
         systemPrompt: "test",

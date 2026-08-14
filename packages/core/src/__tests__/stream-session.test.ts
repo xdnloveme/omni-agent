@@ -113,6 +113,9 @@ describe("StreamSession", () => {
         systemPromptDigest: "system",
         toolsetDigest: "tools",
         estimatedInputTokens: 1,
+        contextWindow: 110,
+        modelMaxOutputTokens: 10,
+        requestedOutputTokens: 10,
         usableInputBudget: 100,
         usageRatio: 0.01,
         artifactIds: [],
@@ -148,6 +151,7 @@ describe("StreamSession", () => {
         modelCallId: "call",
         beforeTokens: 100,
         startedKind: "artifact_projection" as const,
+        trigger: { inputTokens: 100, usableInputBudget: 120, thresholdTokens: 90 },
       };
       session.handle({ type: "context_progress", event });
       expect(callbacks.onContextProgress).toHaveBeenCalledWith(event);
@@ -167,6 +171,7 @@ describe("StreamSession", () => {
             modelCallId: "call",
             beforeTokens: 100,
             startedKind: "heavy_checkpoint",
+            trigger: { inputTokens: 100, usableInputBudget: 120, thresholdTokens: 108 },
           },
         }),
       ).not.toThrow();

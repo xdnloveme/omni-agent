@@ -25,6 +25,8 @@ function toTokenUsage(
   usage: ModelUsage | undefined,
   estimatedInputTokens: number,
   contextWindow: number,
+  usableInputBudget: number,
+  requestedOutputTokens: number,
 ): TokenUsage {
   if (!usage) {
     return {
@@ -32,6 +34,8 @@ function toTokenUsage(
       outputTokens: 0,
       totalTokens: estimatedInputTokens,
       contextWindow,
+      usableInputBudget,
+      requestedOutputTokens,
       estimated: true,
     };
   }
@@ -42,6 +46,8 @@ function toTokenUsage(
     outputTokens: usage.output,
     totalTokens: inputTokens + usage.output,
     contextWindow,
+    usableInputBudget,
+    requestedOutputTokens,
     estimated: inputTokens !== reportedInputTokens,
   };
 }
@@ -95,7 +101,8 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         model: {
           modelId: config.model.modelId,
           contextWindow: config.model.contextWindow,
-          maxOutputTokens: config.model.maxOutputTokens,
+          modelMaxOutputTokens: config.model.modelMaxOutputTokens,
+          requestedOutputTokens: config.model.requestedOutputTokens,
         },
         middleware: contextMiddleware,
         progress,
@@ -124,6 +131,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         purpose: "primary",
       },
       cache: { retention: "default" },
+      maxOutputTokens: config.model.requestedOutputTokens,
       signal,
     });
     let promptDispatchObserved = false;
@@ -176,7 +184,13 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
 
     // Extract usage from the assistant message. Context occupancy includes cached prompt
     // tokens; provider usage may report those separately from fresh input tokens.
-    lastUsage = toTokenUsage(assistantMessage.usage, estimatedInputTokens, contextWindow);
+    lastUsage = toTokenUsage(
+      assistantMessage.usage,
+      estimatedInputTokens,
+      contextWindow,
+      preparedContext.manifest.usableInputBudget,
+      preparedContext.manifest.requestedOutputTokens,
+    );
 
     // Check stop reason
     if (assistantMessage.stopReason !== "toolUse") {

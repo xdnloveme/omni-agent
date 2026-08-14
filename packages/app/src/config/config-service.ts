@@ -236,6 +236,10 @@ function isModelSelection(value: unknown): value is ModelSelection {
     ["vendorId", "connectionId", "modelId"].every(
       (key) => typeof value[key] === "string" && value[key].length > 0,
     ) &&
+    (value.requestedOutputTokens === undefined ||
+      (typeof value.requestedOutputTokens === "number" &&
+        Number.isInteger(value.requestedOutputTokens) &&
+        value.requestedOutputTokens > 0)) &&
     (value.settings === undefined || isRecord(value.settings))
   );
 }

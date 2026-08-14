@@ -61,7 +61,13 @@ export class HeavyCheckpointGateStage implements ContextFinalGatePort {
       };
     }
 
-    options.compression.begin("heavy_checkpoint");
+    options.compression.begin("heavy_checkpoint", {
+      inputTokens: estimate.totalInputTokens,
+      usableInputBudget: estimate.usableInputBudget,
+      thresholdTokens: Math.ceil(
+        estimate.usableInputBudget * DEFAULT_CONTEXT_COMPRESSION_BUDGET.heavyTriggerRatio,
+      ),
+    });
     const result = await this.compactor.compact({
       frame: restored,
       estimate,

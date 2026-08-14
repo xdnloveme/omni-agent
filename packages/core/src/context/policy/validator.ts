@@ -73,7 +73,11 @@ function assertFrame(value: unknown, label: string): asserts value is ContextFra
     typeof frame.model !== "object" ||
     typeof frame.model.modelId !== "string" ||
     !Number.isFinite(frame.model.contextWindow) ||
-    !Number.isFinite(frame.model.maxOutputTokens)
+    !Number.isFinite(frame.model.modelMaxOutputTokens) ||
+    !Number.isFinite(frame.model.requestedOutputTokens) ||
+    frame.model.requestedOutputTokens <= 0 ||
+    frame.model.requestedOutputTokens > frame.model.modelMaxOutputTokens ||
+    frame.model.requestedOutputTokens >= frame.model.contextWindow
   ) {
     throw new InvalidContextPolicyResultError(`${label} returned invalid model limits`);
   }

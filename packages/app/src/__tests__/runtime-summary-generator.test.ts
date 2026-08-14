@@ -8,7 +8,8 @@ const selection: RuntimeModelSelection = {
   providerId: "test",
   modelId: "model",
   contextWindow: 10_000,
-  maxOutputTokens: 1_000,
+  modelMaxOutputTokens: 1_000,
+  requestedOutputTokens: 1_000,
 };
 
 describe("RuntimeContextSummaryGenerator", () => {

@@ -50,7 +50,8 @@ function makeConfig(overrides: Partial<AgentConfig> = {}): AgentConfig {
       providerId: "test",
       modelId: "test-model",
       contextWindow: 128_000,
-      maxOutputTokens: 4_096,
+      modelMaxOutputTokens: 4_096,
+      requestedOutputTokens: 4_096,
     },
     systemPrompt: "You are a test assistant.",
     tools: [makeTool()],
@@ -198,6 +199,7 @@ describe("runAgentLoop", () => {
       { type: "text_delta", delta: "world" },
       expect.objectContaining({ type: "done" }),
     ]);
+    expect(streamModel.mock.calls[0]?.[2].maxOutputTokens).toBe(config.model.requestedOutputTokens);
   });
 
   it("forwards cache reports without adding them to the conversation", async () => {
@@ -249,6 +251,7 @@ describe("runAgentLoop", () => {
           modelCallId: request.identity.modelCallId,
           beforeTokens: 100,
           startedKind: "heavy_checkpoint",
+          trigger: { inputTokens: 100, usableInputBudget: 110, thresholdTokens: 99 },
         });
         await Promise.resolve();
         request.progress.publish({
@@ -260,6 +263,7 @@ describe("runAgentLoop", () => {
             afterTokens: 50,
             tokenDelta: 50,
             reductionRatio: 0.5,
+            trigger: { inputTokens: 100, usableInputBudget: 110, thresholdTokens: 99 },
             operations: [{ kind: "heavy_checkpoint", affectedCount: 10, action: "create" }],
             durationMs: 1,
           },

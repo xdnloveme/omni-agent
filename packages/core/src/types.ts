@@ -97,6 +97,8 @@ export interface TokenUsage {
   outputTokens: number;
   totalTokens: number;
   contextWindow: number;
+  usableInputBudget: number;
+  requestedOutputTokens: number;
   estimated?: boolean;
 }
 

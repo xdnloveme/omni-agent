@@ -40,7 +40,8 @@ async function fixture() {
     ...next,
     providerId: next.vendorId,
     contextWindow: 2_000,
-    maxOutputTokens: 200,
+    modelMaxOutputTokens: 200,
+    requestedOutputTokens: 200,
   }));
   const isConfigured = vi.fn<ModelService["isConfigured"]>(async () => ({ type: "api_key" }));
   const modelService = { runtime, resolve, isConfigured } as unknown as ModelService;
@@ -58,7 +59,8 @@ async function fixture() {
       ...selection,
       providerId: "test",
       contextWindow: 1_000,
-      maxOutputTokens: 100,
+      modelMaxOutputTokens: 100,
+      requestedOutputTokens: 100,
     },
     systemPrompt: "test",
     tools: [],

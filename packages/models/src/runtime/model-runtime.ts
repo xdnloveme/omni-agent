@@ -33,7 +33,7 @@ export interface AvailableModel {
   id: string;
   name: string;
   contextWindow: number;
-  maxOutputTokens: number;
+  modelMaxOutputTokens: number;
 }
 
 export interface CredentialStatus {
@@ -125,7 +125,7 @@ export class ModelRuntime {
       id: model.id,
       name: model.name,
       contextWindow: model.contextWindow,
-      maxOutputTokens: model.maxTokens,
+      modelMaxOutputTokens: model.maxTokens,
     }));
   }
 
@@ -167,10 +167,7 @@ export class ModelRuntime {
       headers: selection.requestHeaders,
       sessionId: options.providerCache.sessionId,
       cacheRetention: options.providerCache.cacheRetention,
-      maxTokens:
-        options.maxOutputTokens === undefined
-          ? undefined
-          : Math.min(options.maxOutputTokens, catalogModel.maxTokens),
+      maxTokens: Math.min(options.maxOutputTokens, catalogModel.maxTokens),
     });
     for await (const event of stream) {
       if (event.type === "text_delta") yield { type: "text_delta", delta: event.delta };

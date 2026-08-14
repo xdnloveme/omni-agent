@@ -20,7 +20,8 @@ export interface ContextArtifactRecoveryCapability {
 export interface ContextModelLimits {
   readonly modelId: string;
   readonly contextWindow: number;
-  readonly maxOutputTokens: number;
+  readonly modelMaxOutputTokens: number;
+  readonly requestedOutputTokens: number;
 }
 
 export interface ContextDraft {
@@ -172,6 +173,9 @@ export interface ModelContextSnapshotManifest {
   readonly systemPromptDigest: string;
   readonly toolsetDigest: string;
   readonly estimatedInputTokens: number;
+  readonly contextWindow: number;
+  readonly modelMaxOutputTokens: number;
+  readonly requestedOutputTokens: number;
   readonly usableInputBudget: number;
   readonly usageRatio: number;
   readonly artifactIds: readonly string[];

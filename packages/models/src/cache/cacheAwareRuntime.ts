@@ -47,7 +47,7 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
       signal: options.signal,
       timeoutMs: options.timeoutMs,
       maxRetries: options.maxRetries,
-      maxOutputTokens: options.maxOutputTokens,
+      maxOutputTokens: options.maxOutputTokens ?? selection.requestedOutputTokens,
       credential: options.credential,
       providerCache: toProviderCacheOptions(decision.directive, capability),
     };

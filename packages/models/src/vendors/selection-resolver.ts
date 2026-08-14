@@ -2,6 +2,7 @@ import type { RuntimeModelSelection } from "@omni-agent/core";
 import type { ActiveVendorPlugin } from "./plugin-transaction";
 import type { ModelSelection, ProviderCollection } from "./types";
 import { VendorRegistry } from "./registry";
+import { resolveOutputBudget } from "./output-budget";
 
 export class VendorSelectionResolver {
   constructor(
@@ -26,7 +27,7 @@ export class VendorSelectionResolver {
     if (!entry) throw new Error(`Vendor plugin is not active: ${vendor.id}`);
     const normalizedSelection = { ...selection, settings };
     if (entry.plugin.resolveSelection) {
-      return entry.plugin.resolveSelection(normalizedSelection, {
+      const resolved = await entry.plugin.resolveSelection(normalizedSelection, {
         catalog: {
           getModel: (providerId, modelId) => {
             const model = this.models.getModel(providerId, modelId);
@@ -36,6 +37,14 @@ export class VendorSelectionResolver {
         vendor,
         connection,
       });
+      return {
+        ...resolved,
+        ...resolveOutputBudget({
+          contextWindow: resolved.contextWindow,
+          modelMaxOutputTokens: resolved.modelMaxOutputTokens,
+          requestedOutputTokens: selection.requestedOutputTokens ?? resolved.requestedOutputTokens,
+        }),
+      };
     }
     let model = this.models.getModel(connection.providerId, selection.modelId);
     if (!model) {
@@ -50,7 +59,11 @@ export class VendorSelectionResolver {
       modelId: model.id,
       settings,
       contextWindow: model.contextWindow,
-      maxOutputTokens: model.maxOutputTokens,
+      ...resolveOutputBudget({
+        contextWindow: model.contextWindow,
+        modelMaxOutputTokens: model.maxOutputTokens,
+        requestedOutputTokens: selection.requestedOutputTokens,
+      }),
     };
   }
 }

@@ -15,7 +15,7 @@ import type {
 } from "./contracts";
 import { microCompressionThreshold, shouldAdvanceMicroCompression } from "./threshold";
 import { digestContextValue } from "../../digest";
-import { assertMicroProjectionResult } from "./validator";
+import { assertMicroProjectionResult, InvalidMicroProjectionResultError } from "./validator";
 
 export interface StableMicroCompressionDependencies {
   readonly projections: ContextProjectionStorePort;
@@ -165,7 +165,6 @@ export class StableMicroCompressionStage implements ContextPolicyStagePort {
         continue;
       }
       throwIfAborted(options.signal);
-      options.compression.begin(strategy.compressionKind);
       const previousRecordCount = state.strategies[strategy.key]!.records.length;
       const result = await strategy.advance(current, state.strategies[strategy.key]!, {
         agentId: options.agentId,
@@ -175,17 +174,26 @@ export class StableMicroCompressionStage implements ContextPolicyStagePort {
         signal: options.signal,
       });
       assertMicroProjectionResult(result, strategy, "advance");
+      if (!result.changed) {
+        throw new InvalidMicroProjectionResultError(
+          strategy.name,
+          "canAdvance returned true but advance produced no change",
+        );
+      }
+      options.compression.begin(strategy.compressionKind, {
+        inputTokens: estimate.totalInputTokens,
+        usableInputBudget: estimate.usableInputBudget,
+        thresholdTokens: microCompressionThreshold(estimate),
+      });
       current = cloneContextFrame(result.frame);
       state = withStrategyState(state, strategy.key, result.state);
       estimate = this.dependencies.estimator.estimate(current);
       changed ||= result.changed;
-      if (result.changed) {
-        options.compression.record({
-          kind: strategy.compressionKind,
-          affectedCount:
-            result.affectedCount ?? Math.max(0, result.state.records.length - previousRecordCount),
-        });
-      }
+      options.compression.record({
+        kind: strategy.compressionKind,
+        affectedCount:
+          result.affectedCount ?? Math.max(0, result.state.records.length - previousRecordCount),
+      });
       artifacts.push(...result.artifacts.map((artifact) => ({ ...artifact })));
       advanceDetails.push({
         strategy: strategy.name,
@@ -195,19 +203,10 @@ export class StableMicroCompressionStage implements ContextPolicyStagePort {
     }
 
     if (!changed) {
-      return {
-        frame: current,
-        decisions: [
-          microDecision({
-            status: "no_change",
-            reason: "strategies_produced_no_change",
-            before: beforeAdvance,
-            after: estimate,
-            revision: expectedRevision,
-            details: { cacheImpact: "none", strategies: cloneData(advanceDetails) },
-          }),
-        ],
-      };
+      throw new InvalidMicroProjectionResultError(
+        this.name,
+        "candidate set changed before any strategy could advance",
+      );
     }
 
     const nextState: ContextProjectionState = {

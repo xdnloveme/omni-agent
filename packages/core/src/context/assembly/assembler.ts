@@ -86,6 +86,9 @@ export class ContextAssembler {
       systemPromptDigest,
       toolsetDigest,
       estimatedInputTokens: input.result.estimate.totalInputTokens,
+      contextWindow: input.result.frame.model.contextWindow,
+      modelMaxOutputTokens: input.result.frame.model.modelMaxOutputTokens,
+      requestedOutputTokens: input.result.frame.model.requestedOutputTokens,
       usableInputBudget: input.result.estimate.usableInputBudget,
       usageRatio: input.result.estimate.usageRatio,
       artifactIds,
@@ -121,7 +124,11 @@ export function assertContextDraft(value: unknown): asserts value is ContextDraf
   if (
     typeof draft.model.modelId !== "string" ||
     !Number.isFinite(draft.model.contextWindow) ||
-    !Number.isFinite(draft.model.maxOutputTokens)
+    !Number.isFinite(draft.model.modelMaxOutputTokens) ||
+    !Number.isFinite(draft.model.requestedOutputTokens) ||
+    draft.model.requestedOutputTokens <= 0 ||
+    draft.model.requestedOutputTokens > draft.model.modelMaxOutputTokens ||
+    draft.model.requestedOutputTokens >= draft.model.contextWindow
   ) {
     throw new Error("Context middleware returned invalid model limits");
   }

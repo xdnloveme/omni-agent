@@ -28,7 +28,10 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
       0,
     );
     const totalInputTokens = systemPromptTokens + messageTokens + toolTokens;
-    const usableInputBudget = Math.max(1, frame.model.contextWindow - frame.model.maxOutputTokens);
+    const usableInputBudget = Math.max(
+      1,
+      frame.model.contextWindow - frame.model.requestedOutputTokens,
+    );
     return {
       systemPromptTokens,
       messageTokens,

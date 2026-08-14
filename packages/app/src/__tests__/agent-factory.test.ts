@@ -59,7 +59,8 @@ async function factory() {
       ...selection,
       providerId: "test",
       contextWindow: 10_000,
-      maxOutputTokens: 1_000,
+      modelMaxOutputTokens: 1_000,
+      requestedOutputTokens: 1_000,
     })),
     isConfigured: vi.fn(async () => ({ type: "api_key" as const })),
   } as unknown as ModelService;

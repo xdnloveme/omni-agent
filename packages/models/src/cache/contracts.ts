@@ -22,7 +22,7 @@ export interface ModelTransportExecutionOptions {
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   readonly maxRetries?: number;
-  readonly maxOutputTokens?: number;
+  readonly maxOutputTokens: number;
   readonly credential?: { readonly type: "api_key"; readonly key: string };
   readonly providerCache: ProviderCacheOptions;
 }

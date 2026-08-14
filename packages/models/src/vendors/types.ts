@@ -36,6 +36,7 @@ export interface ModelSelection {
   vendorId: string;
   connectionId: string;
   modelId: string;
+  requestedOutputTokens?: number;
   settings?: Record<string, JsonValue>;
 }
 

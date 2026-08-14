@@ -79,6 +79,7 @@ export type {
   ContextCompressionOperationSummary,
   ContextCompressionReport,
   ContextCompressionReporterPort,
+  ContextCompressionTrigger,
   ContextProgressEvent,
   ContextProgressSinkPort,
 } from "./contracts/progress";

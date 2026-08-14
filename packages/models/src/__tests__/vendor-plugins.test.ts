@@ -8,6 +8,7 @@ import { createProviderContribution, installProvider } from "../vendors/provider
 import { defineVendor } from "../vendors/define-vendor";
 import { compatibleConnection } from "../providers/factories/compatible";
 import { VendorPluginManager } from "../vendors/plugin-manager";
+import { resolveOutputBudget } from "../vendors/output-budget";
 import type { ProviderCollection, VendorPlugin } from "../vendors/types";
 
 function plugin(id: string, dispose = vi.fn()): VendorPlugin {
@@ -29,6 +30,20 @@ describe("VendorPluginManager", () => {
     const runtime = new ModelRuntime();
     return { runtime, manager: runtime.createPluginManager(new VendorRegistry(), process.cwd()) };
   }
+
+  it("separates model output capacity from the ordinary request budget", () => {
+    expect(resolveOutputBudget({ contextWindow: 200_000, modelMaxOutputTokens: 128_000 })).toEqual({
+      modelMaxOutputTokens: 128_000,
+      requestedOutputTokens: 16_384,
+    });
+    expect(
+      resolveOutputBudget({
+        contextWindow: 200_000,
+        modelMaxOutputTokens: 128_000,
+        requestedOutputTokens: 32_000,
+      }),
+    ).toEqual({ modelMaxOutputTokens: 128_000, requestedOutputTokens: 32_000 });
+  });
 
   it("applies the portable role policy inside the compatible Provider factory", async () => {
     const connection = compatibleConnection({
@@ -65,9 +80,26 @@ describe("VendorPluginManager", () => {
     const { runtime, manager } = createManager();
     for (const item of builtinVendorPlugins()) await manager.register(item);
     const [model] = runtime.listModels("deepseek");
+    const resolved = await manager.resolve({
+      vendorId: "deepseek",
+      connectionId: "default",
+      modelId: model.id,
+    });
+    expect(resolved).toEqual(
+      expect.objectContaining({
+        modelId: model.id,
+        modelMaxOutputTokens: model.modelMaxOutputTokens,
+        requestedOutputTokens: Math.min(16_384, model.modelMaxOutputTokens),
+      }),
+    );
     await expect(
-      manager.resolve({ vendorId: "deepseek", connectionId: "default", modelId: model.id }),
-    ).resolves.toEqual(expect.objectContaining({ modelId: model.id }));
+      manager.resolve({
+        vendorId: "deepseek",
+        connectionId: "default",
+        modelId: model.id,
+        requestedOutputTokens: 1_024,
+      }),
+    ).resolves.toEqual(expect.objectContaining({ requestedOutputTokens: 1_024 }));
   });
 
   it("registers and resolves a vendor without model-specific registry code", async () => {

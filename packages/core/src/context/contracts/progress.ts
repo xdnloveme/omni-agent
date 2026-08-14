@@ -7,11 +7,18 @@ export interface ContextCompressionOperationSummary {
   readonly action?: "create" | "extend";
 }
 
+export interface ContextCompressionTrigger {
+  readonly inputTokens: number;
+  readonly usableInputBudget: number;
+  readonly thresholdTokens: number;
+}
+
 export interface ContextCompressionReport {
   readonly beforeTokens: number;
   readonly afterTokens: number;
   readonly tokenDelta: number;
   readonly reductionRatio: number;
+  readonly trigger: ContextCompressionTrigger;
   readonly operations: readonly ContextCompressionOperationSummary[];
   readonly durationMs: number;
 }
@@ -23,6 +30,7 @@ export type ContextProgressEvent =
       readonly modelCallId: string;
       readonly beforeTokens: number;
       readonly startedKind: ContextCompressionKind;
+      readonly trigger: ContextCompressionTrigger;
     }
   | {
       readonly type: "compression_completed";
@@ -43,6 +51,6 @@ export interface ContextProgressSinkPort {
 }
 
 export interface ContextCompressionReporterPort {
-  begin(kind: ContextCompressionKind): void;
+  begin(kind: ContextCompressionKind, trigger: ContextCompressionTrigger): void;
   record(operation: ContextCompressionOperationSummary): void;
 }

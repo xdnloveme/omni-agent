@@ -19,7 +19,10 @@ export interface RuntimeModelSelection {
   requestModelId?: string;
   settings?: Record<string, JsonValue>;
   contextWindow: number;
-  maxOutputTokens: number;
+  /** Maximum output capacity advertised by the selected model. */
+  modelMaxOutputTokens: number;
+  /** Output tokens reserved and requested for ordinary primary calls. */
+  requestedOutputTokens: number;
   requestHeaders?: Record<string, string | null>;
   thinkingHistoryPolicy?: ThinkingHistoryPolicy;
 }

@@ -4,6 +4,7 @@ import type {
   ContextCompressionKind,
   ContextCompressionOperationSummary,
   ContextCompressionReporterPort,
+  ContextCompressionTrigger,
   ContextProgressSinkPort,
 } from "../contracts/progress";
 import type { ContextTokenEstimate } from "../contracts/types";
@@ -12,6 +13,7 @@ export class ContextCompressionProgressCollector implements ContextCompressionRe
   private compressionId: string | undefined;
   private beforeTokens = 0;
   private startedAt = 0;
+  private trigger: ContextCompressionTrigger | undefined;
   private closed = false;
   private readonly operations: ContextCompressionOperationSummary[] = [];
 
@@ -23,27 +25,30 @@ export class ContextCompressionProgressCollector implements ContextCompressionRe
     private readonly createId: () => string = randomUUID,
   ) {}
 
-  begin(kind: ContextCompressionKind): void {
+  begin(kind: ContextCompressionKind, trigger: ContextCompressionTrigger): void {
     if (this.closed || this.compressionId) return;
     this.compressionId = this.createId();
     this.beforeTokens = this.initialEstimate.totalInputTokens;
     this.startedAt = this.now();
+    this.trigger = { ...trigger };
     this.publish({
       type: "compression_started",
       compressionId: this.compressionId,
       modelCallId: this.modelCallId,
       beforeTokens: this.beforeTokens,
       startedKind: kind,
+      trigger: { ...trigger },
     });
   }
 
   record(operation: ContextCompressionOperationSummary): void {
-    if (!this.compressionId || this.closed) return;
+    if (!this.compressionId || !this.trigger || this.closed) return;
     this.operations.push({ ...operation });
   }
 
   complete(estimate: ContextTokenEstimate): void {
-    if (!this.compressionId || this.closed) return;
+    if (!this.compressionId || !this.trigger || this.closed) return;
+    const trigger = this.trigger;
     this.closed = true;
     const afterTokens = estimate.totalInputTokens;
     const tokenDelta = this.beforeTokens - afterTokens;
@@ -56,6 +61,7 @@ export class ContextCompressionProgressCollector implements ContextCompressionRe
         afterTokens,
         tokenDelta,
         reductionRatio: this.beforeTokens > 0 ? tokenDelta / this.beforeTokens : 0,
+        trigger: { ...trigger },
         operations: this.operations.map((operation) => ({ ...operation })),
         durationMs: Math.max(0, this.now() - this.startedAt),
       },

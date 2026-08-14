@@ -67,7 +67,12 @@ function frame(messages: TranscriptMessage[], contextWindow = 600) {
     systemPrompt: "system",
     messages,
     tools: [],
-    model: { modelId: "model", contextWindow, maxOutputTokens: 100 },
+    model: {
+      modelId: "model",
+      contextWindow,
+      modelMaxOutputTokens: 100,
+      requestedOutputTokens: 100,
+    },
   });
 }
 
@@ -133,7 +138,12 @@ describe("Context policy pipeline", () => {
       systemPrompt: "a",
       messages: [{ role: "user", content: "b", timestamp: 1 }],
       tools: [],
-      model: { modelId: "model", contextWindow: 100, maxOutputTokens: 10 },
+      model: {
+        modelId: "model",
+        contextWindow: 100,
+        modelMaxOutputTokens: 10,
+        requestedOutputTokens: 10,
+      },
     });
 
     expect(estimator.estimate(source).totalInputTokens).toBe(6);
@@ -157,6 +167,25 @@ describe("Context policy pipeline", () => {
     expect(shouldAdvanceMicroCompression(ordinary)).toBe(true);
     expect(shouldAdvanceMicroCompression({ ...ordinary, totalInputTokens: 59_000 })).toBe(false);
     expect(microCompressionThreshold({ ...ordinary, usableInputBudget: 600_000 })).toBe(300_000);
+  });
+
+  it("reserves the requested output budget instead of the model output capacity", () => {
+    const estimator = new ApproximateContextTokenEstimator();
+    const source = createContextFrame({
+      systemPrompt: "system",
+      messages: [],
+      tools: [],
+      model: {
+        modelId: "large-output-model",
+        contextWindow: 200_000,
+        modelMaxOutputTokens: 128_000,
+        requestedOutputTokens: 16_000,
+      },
+    });
+
+    const estimate = estimator.estimate(source);
+    expect(estimate.usableInputBudget).toBe(184_000);
+    expect(microCompressionThreshold(estimate)).toBe(138_000);
   });
 
   it("keeps an assistant tool call and its result in the same partition group", () => {
@@ -186,7 +215,12 @@ describe("Context policy pipeline", () => {
         { role: "user", content: "continue", timestamp: 4 },
       ],
       tools: [],
-      model: { modelId: "model", contextWindow: 1_000, maxOutputTokens: 100 },
+      model: {
+        modelId: "model",
+        contextWindow: 1_000,
+        modelMaxOutputTokens: 100,
+        requestedOutputTokens: 100,
+      },
     });
     const firstTurnCost = source.entries
       .slice(0, 3)
@@ -370,7 +404,11 @@ describe("StableMicroCompressionStage", () => {
 
     expect(projections.commit).toHaveBeenCalledOnce();
     expect(projections.artifacts).toHaveLength(2);
-    expect(begin).toHaveBeenCalledWith("artifact_projection");
+    expect(begin).toHaveBeenCalledWith("artifact_projection", {
+      inputTokens: 75_047,
+      usableInputBudget: 99_900,
+      thresholdTokens: 59_900,
+    });
     expect(record).toHaveBeenCalledWith({ kind: "artifact_projection", affectedCount: 2 });
     expect(result.frame.entries.map((entry) => entry.kind)).toEqual([
       "toolResultArtifact",

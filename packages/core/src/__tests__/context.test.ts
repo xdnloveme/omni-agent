@@ -90,7 +90,12 @@ function request(middleware: readonly ContextMiddlewarePort[] = [], sourceMessag
       conversation: conversation.snapshot(),
       systemPrompt: "system",
       tools: [tool()],
-      model: { modelId: "test-model", contextWindow: 128_000, maxOutputTokens: 4_096 },
+      model: {
+        modelId: "test-model",
+        contextWindow: 128_000,
+        modelMaxOutputTokens: 4_096,
+        requestedOutputTokens: 4_096,
+      },
       middleware,
       progress: { publish() {} },
     }),
@@ -132,7 +137,12 @@ describe("context ownership", () => {
       conversation: working.snapshot(),
       systemPrompt: "system",
       tools: [registeredTool],
-      model: { modelId: "model", contextWindow: 10, maxOutputTokens: 2 },
+      model: {
+        modelId: "model",
+        contextWindow: 10,
+        modelMaxOutputTokens: 2,
+        requestedOutputTokens: 2,
+      },
       middleware: [],
       progress: { publish() {} },
     });

@@ -29,7 +29,7 @@ export interface ModelTransportModel {
   readonly providerId: string;
   readonly baseUrl: string;
   readonly contextWindow: number;
-  readonly maxOutputTokens: number;
+  readonly requestedOutputTokens: number;
 }
 
 export interface ModelTransportRequest {

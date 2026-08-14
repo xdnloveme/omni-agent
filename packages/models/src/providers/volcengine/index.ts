@@ -1,6 +1,7 @@
 import { defineVendor } from "../../vendors/define-vendor";
 import type { CompatibleModelDefinition } from "../custom/types";
 import { compatibleConnection } from "../factories/compatible";
+import { resolveOutputBudget } from "../../vendors/output-budget";
 
 const DEPLOYMENT_SETTING = "deploymentId";
 
@@ -43,7 +44,11 @@ export function createVolcengineVendorPlugin(models: readonly CompatibleModelDef
         requestModelId,
         settings: selection.settings,
         contextWindow: model.contextWindow,
-        maxOutputTokens: model.maxOutputTokens,
+        ...resolveOutputBudget({
+          contextWindow: model.contextWindow,
+          modelMaxOutputTokens: model.maxOutputTokens,
+          requestedOutputTokens: selection.requestedOutputTokens,
+        }),
       };
     },
   });
