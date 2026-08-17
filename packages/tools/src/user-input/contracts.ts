@@ -1,3 +1,5 @@
+import type { InteractionErrorCode } from "@omni-agent/core";
+
 export type UserInputQuestion =
   | {
       readonly id: string;
@@ -28,4 +30,4 @@ export interface RequestUserInputArgs {
   readonly questions: readonly UserInputQuestion[];
 }
 
-export type UserInputErrorCode = "invalid_user_input_request" | "invalid_user_input_response";
+export type UserInputErrorCode = InteractionErrorCode | "invalid_user_input_request";

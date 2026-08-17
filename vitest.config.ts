@@ -7,6 +7,7 @@ export default defineConfig({
       "packages/*/src/**/*.test.ts",
       "packages/core/evals/**/*.test.ts",
       "agents/*/src/**/*.test.ts",
+      "agents/*/evals/**/*.test.ts",
     ],
     exclude: ["packages/*/dist/**", "agents/*/dist/**", "node_modules/**"],
   },

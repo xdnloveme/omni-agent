@@ -7,7 +7,7 @@ export function mapUserInputInteraction(
 ): InteractionRequest {
   return {
     requestId,
-    title: "Clarification needed",
+    title: "Input requested",
     message: args.context,
     dismissLabel: "Skip",
     fields: args.questions.map((question) => {
@@ -31,12 +31,6 @@ export function mapUserInputInteraction(
         allowOther: question.allowOther,
       };
     }),
-    completion: {
-      type: "explicit",
-      actions: [
-        { id: "submit", label: "Submit", tone: "positive" },
-        { id: "skip", label: "Skip" },
-      ],
-    },
+    completion: { type: "on_complete" },
   };
 }

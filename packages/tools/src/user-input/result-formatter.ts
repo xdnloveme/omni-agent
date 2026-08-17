@@ -6,14 +6,14 @@ export function formatUserInputResult(
   response: InteractionResponse,
   waitMs: number,
 ): ToolResult {
-  const skipped = response.kind === "dismissed" || response.actionId === "skip";
+  const skipped = response.kind === "dismissed";
   if (skipped) {
     return {
       isError: false,
       content: [
         {
           type: "text",
-          text: "The user skipped this clarification request.\nContinue with the lowest-impact reasonable assumptions and state them explicitly.",
+          text: "The user skipped this input request.",
         },
       ],
       meta: {
@@ -22,7 +22,7 @@ export function formatUserInputResult(
       },
     };
   }
-  const lines = ["User clarification responses:"];
+  const lines = ["User input responses:"];
   const answers: Record<string, unknown> = {};
   for (const question of args.questions) {
     const value = response.values[question.id];

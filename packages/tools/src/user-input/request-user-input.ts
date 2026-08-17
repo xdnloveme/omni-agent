@@ -9,7 +9,6 @@ import type { RequestUserInputArgs } from "./contracts";
 import { mapUserInputInteraction } from "./interaction-mapper";
 import { createRequestUserInputPreflight } from "./request-user-input-preflight";
 import { requestUserInputSchema } from "./request-user-input-schema";
-import { UserInputResponseError, validateUserInputResponse } from "./response-validator";
 import { formatUserInputResult } from "./result-formatter";
 
 export function createRequestUserInputTool(
@@ -18,7 +17,7 @@ export function createRequestUserInputTool(
   return {
     name: "request_user_input",
     description:
-      "Ask the current user 1 to 3 concise decision questions when missing information would materially change scope, compatibility, risk, or the result. Investigate discoverable facts first. Do not use for ordinary implementation details or runtime permission.",
+      "Collect 1 to 3 structured decision answers from the current user using single-select, multi-select, or text fields. Every predefined option requires a stable id and non-empty user-visible label. Returns submitted answers or a skipped outcome. This tool does not grant authorization.",
     strict: true,
     schema: requestUserInputSchema,
     preflight: createRequestUserInputPreflight(),
@@ -37,20 +36,13 @@ export function createRequestUserInputTool(
       try {
         const response = await interaction.request(request, context.signal);
         validateInteractionResponse(request, response);
-        validateUserInputResponse(args, response);
         return formatUserInputResult(args, response, Math.max(0, Date.now() - startedAt));
       } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") throw error;
-        const code =
-          error instanceof UserInputResponseError
-            ? error.code
-            : error instanceof InteractionError
-              ? error.code
-              : "invalid_user_input_response";
+        if (!(error instanceof InteractionError)) throw error;
         return {
           isError: true,
-          content: [{ type: "text", text: error instanceof Error ? error.message : String(error) }],
-          meta: { code, retryable: code === "interaction_busy" },
+          content: [{ type: "text", text: error.message }],
+          meta: { code: error.code, retryable: error.code === "interaction_busy" },
         };
       }
     },

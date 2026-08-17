@@ -43,6 +43,7 @@ export interface InteractionAction {
 
 export type InteractionCompletion =
   | { readonly type: "on_select"; readonly fieldId: string }
+  | { readonly type: "on_complete" }
   | { readonly type: "explicit"; readonly actions: readonly InteractionAction[] };
 
 export interface InteractionRequest {

@@ -22,18 +22,15 @@ describe("TuiInteractionSurface", () => {
   it("collects single, multiple, Other and text fields in order", async () => {
     let firstSelection: CommandSelectionOptions | undefined;
     const tui = {
-      select: vi
-        .fn()
-        .mockImplementationOnce(async (options) => {
-          firstSelection = options;
-          return { kind: "selected", value: "react" };
-        })
-        .mockResolvedValueOnce({ kind: "selected", value: "submit" }),
+      select: vi.fn().mockImplementationOnce(async (options) => {
+        firstSelection = options;
+        return { kind: "selected", value: "react" };
+      }),
       multiSelect: vi.fn(async (options) => ({
         kind: "selected",
         values: [
           "search",
-          options.items.find((item: { label: string }) => item.label === "Other")!.value,
+          options.items.find((item: { label: string }) => item.label.startsWith("Other"))!.value,
         ],
       })),
       textInput: vi
@@ -72,11 +69,11 @@ describe("TuiInteractionSurface", () => {
       dismissLabel: "Skip",
       status: "awaiting clarification",
       completionStatus: "running",
+      completion: { type: "on_complete" },
     });
 
     expect(response).toMatchObject({
       kind: "completed",
-      actionId: "submit",
       values: {
         framework: { type: "single", optionId: "react" },
         features: { type: "multiple", optionIds: ["search"], otherText: "Export" },
@@ -92,6 +89,48 @@ describe("TuiInteractionSurface", () => {
     });
     expect(tui.setStatus).toHaveBeenNthCalledWith(1, "awaiting clarification");
     expect(tui.setStatus).toHaveBeenLastCalledWith("running");
+    expect(tui.select).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens custom input directly after selecting Other and completes without an action menu", async () => {
+    const tui = {
+      select: vi.fn(async (options: CommandSelectionOptions) => ({
+        kind: "selected",
+        value: options.items.find((item) => item.label.startsWith("Other"))!.value,
+      })),
+      textInput: vi.fn(async () => ({ kind: "submitted", text: "Use SolidJS" })),
+      setStatus: vi.fn(),
+    } as unknown as OmniTui;
+    const surface = new TuiInteractionSurface(tui);
+
+    await expect(
+      surface.request({
+        ...request([
+          {
+            type: "single",
+            id: "framework",
+            label: "Framework",
+            allowOther: true,
+            options: [
+              { id: "react", label: "React" },
+              { id: "vue", label: "Vue" },
+            ],
+          },
+        ]),
+        completion: { type: "on_complete" },
+      }),
+    ).resolves.toMatchObject({
+      kind: "completed",
+      values: { framework: { type: "single", otherText: "Use SolidJS" } },
+    });
+    expect(tui.select).toHaveBeenCalledTimes(1);
+    expect(tui.textInput).toHaveBeenCalledWith(
+      expect.objectContaining({
+        title: "Framework — Custom answer",
+        acceptsEmpty: false,
+      }),
+      expect.any(AbortSignal),
+    );
   });
 
   it("dismisses on Escape", async () => {

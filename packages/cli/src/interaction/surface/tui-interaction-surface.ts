@@ -40,6 +40,13 @@ export class TuiInteractionSurface implements InteractionSurfacePort {
           });
         }
       }
+      if (request.completion.type === "on_complete") {
+        return this.validated(request, {
+          requestId: request.requestId,
+          kind: "completed",
+          values,
+        });
+      }
       if (request.completion.type !== "explicit") {
         throw new InteractionError(
           "invalid_interaction_request",
@@ -91,7 +98,11 @@ export class TuiInteractionSurface implements InteractionSurfacePort {
     if (field.type === "text") {
       const presentation = this.fieldPresentation(request, field, first);
       const result = await this.tui.textInput(
-        { ...presentation, placeholder: field.placeholder },
+        {
+          ...presentation,
+          placeholder: field.placeholder,
+          acceptsEmpty: field.required !== true,
+        },
         signal,
       );
       if (result.kind === "abort" || result.kind === "shutdown") this.terminate(result);
@@ -110,7 +121,16 @@ export class TuiInteractionSurface implements InteractionSurfacePort {
         tone: option.tone,
       })),
       ...(otherValue
-        ? [{ value: otherValue, label: "Other", description: "Enter a custom answer" }]
+        ? [
+            {
+              value: otherValue,
+              label: "Other…",
+              description:
+                field.type === "multiple"
+                  ? "Space to select, then Enter to type"
+                  : "Press Enter to type a custom answer",
+            },
+          ]
         : []),
     ];
     const presentation = this.fieldPresentation(request, field, first);
@@ -124,7 +144,7 @@ export class TuiInteractionSurface implements InteractionSurfacePort {
       if (result.value !== otherValue) {
         return { kind: "completed", value: { type: "single", optionId: result.value } };
       }
-      const otherText = await this.collectOtherText(field.label, signal);
+      const otherText = await this.collectOtherText(field.label, request.dismissLabel, signal);
       if (otherText.kind === "dismissed") return this.dismissed(request);
       return { kind: "completed", value: { type: "single", otherText: otherText.text } };
     }
@@ -132,12 +152,13 @@ export class TuiInteractionSurface implements InteractionSurfacePort {
     const result = await this.tui.multiSelect({ ...presentation, items }, signal);
     if (result.kind === "abort" || result.kind === "shutdown") this.terminate(result);
     if (result.kind === "escape") return this.dismissed(request);
+    if (field.required && result.values.length === 0) return this.dismissed(request);
     const wantsOther = otherValue !== undefined && result.values.includes(otherValue);
     const optionIds = result.values.filter((value) => value !== otherValue);
     if (!wantsOther) {
       return { kind: "completed", value: { type: "multiple", optionIds } };
     }
-    const otherText = await this.collectOtherText(field.label, signal);
+    const otherText = await this.collectOtherText(field.label, request.dismissLabel, signal);
     if (otherText.kind === "dismissed") return this.dismissed(request);
     return {
       kind: "completed",
@@ -145,8 +166,20 @@ export class TuiInteractionSurface implements InteractionSurfacePort {
     };
   }
 
-  private async collectOtherText(label: string, signal: AbortSignal) {
-    const result = await this.tui.textInput({ title: `${label} — Other` }, signal);
+  private async collectOtherText(
+    label: string,
+    dismissLabel: string | undefined,
+    signal: AbortSignal,
+  ) {
+    const result = await this.tui.textInput(
+      {
+        title: `${label} — Custom answer`,
+        placeholder: "Type a custom answer and press Enter",
+        dismissLabel,
+        acceptsEmpty: false,
+      },
+      signal,
+    );
     if (result.kind === "abort" || result.kind === "shutdown") this.terminate(result);
     if (result.kind === "escape") return { kind: "dismissed" as const };
     return { kind: "completed" as const, text: result.text };

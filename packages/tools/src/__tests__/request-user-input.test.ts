@@ -36,7 +36,6 @@ describe("request_user_input", () => {
       return {
         requestId: request.requestId,
         kind: "completed",
-        actionId: "submit",
         values: {
           framework: { type: "single", optionId: "react" },
           features: { type: "multiple", optionIds: ["search"], otherText: "Export" },
@@ -74,49 +73,46 @@ describe("request_user_input", () => {
     );
 
     expect(captured?.fields.map((field) => field.type)).toEqual(["single", "multiple", "text"]);
+    expect(captured?.title).toBe("Input requested");
+    expect(captured?.completion).toEqual({ type: "on_complete" });
     expect(result.isError).toBe(false);
+    expect(result.content[0]?.text).toContain("User input responses:");
     expect(result.content[0]?.text).toContain("[framework] Framework: React");
     expect(result.content[0]?.text).toContain("Search, Export");
     expect(result.meta?.interaction).toMatchObject({ outcome: "submitted" });
   });
 
-  it("treats Skip and dismiss as successful clarification outcomes", async () => {
-    for (const kind of ["skip", "dismissed"] as const) {
-      const surface = new ScriptedInteractionSurface();
-      surface.enqueue((request) =>
-        kind === "dismissed"
-          ? { requestId: request.requestId, kind: "dismissed", values: {} }
-          : {
-              requestId: request.requestId,
-              kind: "completed",
-              actionId: "skip",
-              values: {},
-            },
-      );
-      const result = await createRequestUserInputTool(surface).execute(
-        {
-          questions: [
-            {
-              id: "choice",
-              question: "Choice",
-              type: "single",
-              options: [
-                { id: "a", label: "A" },
-                { id: "b", label: "B" },
-              ],
-            },
-          ],
-        },
-        { cwd: process.cwd() },
-      );
-      expect(result).toMatchObject({
-        isError: false,
-        meta: { interaction: { outcome: "skipped" } },
-      });
-    }
+  it("treats Escape as a successful skipped input outcome", async () => {
+    const surface = new ScriptedInteractionSurface();
+    surface.enqueue((request) => ({
+      requestId: request.requestId,
+      kind: "dismissed",
+      values: {},
+    }));
+    const result = await createRequestUserInputTool(surface).execute(
+      {
+        questions: [
+          {
+            id: "choice",
+            question: "Choice",
+            type: "single",
+            options: [
+              { id: "a", label: "A" },
+              { id: "b", label: "B" },
+            ],
+          },
+        ],
+      },
+      { cwd: process.cwd() },
+    );
+    expect(result).toMatchObject({
+      isError: false,
+      content: [{ type: "text", text: "The user skipped this input request." }],
+      meta: { interaction: { outcome: "skipped" } },
+    });
   });
 
-  it("returns structured errors for unavailable and invalid responses but propagates Abort", async () => {
+  it("structures interaction errors but propagates Abort and unexpected failures", async () => {
     const unavailable = createRequestUserInputTool({
       request: vi.fn(async () => {
         throw new InteractionError("interaction_unavailable", "unavailable");
@@ -152,17 +148,16 @@ describe("request_user_input", () => {
       meta: { code: "invalid_interaction_response" },
     });
 
-    const invalidBusinessResponse = createRequestUserInputTool({
+    const invalidInteractionResponse = createRequestUserInputTool({
       request: vi.fn(async (request: InteractionRequest) => ({
         requestId: request.requestId,
         kind: "completed" as const,
-        actionId: "submit",
-        values: {},
+        values: { choice: { type: "single" as const } },
       })),
     });
-    expect(await invalidBusinessResponse.execute(args, { cwd: process.cwd() })).toMatchObject({
+    expect(await invalidInteractionResponse.execute(args, { cwd: process.cwd() })).toMatchObject({
       isError: true,
-      meta: { code: "invalid_user_input_response" },
+      meta: { code: "invalid_interaction_response" },
     });
 
     const aborted = createRequestUserInputTool({
@@ -173,5 +168,12 @@ describe("request_user_input", () => {
     await expect(aborted.execute(args, { cwd: process.cwd() })).rejects.toMatchObject({
       name: "AbortError",
     });
+
+    const failed = createRequestUserInputTool({
+      request: vi.fn(async () => {
+        throw new Error("surface failed");
+      }),
+    });
+    await expect(failed.execute(args, { cwd: process.cwd() })).rejects.toThrow("surface failed");
   });
 });

@@ -28,6 +28,7 @@ import {
 } from "@omni-agent/core";
 import { InlineSelect } from "./inline-select";
 import { InlineMultiSelect, type MultiSelectOptions } from "./inline-multi-select";
+import { InlineTextInput, type InlineTextInputOptions } from "./inline-text-input";
 import { MarkdownMessage } from "./markdown-message";
 import { DisclosureMessage, disclosureUrl } from "./disclosure-message";
 import type {
@@ -119,14 +120,7 @@ export type TuiMultiSelectResult =
   | { readonly kind: "abort"; readonly error: Error }
   | { readonly kind: "shutdown"; readonly error: Error };
 
-export interface TuiTextInputOptions {
-  readonly title: string;
-  readonly detail?: string;
-  readonly message?: string;
-  readonly tone?: "default" | "warning" | "danger";
-  readonly placeholder?: string;
-  readonly dismissLabel?: string;
-}
+export type TuiTextInputOptions = InlineTextInputOptions;
 
 export type TuiTextInputResult =
   | { readonly kind: "submitted"; readonly text: string }
@@ -179,7 +173,6 @@ export function createOmniTui(options: TuiOptions): OmniTui {
   let resolveDone: ((termination: TuiTermination) => void) | null = null;
   let sigtermListener: (() => void) | null = null;
   let onSubmitCallback: ((input: string) => void | Promise<void>) | null = null;
-  let acceptsEmptySubmit = false;
   let onInterruptCallback: (() => boolean) | null = null;
   let activeControl: {
     abort(error: Error): void;
@@ -403,7 +396,7 @@ export function createOmniTui(options: TuiOptions): OmniTui {
 
   editor.onSubmit = (raw: string) => {
     const input = raw.trim();
-    if (!input && !acceptsEmptySubmit) return;
+    if (!input) return;
     if (onSubmitCallback) {
       void Promise.resolve(onSubmitCallback(input)).catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -652,36 +645,23 @@ export function createOmniTui(options: TuiOptions): OmniTui {
   ): Promise<TuiTextInputResult> {
     if (activeControl) return Promise.reject(new Error("An interaction is already active"));
     if (signal?.aborted) return Promise.resolve({ kind: "abort", error: createAbortError(signal) });
-    if (options.tone === "danger") sink.line(chalk.bold.red("⛔ HIGH-RISK ACTION REQUIRED"));
-    else if (options.tone === "warning") sink.line(chalk.bold.yellow("⚠ ACTION REQUIRED"));
-    const titleStyle =
-      options.tone === "danger"
-        ? chalk.red
-        : options.tone === "warning"
-          ? chalk.yellow
-          : (value: string) => value;
-    sink.line(titleStyle(chalk.bold(options.title)));
-    if (options.detail) sink.line(chalk.dim(options.detail));
-    if (options.message) sink.line(options.message);
-    if (options.placeholder) sink.line(chalk.dim(`Hint: ${options.placeholder}`));
-    sink.line(chalk.dim(`Esc to ${options.dismissLabel ?? "cancel"}`));
-    const previousSubmit = onSubmitCallback;
-    const previousAcceptsEmpty = acceptsEmptySubmit;
+    sink.line();
+    const input = new InlineTextInput(options);
+    messageBody.addChild(input);
+    messageBody.addChild(new Spacer(1));
     return runActiveControl<TuiTextInputResult>({
       signal,
       abort: (error) => ({ kind: "abort", error }),
       shutdown: (error) => ({ kind: "shutdown", error }),
       escape: () => ({ kind: "escape" }),
       start(finish) {
-        onSubmitCallback = (text) => finish({ kind: "submitted", text });
-        acceptsEmptySubmit = true;
-        ui.setFocus(editor);
+        input.onSubmit = (text) => finish({ kind: "submitted", text });
+        input.onCancel = () => finish({ kind: "escape" });
+        ui.setFocus(input);
         ui.requestRender(true);
       },
-      cleanup() {
-        onSubmitCallback = previousSubmit;
-        acceptsEmptySubmit = previousAcceptsEmpty;
-        editor.setText("");
+      cleanup(result) {
+        input.complete(result.kind === "submitted" ? result.text : undefined);
         restoreEditorFocus();
       },
     });

@@ -198,14 +198,18 @@ it prevents permission prompts and side effects based on assumptions that the ba
 result may change. Core selects the policy from registered metadata and never checks a
 concrete tool name.
 
-### User clarification tool
+### Structured user-input tool
 
 `request_user_input` is a trusted host tool with no timeout, `turn_barrier` scheduling,
 and `conversation` retention. Its JSON Schema accepts one to three single-select,
 multi-select, or text questions. Domain preflight rejects duplicate or blank IDs,
 invalid option combinations, and invalid Other usage before UI presentation. The tool
-maps the response back to a normal `ToolResult`; Submit enforces required answers, while
-Skip and Escape succeed with guidance to use the lowest-impact explicit assumptions.
+maps the response back to a neutral `ToolResult`; field completion submits without a second
+action menu, while Escape returns a skipped outcome. Single-select confirms with Enter.
+Multi-select uses Space to toggle choices and Enter to confirm; choosing Other then opens
+text input. Submitting an empty required multi-select is treated as skipping the input request.
+Each Agent owns the business policy for when to request input, how to construct domain-specific
+questions, and how to proceed after a skipped outcome.
 
 Direct clarification answers are authoritative refinements of the current task. They
 cannot broaden the original scope, grant permissions, or bypass `PermissionGate`.
