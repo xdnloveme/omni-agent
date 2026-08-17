@@ -206,7 +206,7 @@ rebuildable.
 Storage is physically co-located with Sessions but logically isolated:
 
 ```text
-~/.omni-agent/sessions/<agentId>/
+~/.omni-agent/workspaces/<workspaceId>/sessions/<agentId>/
 ├── index.json
 ├── <sessionId>.jsonl
 └── context/
@@ -214,20 +214,24 @@ Storage is physically co-located with Sessions but logically isolated:
     └── <sessionId>/
         ├── checkpoints.json
         ├── projections.json
+        ├── cache-lease.json
         └── artifacts/toolResults/<artifactId>.txt
 ```
 
-The Session Repository knows nothing about Context files. Dedicated checkpoint and
-projection repositories use a Context-only layout and own only their individual data.
-Checkpoint writes use the shared interprocess lock and atomic JSON replacement. Inside
+The Session Repository knows nothing about sidecar files. Dedicated checkpoint and
+projection repositories own their individual Context data; the App Models cache layer owns
+`cache-lease.json`. They share the same sidecar layout and per-Session lock without sharing
+schemas or domain logic. Checkpoint writes use the shared interprocess lock and atomic JSON
+replacement. Inside
 that lock the repository validates SHA-256 digests, timestamps, non-negative counts,
 record identity, parent existence, strictly increasing coverage, idempotent duplicates,
 and conflicting IDs. A
-separate `ContextSidecarLifecycle` exclusively owns deletion of the whole Session Context
-directory, so neither repository can erase the other's state. The shared per-Session
-lock lives outside the deletable directory and remains held for the complete cleanup. A corrupt sidecar is
-quarantined and derived state restarts from the Transcript. `/new` naturally selects a
-new directory; Session clear is orchestrated by the Application through that lifecycle.
+separate `ContextSidecarLifecycle` exclusively owns deletion of the whole Session sidecar
+directory, so individual repositories cannot erase one another's state. The shared
+per-Session lock lives outside the deletable directory and remains held for the complete
+cleanup. A corrupt sidecar is quarantined and derived state restarts from the Transcript.
+`/new` naturally selects a new directory; Session clear is orchestrated by the Application
+through that lifecycle.
 
 This shape follows the common semantic separation used by checkpoint systems. Session
 JSONL is a strict stream of typed Transcript and Environment records; derived Context state

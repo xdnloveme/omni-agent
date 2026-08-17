@@ -109,6 +109,10 @@ stable scope, semantic fingerprints, lifecycle classification, and usage observa
 It does not persist prompt bodies or treat Session JSONL as a cache store.
 
 ```text
+Session resume
+  -> App ModelCacheLeaseRepository
+  -> CacheAwareModelRuntime hydrate
+
 PreparedModelContext
   -> CacheAwareModelRuntime
        -> capability resolution
@@ -116,9 +120,12 @@ PreparedModelContext
        -> semantic request fingerprint
        -> bounded in-memory state
        -> concrete ModelRuntime
-  -> App cache-lease sidecar (successful digest baseline only)
   -> pi-ai Provider adapter
   -> remote Provider prompt cache
+
+Successful primary cache report
+  -> App ModelCacheLeaseController
+  -> cache-lease.json
 ```
 
 `CacheAwareModelRuntime` decorates the transport runtime at the App composition
@@ -131,10 +138,11 @@ decorator can emit `cache_report`; the inner transport event contract excludes i
 
 Cache state contains only SHA-256 digests, applied retention, and known expiry. It is
 bounded to 256 scopes and is cleared with the Models runtime. App persists at most one
-successful baseline per Session in the existing Context sidecar directory, without changing
-Session JSONL; missing, corrupt, or expired state degrades to `cold`. Lifecycle classification is deterministic:
-incompatible request semantics, known expiry, static-prefix rebase, append-only history,
-last-message replacement, whole-history rebase, then other prefix rewrites.
+successful primary baseline per Session in the existing Context sidecar directory, without
+changing Session JSONL; missing, corrupt, or expired state degrades to `cold`. Lifecycle
+classification is deterministic: incompatible request semantics, known expiry, static-prefix
+rebase, append-only history, last-message replacement, whole-history rebase, then other prefix
+rewrites.
 
 Primary model calls request short retention by default. Auxiliary calls are cache-disabled
 unless they explicitly request a supported retention. Unknown custom transports are
@@ -436,8 +444,11 @@ summary, or Full History fallback.
 Session JSONL remains the sole transcript source of truth. Context state is physically
 co-located but logically isolated under
 `workspaces/<workspaceId>/sessions/<agentId>/context/<sessionId>/`: `checkpoints.json` stores the parent-linked
-checkpoint chain and `artifacts/toolResults/` stores content-addressed large tool results.
-Dedicated repositories own only their own schemas and cannot clear one another's data.
+checkpoint chain, `projections.json` stores derived Context projections, `cache-lease.json`
+stores the latest successful primary model-cache baseline, and `artifacts/toolResults/`
+stores content-addressed large tool results. Context owns checkpoints, projections, and
+artifacts; the App Models cache layer owns the cache lease. Dedicated repositories own only
+their own schemas and cannot clear one another's data.
 `ContextSidecarLifecycle` is the single owner of whole-Session Context cleanup. Corrupt
 sidecars are quarantined and rebuilt from the Transcript. Its shared Session lock lives
 outside the deletable sidecar directory, so cleanup remains mutually exclusive until it

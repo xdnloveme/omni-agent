@@ -22,7 +22,8 @@ export interface SessionEntry {
 }
 
 /**
- * The index file structure stored at ~/.omni-agent/sessions/<agent-id>/index.json.
+ * The Session index persisted at `<sessionsRoot>/<agentId>/index.json`.
+ * The repository caller supplies `sessionsRoot`.
  */
 export interface SessionIndex {
   sessions: SessionEntry[];

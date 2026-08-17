@@ -66,19 +66,17 @@ The runtime compares the previous successful fingerprint in a fixed order and re
 `prefix_rewritten`. Provider `cacheRead` and `cacheWrite` usage is observational evidence
 and never changes the deterministic classification.
 
-Only successful cache-enabled calls replace state. Failed and cancelled calls emit a
-report without destroying the previous baseline. The LRU stores at most 256 small entries
-containing digests, applied retention, and known expiry; it lazily removes known-expired
-entries and clears on runtime disposal. It never stores request bodies, credentials, or raw
-headers.
+Only successful primary cache-enabled calls replace state. Failed, cancelled, and auxiliary
+calls do not destroy the previous baseline. The LRU stores at most 256 small entries containing
+digests, applied retention, and known expiry; it lazily removes known-expired entries and
+clears on runtime disposal. It never stores request bodies, credentials, or raw headers.
 
-After each successful cache-enabled call, App atomically writes only the latest lease for
-that Session to
-`<sessionsRoot>/<agentId>/context/<sessionId>/cache-lease.json`. Resume hydrates this
-baseline before the Context rewrite guard is created. The sidecar reuses the Context lock,
-corrupt-file quarantine, and clear lifecycle. Missing, invalid, expired, or unreadable
-state degrades to `cold`; persistence errors are diagnostic-only. The snapshot contains
-only `scopeId`, semantic fingerprint digests, retention, and optional `expiresAt`.
+After each successful primary cache-enabled call, App atomically writes only the latest lease
+for that Session to `<sessionsRoot>/<agentId>/context/<sessionId>/cache-lease.json`. Resume
+hydrates this baseline before the Context rewrite guard is created. The sidecar reuses the
+Context lock, corrupt-file quarantine, and clear lifecycle. Missing, invalid, expired, or
+unreadable state degrades to `cold`; persistence errors are diagnostic-only. The snapshot
+contains only `scopeId`, semantic fingerprint digests, retention, and optional `expiresAt`.
 
 The fingerprint, LRU entry, Provider cache DTO, and inner transport event/options are
 Models implementation details. The transport event contract excludes cache reports, so
