@@ -83,8 +83,13 @@ export interface SlashCommand {
   description: string;
 }
 
+export type TuiTermination =
+  | { readonly kind: "completed" }
+  | { readonly kind: "user_interrupt" }
+  | { readonly kind: "signal"; readonly signal: "SIGTERM" };
+
 export interface OmniTui {
-  start(): Promise<void>;
+  start(): Promise<TuiTermination>;
   sink: TuiSink;
   appendUserMessage(text: string): void;
   setSessionHistory(
@@ -105,7 +110,11 @@ export interface OmniTui {
   shutdown(): void;
 }
 
-export function createOmniTui(): OmniTui {
+export interface TuiOptions {
+  readonly workspaceRoot: string;
+}
+
+export function createOmniTui(options: TuiOptions): OmniTui {
   const internalLinks = new Map<string, () => void>();
   const terminal = new ProcessTerminal();
   const ui = new TuiAltScreen(terminal, true, undefined, {
@@ -143,7 +152,7 @@ export function createOmniTui(): OmniTui {
   ui.setFocus(editor);
 
   let closed = false;
-  let resolveDone: (() => void) | null = null;
+  let resolveDone: ((termination: TuiTermination) => void) | null = null;
   let sigtermListener: (() => void) | null = null;
   let onSubmitCallback: ((input: string) => void | Promise<void>) | null = null;
   let onInterruptCallback: (() => boolean) | null = null;
@@ -175,7 +184,7 @@ export function createOmniTui(): OmniTui {
       description: cmd.description,
     }));
     editor.setAutocompleteProvider(
-      new CombinedAutocompleteProvider(providerCommands, process.cwd()),
+      new CombinedAutocompleteProvider(providerCommands, options.workspaceRoot),
     );
   }
 
@@ -345,7 +354,7 @@ export function createOmniTui(): OmniTui {
 
     // Exit confirmation
     if (exitPending) {
-      shutdown();
+      shutdown({ kind: "user_interrupt" });
     } else {
       exitPending = true;
       statusLine.setText(chalk.dim("[press Ctrl+C again to exit]"));
@@ -496,7 +505,7 @@ export function createOmniTui(): OmniTui {
     ui.requestRender(true);
   }
 
-  function shutdown() {
+  function shutdown(termination: TuiTermination = { kind: "completed" }) {
     if (closed) return;
     closed = true;
     if (exitTimer) clearTimeout(exitTimer);
@@ -513,16 +522,18 @@ export function createOmniTui(): OmniTui {
     onInterruptCallback?.();
     activeSelection?.finish({ kind: "shutdown", error: createAbortError() });
     ui.stop();
-    resolveDone?.();
+    resolveDone?.(termination);
   }
 
-  async function start(): Promise<void> {
+  async function start(): Promise<TuiTermination> {
     statusLine.setText(chalk.dim("omni-agent | Ctrl+C to exit"));
-    ui.start();
-    await new Promise<void>((resolve) => {
+    return new Promise<TuiTermination>((resolve) => {
       resolveDone = resolve;
-      sigtermListener = () => shutdown();
+      sigtermListener = () => shutdown({ kind: "signal", signal: "SIGTERM" });
       process.once("SIGTERM", sigtermListener);
+      ui.start();
+      // Starting the TUI commits all pre-start view updates as one deterministic initial frame.
+      ui.renderNow(true);
     });
   }
 

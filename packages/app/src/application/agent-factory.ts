@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import {
   AgentSessionRepository,
   isAgentId,
@@ -27,6 +27,7 @@ import { createPermissionRuntime } from "../permissions/create-permission-runtim
 import { ToolRegistry } from "../registry/tool-registry";
 import { createContextRuntime } from "../context/contextRuntime";
 import { NodeRuntimeEnvironmentProvider } from "../environment";
+import { WorkspaceStorageLayout, type WorkspaceContext } from "../workspaces/index";
 
 export interface SkillCapability {
   readonly runtime: SkillRuntime;
@@ -60,7 +61,7 @@ export interface AgentInstance {
 }
 
 export interface AgentFactoryOptions {
-  readonly cwd?: string;
+  readonly workspace: WorkspaceContext;
   readonly workspaceRoots?: readonly string[];
   readonly environmentProvider?: RuntimeEnvironmentProviderPort;
   readonly globalDirectory?: string;
@@ -78,7 +79,7 @@ export class AgentFactory {
   private readonly globalDirectory: string;
 
   constructor(private readonly options: AgentFactoryOptions) {
-    this.cwd = options.cwd ?? process.cwd();
+    this.cwd = options.workspace.root;
     this.globalDirectory = options.globalDirectory ?? join(homedir(), ".omni-agent");
   }
 
@@ -126,7 +127,9 @@ export class AgentFactory {
         maxTurns: contribution.definition.maxTurns,
         toolLifecycleAdapters: module.capabilities.skills?.runtime.lifecycleAdapters(),
       };
-      const sessionsRoot = join(this.globalDirectory, "sessions");
+      const workspaceStorage = new WorkspaceStorageLayout(this.globalDirectory);
+      await workspaceStorage.ensureInitialized(this.options.workspace);
+      const sessionsRoot = workspaceStorage.sessionsRoot(this.options.workspace.id);
       const { contextEngine, contextStorage } = createContextRuntime({
         agentId: blueprint.id,
         sessionsRoot,
@@ -169,7 +172,7 @@ export class AgentFactory {
         this.options.environmentProvider ??
           new NodeRuntimeEnvironmentProvider({
             cwd: this.cwd,
-            workspaceRoots: this.options.workspaceRoots,
+            workspaceRoots: normalizeWorkspaceRoots(this.cwd, this.options.workspaceRoots),
           }),
       );
       const application = new AgentApplication({
@@ -208,6 +211,18 @@ export class AgentFactory {
       throw error;
     }
   }
+}
+
+function normalizeWorkspaceRoots(
+  workspaceRoot: string,
+  additionalRoots: readonly string[] | undefined,
+): readonly string[] {
+  return [
+    ...new Set([
+      resolve(workspaceRoot),
+      ...(additionalRoots ?? []).map((root) => resolve(workspaceRoot, root)),
+    ]),
+  ];
 }
 
 export class AgentModelNotConfiguredError extends Error {

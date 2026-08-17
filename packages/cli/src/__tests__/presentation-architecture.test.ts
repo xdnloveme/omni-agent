@@ -61,8 +61,8 @@ describe("stream presentation architecture", () => {
       productionFiles.map(async (file) => ({ file, source: await readFile(file, "utf8") })),
     );
     const combined = sources.map(({ source }) => source).join("\n");
-    const chat = await readFile(
-      join(repositoryRoot, "packages", "cli", "src", "modes", "chat.ts"),
+    const runMode = await readFile(
+      join(repositoryRoot, "packages", "cli", "src", "modes", "run.ts"),
       "utf8",
     );
     const agentLoop = await readFile(
@@ -70,7 +70,9 @@ describe("stream presentation architecture", () => {
       "utf8",
     );
 
-    expect(chat).not.toMatch(/SKILL_TOOL_NAME|shouldSuppressToolPreview|agentConfig\.systemPrompt/);
+    expect(runMode).not.toMatch(
+      /SKILL_TOOL_NAME|shouldSuppressToolPreview|agentConfig\.systemPrompt/,
+    );
     expect(agentLoop).not.toMatch(
       /file_read|skill_read|artifact_projection|skill_projection|thinking_projection|heavy_checkpoint|cacheHitRate/,
     );

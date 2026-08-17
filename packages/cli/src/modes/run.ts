@@ -1,7 +1,12 @@
 import chalk from "chalk";
 
 import type { CommandInteractionPort } from "@omni-agent/core";
-import { AgentFactory, ConfigService, createModelService } from "@omni-agent/app";
+import {
+  AgentFactory,
+  ConfigService,
+  createModelService,
+  resolveWorkspaceContext,
+} from "@omni-agent/app";
 import { loadAgentBlueprint } from "../agents/agent-blueprint-loader";
 import { createOmniTui } from "../interaction/tui/tui";
 import { persistOnboardingSelection, runOnboarding } from "../onboarding";
@@ -11,17 +16,20 @@ import { TuiApprovalBroker } from "../permissions/tui-approval-broker";
 import { SkillStreamPresenter } from "../presentation/skill-stream-presenter";
 import { StreamPresentationRouter } from "../presentation/stream-presentation-router";
 import { TranscriptHistoryPresenter } from "../presentation/transcript-history-presenter";
+import type { TuiTermination } from "../interaction/tui/tui";
 
 const INITIAL_HISTORY_TURNS = 10;
 
-export async function runChatMode(agentId: string): Promise<void> {
-  const configService = new ConfigService();
+export async function runAgentMode(agentId: string): Promise<TuiTermination> {
+  const workspace = await resolveWorkspaceContext(process.cwd());
+  const blueprint = await loadAgentBlueprint(agentId);
+  const configService = new ConfigService({ cwd: workspace.root });
   const resolvedConfiguration = await configService.resolveModelConfiguration(agentId);
   const selection = resolvedConfiguration?.selection ?? null;
   for (const diagnostic of configService.diagnostics) {
     console.warn(chalk.yellow(`Configuration ${diagnostic.code}: ${diagnostic.message}`));
   }
-  const modelService = await createModelService({ cwd: process.cwd() });
+  const modelService = await createModelService({ cwd: workspace.root });
   try {
     let configured = false;
     if (selection) {
@@ -42,10 +50,9 @@ export async function runChatMode(agentId: string): Promise<void> {
       );
     }
 
-    const tui = createOmniTui();
-    const blueprint = await loadAgentBlueprint(agentId);
+    const tui = createOmniTui({ workspaceRoot: workspace.root });
     const instance = await new AgentFactory({
-      cwd: process.cwd(),
+      workspace,
       configService,
       modelService,
       approvalBroker: new TuiApprovalBroker(tui),
@@ -242,7 +249,7 @@ export async function runChatMode(agentId: string): Promise<void> {
     }
 
     try {
-      await tui.start();
+      return await tui.start();
     } finally {
       await instance.dispose();
     }

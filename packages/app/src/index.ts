@@ -75,3 +75,5 @@ export type {
   VendorSettingsSchema,
 } from "./models/model-service";
 export { ProviderRegistrationCoordinator } from "./models/provider-registration-coordinator";
+export { resolveWorkspaceContext } from "./workspaces/index";
+export type { WorkspaceContext } from "./workspaces/index";

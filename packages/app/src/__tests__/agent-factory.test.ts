@@ -1,4 +1,4 @@
-import { mkdtemp, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -10,6 +10,7 @@ import {
 } from "../application/agent-factory";
 import type { ConfigService } from "../config/config-service";
 import type { ModelService } from "../models/model-service";
+import { createWorkspaceId } from "../workspaces/index";
 
 const directories: string[] = [];
 
@@ -47,9 +48,13 @@ function blueprint(
   };
 }
 
-async function factory() {
-  const root = await mkdtemp(join(tmpdir(), "omni-agent-factory-"));
-  directories.push(root);
+async function factory(options: { workspaceRoot?: string; globalDirectory?: string } = {}) {
+  const workspaceRoot =
+    options.workspaceRoot ?? (await mkdtemp(join(tmpdir(), "omni-agent-factory-workspace-")));
+  const globalDirectory =
+    options.globalDirectory ?? (await mkdtemp(join(tmpdir(), "omni-agent-factory-global-")));
+  if (!options.workspaceRoot) directories.push(workspaceRoot);
+  if (!options.globalDirectory) directories.push(globalDirectory);
   const selection = { vendorId: "test", connectionId: "default", modelId: "model" };
   const runtime: ModelRuntimePort = { async *stream() {} };
   const modelService = {
@@ -68,8 +73,8 @@ async function factory() {
     resolveModel: vi.fn(async () => selection),
   } as unknown as ConfigService;
   return new AgentFactory({
-    cwd: root,
-    globalDirectory: root,
+    workspace: { id: createWorkspaceId(workspaceRoot), root: workspaceRoot },
+    globalDirectory,
     modelService,
     configService,
     loadExtensions: false,
@@ -113,6 +118,59 @@ describe("AgentFactory", () => {
 
     await coding.dispose();
     await financial.dispose();
+  });
+
+  it("isolates the same Agent across workspaces and restores it when returning", async () => {
+    const globalDirectory = await mkdtemp(join(tmpdir(), "omni-agent-factory-global-"));
+    const firstRoot = await mkdtemp(join(tmpdir(), "omni-agent-factory-first-"));
+    const secondRoot = await mkdtemp(join(tmpdir(), "omni-agent-factory-second-"));
+    directories.push(globalDirectory, firstRoot, secondRoot);
+
+    const firstFactory = await factory({ workspaceRoot: firstRoot, globalDirectory });
+    const first = await firstFactory.create(blueprint());
+    const firstSessionId = first.application.sessions.currentId;
+    const secondFactory = await factory({ workspaceRoot: secondRoot, globalDirectory });
+    const second = await secondFactory.create(blueprint());
+    const secondSessionId = second.application.sessions.currentId;
+    expect(secondSessionId).not.toBe(firstSessionId);
+
+    const firstIndex = join(
+      globalDirectory,
+      "workspaces",
+      createWorkspaceId(firstRoot),
+      "sessions",
+      "test",
+      "index.json",
+    );
+    const secondIndex = join(
+      globalDirectory,
+      "workspaces",
+      createWorkspaceId(secondRoot),
+      "sessions",
+      "test",
+      "index.json",
+    );
+    const secondIndexBeforeFirstMutation = await readFile(secondIndex, "utf8");
+
+    const firstNewSessionId = await first.application.newSession();
+    expect(firstNewSessionId).not.toBe(firstSessionId);
+    expect(second.application.sessions.currentId).toBe(secondSessionId);
+    await first.application.clearSession();
+    expect(second.application.sessions.currentId).toBe(secondSessionId);
+    expect(await readFile(secondIndex, "utf8")).toBe(secondIndexBeforeFirstMutation);
+    expect(JSON.parse(await readFile(firstIndex, "utf8"))).not.toEqual(
+      JSON.parse(await readFile(secondIndex, "utf8")),
+    );
+    await expect(access(join(globalDirectory, "sessions"))).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
+    await first.dispose();
+    await second.dispose();
+
+    const restored = await firstFactory.create(blueprint());
+    expect(restored.application.sessions.currentId).toBe(firstNewSessionId);
+    await restored.dispose();
   });
 
   it("makes Agent instance disposal idempotent", async () => {

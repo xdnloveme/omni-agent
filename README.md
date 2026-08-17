@@ -13,6 +13,35 @@ pnpm dev # Start the default coding agent
 
 On first launch, you'll be guided to configure a provider and API key.
 
+To build and install the CLI globally from this checkout:
+
+```bash
+pnpm run pack:cli
+pnpm add -g --allow-build=keytar --allow-build=tree-sitter --allow-build=tree-sitter-bash ./artifacts/omni-agent-cli-0.0.1.tgz
+
+cd /path/to/your/project
+omni
+```
+
+`npm install -g ./artifacts/omni-agent-cli-0.0.1.tgz` is also supported. The
+package version and tarball name come from `packages/cli/package.json`; replace
+`0.0.1` after a future version bump. `omni`, `omni run`, and `omni run coding`
+all start the default coding Agent. Use `omni doctor` for read-only runtime
+diagnostics.
+
+External Agent packages use a package-manager-neutral Node resolution root so
+pnpm's isolated global deployments do not leak into the runtime contract:
+
+```bash
+pnpm --dir ~/.omni-agent/agents add @omni-agent/agent-example
+# or: npm install --prefix ~/.omni-agent/agents @omni-agent/agent-example
+omni run example
+```
+
+This directory is only a conventional `node_modules` installation root. It is
+not an Agent registry, and the CLI does not scan it; it resolves the exact
+`@omni-agent/agent-<id>` package name through Node.
+
 ## Project Structure
 
 Monorepo managed by pnpm workspace:
@@ -23,7 +52,7 @@ packages/
   models/ # Model runtime, vendor catalog, provider plugins, and credentials
   app/    # Application facade, registries, extensions, sessions, config
   tools/  # Domain-neutral filesystem, shell, search, and web tools
-  cli/    # Process entry, TUI, chat mode, and onboarding
+  cli/    # Process entry, TUI, run mode, diagnostics, and onboarding
 
 agents/
   coding/              # Default coding agent extension
@@ -35,9 +64,15 @@ registered implicitly by core or app.
 Each Agent package exports an `agentBlueprint`; the CLI loads
 `@omni-agent/agent-<id>` by convention, so adding an installed Agent does not
 require another CLI branch.
-Agent sessions are isolated under `~/.omni-agent/sessions/<agent-id>/`; switching
-Agent IDs never restores another Agent's conversation history. Starting the same
-Agent restores its most recently active persisted Session. The TUI renders the latest
+Agent sessions are isolated under
+`~/.omni-agent/workspaces/<workspace-id>/sessions/<agent-id>/`. A workspace ID is
+the SHA-256 digest of its canonical Git root, or its canonical current directory
+outside Git. Git subdirectories therefore share history, while different workspaces
+and Agent IDs never restore one another's conversation history. Moving a workspace
+creates a new identity; old data is retained and is not migrated automatically.
+Starting the same Agent in the same workspace restores its most recently active
+persisted Session. The former `~/.omni-agent/sessions/` directory is neither read nor
+written by the workspace-aware runtime. The TUI renders the latest
 ten complete conversation turns in the normal message flow, keeps historical Thinking
 and Tool Calls folded, and can progressively load earlier turns without changing the
 active Session.
@@ -107,9 +142,11 @@ future sandbox contract is documented in
 
 ```bash
 pnpm dev                          # Start the default coding agent
-pnpm run dev -- <agent-id>        # Start an installed agent package dynamically
+pnpm run dev -- run <agent-id>    # Start an installed agent package dynamically
 pnpm run dev:coding               # Start the coding agent explicitly
 pnpm run dev:financial-analysis   # Start the read-only financial analysis agent
+pnpm run build:cli                # Build the standalone CLI package directory
+pnpm run pack:cli                 # Create a locally installable npm tarball
 pnpm run format       # Format source, tests, config, and docs
 pnpm run format:check # Verify formatting without changing files
 pnpm run typecheck    # Type checking

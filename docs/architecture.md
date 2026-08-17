@@ -177,6 +177,15 @@ Each installed Agent exports an `AgentBlueprint`. The application-scoped
 builds and registers its extension, resolves the effective model, restores the
 Agent's Session, and creates an isolated `AgentApplication`.
 
+The App-owned Workspace module canonicalizes the CLI launch directory, selects
+the nearest Git root when present, and derives a stable path-based workspace ID.
+It owns only workspace identity, manifest initialization, and storage layout.
+The CLI resolves one `WorkspaceContext` and passes it into `AgentFactory`; Core,
+the TUI, and concrete Agents do not derive workspace identity or construct Session
+paths. Global configuration, credentials, permissions, and global extensions remain
+shared. Transcript and Context state are isolated under
+`~/.omni-agent/workspaces/<workspaceId>/sessions/<agentId>/`.
+
 Optional extensions can be exported from `~/.omni-agent/extensions.mjs` and the
 current project's `omni.extensions.mjs`. They merge by extension manifest ID,
 with the project definition replacing the matching global definition. Local
@@ -219,18 +228,20 @@ registry, or API key in `AgentConfig`. Runtime configuration accepts only
 `OmniConfig` version 3; historical formats do not participate in model execution.
 The default CLI preserves the existing command, tool, event, and TUI behavior.
 
-Agent packages expose an `agentBlueprint` from their package root. The CLI
-resolves `@omni-agent/agent-<id>` dynamically and passes that blueprint to the
-single `AgentFactory`. Agent IDs are therefore not maintained in a CLI allowlist
-or switch statement. `pnpm dev` selects `coding` only as its default argument,
-while `pnpm run dev -- <id>` selects any installed Agent package through the same
-chat runtime.
+Agent packages expose an `agentBlueprint` from their package root. The CLI keeps
+static loaders only for built-in Agents so the distribution bundler can discover
+them; other IDs resolve `@omni-agent/agent-<id>` through standard Node module
+resolution, first from the CLI installation and then from the package-manager-neutral
+`~/.omni-agent/agents/node_modules` root. The CLI requests only the exact package name;
+it does not scan packages or maintain an Agent registry. Every blueprint passes to the single `AgentFactory`. `pnpm dev`
+selects `coding` by default, while `pnpm run dev -- run <id>` selects another
+installed Agent package through the same run runtime.
 
 Each `AgentApplication` owns an `AgentSessionRepository` constructed with an
 explicit `agentId`. Session indexes and JSONL histories live under
-`~/.omni-agent/sessions/<agent-id>/`; the Repository restores the latest Session
-on startup and creates a Session only when the directory is empty or `/new` is
-requested. Model providers, catalogs, and credentials remain shared
+`~/.omni-agent/workspaces/<workspaceId>/sessions/<agentId>/`; the Repository
+restores the latest Session on startup and creates a Session only when the directory
+is empty or `/new` is requested. Model providers, catalogs, and credentials remain shared
 infrastructure; model selection may be overridden per Agent. Prompts, tools,
 capabilities, Runner, Session, and mutable runtime state remain instance-local.
 
@@ -386,7 +397,7 @@ summary, or Full History fallback.
 
 Session JSONL remains the sole transcript source of truth. Context state is physically
 co-located but logically isolated under
-`sessions/<agentId>/context/<sessionId>/`: `checkpoints.json` stores the parent-linked
+`workspaces/<workspaceId>/sessions/<agentId>/context/<sessionId>/`: `checkpoints.json` stores the parent-linked
 checkpoint chain and `artifacts/toolResults/` stores content-addressed large tool results.
 Dedicated repositories own only their own schemas and cannot clear one another's data.
 `ContextSidecarLifecycle` is the single owner of whole-Session Context cleanup. Corrupt

@@ -1,16 +1,38 @@
+import { createRequire } from "node:module";
+import { realpath } from "node:fs/promises";
+import { homedir } from "node:os";
+import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import type { AgentBlueprint } from "@omni-agent/app";
 import { isAgentId } from "@omni-agent/core";
+import { loadBuiltinAgentPackage } from "./builtin-agent-loaders";
 
 interface AgentPackageModule {
   readonly agentBlueprint?: unknown;
 }
 
-export async function loadAgentBlueprint(agentId: string): Promise<AgentBlueprint> {
+export interface AgentBlueprintLoaderOptions {
+  readonly resolutionBase?: string;
+  readonly agentPackagesDirectory?: string;
+}
+
+export async function loadAgentBlueprint(
+  agentId: string,
+  options: AgentBlueprintLoaderOptions = {},
+): Promise<AgentBlueprint> {
   assertAgentId(agentId);
   const packageName = `@omni-agent/agent-${agentId}`;
   let agentPackage: AgentPackageModule;
   try {
-    agentPackage = (await import(packageName)) as AgentPackageModule;
+    agentPackage =
+      (await loadBuiltinAgentPackage(agentId)) ??
+      ((await importExternalAgentPackage(packageName, [
+        options.resolutionBase ?? process.argv[1],
+        join(
+          options.agentPackagesDirectory ?? join(homedir(), ".omni-agent", "agents"),
+          "module-resolver.cjs",
+        ),
+      ])) as AgentPackageModule);
   } catch (error) {
     throw new Error(`Unable to load agent package "${packageName}"`, { cause: error });
   }
@@ -24,6 +46,38 @@ export async function loadAgentBlueprint(agentId: string): Promise<AgentBlueprin
     );
   }
   return agentPackage.agentBlueprint;
+}
+
+async function importExternalAgentPackage(
+  packageName: string,
+  resolutionBases: readonly (string | undefined)[],
+): Promise<unknown> {
+  const bases: string[] = [];
+  for (const resolutionBase of resolutionBases) {
+    if (!resolutionBase) continue;
+    const logicalBase = resolve(resolutionBase);
+    bases.push(logicalBase);
+    try {
+      const physicalBase = await realpath(logicalBase);
+      if (physicalBase !== logicalBase) bases.push(physicalBase);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  if (bases.length === 0) throw new Error("Agent package resolution base is unavailable");
+
+  let entry: string | undefined;
+  let lastResolutionError: unknown;
+  for (const base of new Set(bases)) {
+    try {
+      entry = createRequire(base).resolve(packageName);
+      break;
+    } catch (error) {
+      lastResolutionError = error;
+    }
+  }
+  if (!entry) throw lastResolutionError;
+  return import(pathToFileURL(entry).href);
 }
 
 function isAgentBlueprint(value: unknown): value is AgentBlueprint {
