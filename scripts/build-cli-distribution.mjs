@@ -98,7 +98,9 @@ function assertApprovedExternals(metafile) {
   const externalImports = new Set();
   for (const output of Object.values(metafile.outputs)) {
     for (const entry of output.imports) {
-      if (entry.external && !nodeBuiltins.has(entry.path)) externalImports.add(entry.path);
+      if (entry.external && !entry.path.startsWith("node:") && !nodeBuiltins.has(entry.path)) {
+        externalImports.add(entry.path);
+      }
     }
   }
   const unexpected = [...externalImports].filter((name) => !allowedExternals.has(name));
