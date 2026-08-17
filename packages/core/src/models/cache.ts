@@ -18,7 +18,7 @@ export interface ModelCacheDirective {
 export interface ModelCacheCapability {
   readonly mode: ModelCacheMode;
   readonly retentions: readonly ModelCacheRetention[];
-  readonly supportsStableScopeKey: boolean;
+  readonly stableScopeRetentions: readonly ModelCacheRetention[];
   readonly shortTtlMs?: number;
   readonly longTtlMs?: number;
 }

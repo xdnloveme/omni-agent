@@ -128,6 +128,58 @@ describe("ProviderRepository", () => {
     );
   });
 
+  it("accepts only pi-ai compat fields supported by the selected protocol", async () => {
+    const { cwd, globalDirectory } = workspace();
+    writeProviders(join(cwd, "omni.providers.json"), [
+      {
+        id: "team",
+        displayName: "Team",
+        connections: [
+          connection({
+            compat: {
+              supportsUsageInStreaming: true,
+              sendSessionAffinityHeaders: true,
+              sessionAffinityFormat: "openai-nosession",
+              supportsLongCacheRetention: false,
+            },
+          }),
+        ],
+      },
+    ]);
+    await expect(new ProviderRepository({ cwd, globalDirectory }).list()).resolves.toEqual([
+      expect.objectContaining({
+        connections: [expect.objectContaining({ compat: expect.any(Object) })],
+      }),
+    ]);
+
+    writeProviders(join(cwd, "omni.providers.json"), [
+      {
+        id: "team",
+        displayName: "Team",
+        connections: [
+          connection({
+            protocol: "anthropic-messages",
+            compat: { sessionAffinityFormat: "openai" },
+          }),
+        ],
+      },
+    ]);
+    await expect(new ProviderRepository({ cwd, globalDirectory }).list()).rejects.toThrow(
+      "compat.sessionAffinityFormat is not supported by anthropic-messages",
+    );
+
+    writeProviders(join(cwd, "omni.providers.json"), [
+      {
+        id: "team",
+        displayName: "Team",
+        connections: [connection({ compat: { supportsLongCacheRetention: null } })],
+      },
+    ]);
+    await expect(new ProviderRepository({ cwd, globalDirectory }).list()).rejects.toThrow(
+      "compat.supportsLongCacheRetention must not be null",
+    );
+  });
+
   it("rejects duplicate model ids at the file boundary", async () => {
     const { cwd, globalDirectory } = workspace();
     writeProviders(join(cwd, "omni.providers.json"), [

@@ -20,6 +20,7 @@ import { AgentApplication } from "../application/agent-application";
 import type { ConfigService } from "../config/config-service";
 import type { ExtensionManager } from "../extensions/extension-manager";
 import type { ModelService } from "../models/model-service";
+import type { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
 import { createPermissionRuntime } from "../permissions/create-permission-runtime";
 
 const directories: string[] = [];
@@ -70,6 +71,11 @@ async function fixture() {
     globalDirectory: root,
   });
   const contextStorage = { clear: vi.fn(async () => undefined) };
+  const cacheLeases = {
+    hydrate: vi.fn(async () => undefined),
+    persist: vi.fn(async () => undefined),
+    forget: vi.fn(),
+  } as unknown as ModelCacheLeaseController;
   let currentDate = "2026-08-17";
   return {
     app: new AgentApplication({
@@ -111,12 +117,14 @@ async function fixture() {
           };
         },
       }),
+      cacheLeases,
     }),
     configService,
     dispose,
     isConfigured,
     sessions,
     contextStorage,
+    cacheLeases,
     setCurrentDate(value: string) {
       currentDate = value;
     },
@@ -204,7 +212,7 @@ describe("AgentApplication session persistence", () => {
   });
 
   it("clears Session transcript and Context sidecar through separate owners", async () => {
-    const { app, sessions, contextStorage } = await fixture();
+    const { app, sessions, contextStorage, cacheLeases } = await fixture();
     const sessionId = sessions.currentId!;
     await sessions.append(sessionId, [
       {
@@ -217,6 +225,7 @@ describe("AgentApplication session persistence", () => {
 
     expect(sessions.snapshot().messages).toEqual([]);
     expect(contextStorage.clear).toHaveBeenCalledWith(sessionId);
+    expect(cacheLeases.forget).toHaveBeenCalledWith(sessionId);
   });
 
   it("persists produced messages when the turn limit is reached", async () => {

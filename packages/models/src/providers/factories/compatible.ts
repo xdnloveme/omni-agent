@@ -14,6 +14,7 @@ import { createProviderContribution } from "../../vendors/provider-contribution"
 import type { VendorSettingsSchema } from "../../vendors/types";
 import type {
   CompatibleModelDefinition,
+  CompatibleProviderCompat,
   CompatibleProtocol,
   ModelCatalogRefreshContext,
 } from "../custom/types";
@@ -34,6 +35,7 @@ export interface CompatibleConnectionConfig {
   readonly baseUrl: string;
   readonly envVars: readonly string[];
   readonly protocol: CompatibleProtocol;
+  readonly compat?: CompatibleProviderCompat;
   readonly credentialAliases?: readonly string[];
   readonly models: readonly CompatibleModelDefinition[];
   readonly fetchModels?: (
@@ -56,7 +58,7 @@ export const compatibleProviderFactory: ConnectionProviderFactory<CompatibleConn
     } as const;
     const fetchModels = config.fetchModels;
     const mapModel = (model: CompatibleModelDefinition) =>
-      applyPortableProtocolPolicy(toProviderModel(model, modelContext));
+      applyPortableProtocolPolicy(toProviderModel(model, modelContext), config.compat);
     return [
       createProviderContribution(
         createProvider({
@@ -84,15 +86,21 @@ export const compatibleProviderFactory: ConnectionProviderFactory<CompatibleConn
   },
 };
 
-function applyPortableProtocolPolicy(model: Model<Api>): Model<Api> {
-  if (model.api !== "openai-completions" && model.api !== "openai-responses") return model;
+function applyPortableProtocolPolicy(
+  model: Model<Api>,
+  compat: CompatibleProviderCompat | undefined,
+): Model<Api> {
+  if (model.api !== "openai-completions" && model.api !== "openai-responses") {
+    return compat ? ({ ...model, compat: { ...model.compat, ...compat } } as Model<Api>) : model;
+  }
   return {
     ...model,
     compat: {
       ...model.compat,
+      ...compat,
       supportsDeveloperRole: false,
     },
-  };
+  } as Model<Api>;
 }
 
 export function compatibleConnection(

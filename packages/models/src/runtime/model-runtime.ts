@@ -27,6 +27,8 @@ export interface ModelRuntimeOptions {
   credentials?: CredentialStore;
   credentialAliases?: CredentialAliasRegistry;
   credentialIndex?: CredentialIndexReconciler;
+  /** Test/debug observation hook delegated to pi-ai; production does not retain payloads. */
+  onPayload?: (payload: unknown) => void;
 }
 
 export interface AvailableModel {
@@ -46,6 +48,7 @@ export class ModelRuntime {
   private readonly credentialAliases?: CredentialAliasRegistry;
   private readonly credentialIndex?: CredentialIndexReconciler;
   private readonly models: MutableModels;
+  private readonly onPayload?: (payload: unknown) => void;
   private readonly providers = new Map<string, ProviderContribution>();
 
   constructor(options: ModelRuntimeOptions = {}) {
@@ -53,6 +56,7 @@ export class ModelRuntime {
     this.credentials = options.credentials ?? new KeytarCredentialStore();
     this.credentialAliases = options.credentialAliases ?? asAliasRegistry(this.credentials);
     this.credentialIndex = options.credentialIndex ?? asIndexReconciler(this.credentials);
+    this.onPayload = options.onPayload;
     this.models = createModels({
       credentials: this.credentials,
       authContext: createNodeAuthContext(cwd, options.globalDirectory),
@@ -168,6 +172,7 @@ export class ModelRuntime {
       sessionId: options.providerCache.sessionId,
       cacheRetention: options.providerCache.cacheRetention,
       maxTokens: Math.min(options.maxOutputTokens, catalogModel.maxTokens),
+      onPayload: this.onPayload,
     });
     for await (const event of stream) {
       if (event.type === "text_delta") yield { type: "text_delta", delta: event.delta };

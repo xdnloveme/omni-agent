@@ -18,6 +18,7 @@ import { ConfigService } from "../config/config-service";
 import { ExtensionManager } from "../extensions/extension-manager";
 import { ModelService, type ModelSelection } from "../models/model-service";
 import type { PermissionService } from "../permissions/permission-service";
+import type { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
 
 export class AgentApplication {
   readonly runner: AgentRunner;
@@ -32,6 +33,7 @@ export class AgentApplication {
   private readonly configService: ConfigService;
   private readonly contextStorage: ContextSessionStorage;
   private readonly environmentContext: EnvironmentContextControllerPort;
+  private readonly cacheLeases: ModelCacheLeaseController;
 
   constructor(dependencies: AgentApplicationDependencies) {
     this.extensions = dependencies.extensions;
@@ -44,6 +46,7 @@ export class AgentApplication {
     this.configService = dependencies.configService;
     this.contextStorage = dependencies.contextStorage;
     this.environmentContext = dependencies.environmentContext;
+    this.cacheLeases = dependencies.cacheLeases;
     this.permissions = dependencies.permissionService;
     this.runner = new AgentRunner(
       dependencies.modelService.runtime,
@@ -57,6 +60,7 @@ export class AgentApplication {
 
   async run(input: string, callbacks: StreamCallbacks, signal?: AbortSignal): Promise<void> {
     const sessionId = this.requireSessionId();
+    await this.cacheLeases.hydrate(sessionId);
     const streamSession = createStreamSession(callbacks);
     let capture;
     try {
@@ -87,7 +91,9 @@ export class AgentApplication {
   }
 
   async newSession(): Promise<string> {
-    return (await this.sessions.create()).id;
+    const session = await this.sessions.create();
+    await this.cacheLeases.hydrate(session.id);
+    return session.id;
   }
 
   currentSessionSnapshot(): SessionSnapshot {
@@ -98,6 +104,7 @@ export class AgentApplication {
     const sessionId = this.requireSessionId();
     await this.sessions.clear(sessionId);
     await this.contextStorage.clear(sessionId);
+    this.cacheLeases.forget(sessionId);
   }
 
   async refreshInstructions(): Promise<void> {
@@ -173,6 +180,9 @@ export class AgentApplication {
   }
 
   private async persistProduced(sessionId: string, event: AgentEvent): Promise<void> {
+    if (event.type === "model_cache_report") {
+      await this.cacheLeases.persist(sessionId, event.report);
+    }
     if ((event.type === "done" || event.type === "error") && event.produced?.length) {
       await this.sessions.append(sessionId, event.produced);
     }
@@ -205,6 +215,7 @@ export interface AgentApplicationDependencies {
   readonly contextMiddleware: readonly ContextMiddlewarePort[];
   readonly contextStorage: ContextSessionStorage;
   readonly environmentContext: EnvironmentContextControllerPort;
+  readonly cacheLeases: ModelCacheLeaseController;
 }
 
 export interface ContextSessionStorage {

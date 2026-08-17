@@ -28,6 +28,9 @@ import type { ModelService } from "../models/model-service";
 import { createPermissionRuntime } from "../permissions/create-permission-runtime";
 import { ToolRegistry } from "../registry/tool-registry";
 import { createContextRuntime } from "../context/contextRuntime";
+import { ContextSidecarLayout } from "../context/sidecarLayout";
+import { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
+import { ModelCacheLeaseRepository } from "../models/cache/model-cache-lease-repository";
 import { NodeRuntimeEnvironmentProvider } from "../environment";
 import { WorkspaceStorageLayout, type WorkspaceContext } from "../workspaces/index";
 
@@ -135,9 +138,27 @@ export class AgentFactory {
       const workspaceStorage = new WorkspaceStorageLayout(this.globalDirectory);
       await workspaceStorage.ensureInitialized(this.options.workspace);
       const sessionsRoot = workspaceStorage.sessionsRoot(this.options.workspace.id);
-      const { contextEngine, contextStorage } = createContextRuntime({
+      const sessions = new AgentSessionRepository({
         agentId: blueprint.id,
         sessionsRoot,
+      });
+      await sessions.restoreLatestOrCreate();
+      const sidecarLayout = new ContextSidecarLayout(join(sessionsRoot, blueprint.id, "context"));
+      const cacheDiagnostic = (message: string) => {
+        manager.diagnostics.push({
+          extensionId: "builtin-model-cache",
+          source: "model-cache-sidecar",
+          message,
+        });
+      };
+      const cacheLeases = new ModelCacheLeaseController(
+        this.options.modelService.runtime,
+        new ModelCacheLeaseRepository(sidecarLayout, cacheDiagnostic),
+        cacheDiagnostic,
+      );
+      await cacheLeases.hydrate(sessions.snapshot().sessionId);
+      const { contextEngine, contextStorage } = createContextRuntime({
+        layout: sidecarLayout,
         agentConfig,
         artifactRecovery: module.capabilities.context?.artifactRecovery,
         policyStages: [
@@ -155,11 +176,6 @@ export class AgentFactory {
           });
         },
       });
-      const sessions = new AgentSessionRepository({
-        agentId: blueprint.id,
-        sessionsRoot,
-      });
-      await sessions.restoreLatestOrCreate();
       const permissions = createPermissionRuntime({
         globalDirectory: this.globalDirectory,
         approvalBroker: this.options.approvalBroker,
@@ -195,6 +211,7 @@ export class AgentFactory {
         contextMiddleware: manager.contextMiddleware,
         contextStorage,
         environmentContext,
+        cacheLeases,
       });
       let disposed = false;
       return {

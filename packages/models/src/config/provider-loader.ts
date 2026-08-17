@@ -22,6 +22,7 @@ export function toVendorPlugin(definition: ProviderDefinition): VendorPlugin {
         baseUrl: connection.baseUrl,
         envVars: connection.envVars,
         protocol: connection.protocol,
+        compat: connection.compat,
         credentialAliases: connection.credentialAliases,
         models: connection.models,
       }),

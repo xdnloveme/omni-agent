@@ -1,7 +1,7 @@
 import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { fauxAssistantMessage, fauxProvider, fauxText, fauxThinking } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "../runtime/model-runtime";
 import { VendorRegistry } from "../vendors/registry";
@@ -22,6 +22,19 @@ function executionOptions(
   };
 }
 
+function openAiSseResponse(): Response {
+  return new Response(
+    'data: {"id":"chatcmpl-1","object":"chat.completion.chunk","created":1,"model":"wire-model","choices":[{"index":0,"delta":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"usage":{"prompt_tokens":10,"completion_tokens":1,"total_tokens":11,"prompt_tokens_details":{"cached_tokens":5}}}\n\ndata: [DONE]\n\n',
+    { status: 200, headers: { "content-type": "text/event-stream" } },
+  );
+}
+
+async function drain(stream: AsyncIterable<unknown>): Promise<void> {
+  for await (const _event of stream) {
+    // Exhaust the stream.
+  }
+}
+
 function memoryCredentials(): CredentialStore {
   const values = new Map<string, StoredCredential>();
   return {
@@ -37,6 +50,10 @@ function memoryCredentials(): CredentialStore {
     },
   };
 }
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 describe("ModelRuntime", () => {
   it("maps backend events to the stable Omni model event stream", async () => {
@@ -228,6 +245,78 @@ describe("ModelRuntime", () => {
       { type: "text_delta", delta: "custom" },
       expect.objectContaining({ type: "done" }),
     ]);
+    await manager.dispose();
+  });
+
+  it("delegates stable cache keys and message prefixes to pi-ai wire serialization", async () => {
+    const payloads: unknown[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => openAiSseResponse()),
+    );
+    const runtime = new ModelRuntime({
+      credentials: memoryCredentials(),
+      onPayload: (payload) => {
+        payloads.push(payload);
+      },
+    });
+    const manager = runtime.createPluginManager(new VendorRegistry());
+    await manager.register(
+      defineVendor({
+        id: "wire",
+        displayName: "Wire",
+        connections: [
+          compatibleConnection({
+            id: "default",
+            displayName: "Wire",
+            providerId: "wire",
+            providerName: "Wire",
+            baseUrl: "https://wire.example.com/v1",
+            envVars: ["WIRE_API_KEY"],
+            protocol: "openai-completions",
+            compat: { supportsLongCacheRetention: true },
+            models: [{ id: "wire-model", contextWindow: 32_000, maxTokens: 1_024 }],
+          }),
+        ],
+      }),
+    );
+    const selection = {
+      vendorId: "wire",
+      connectionId: "default",
+      providerId: "wire",
+      modelId: "wire-model",
+      contextWindow: 32_000,
+      modelMaxOutputTokens: 1_024,
+      requestedOutputTokens: 1_024,
+    };
+    const firstMessage = { role: "user" as const, content: "hello" };
+    const options = executionOptions({
+      providerCache: { cacheRetention: "long", sessionId: "stable-scope" },
+    });
+
+    await drain(
+      runtime.stream(selection, { systemPrompt: "system", messages: [firstMessage] }, options),
+    );
+    await drain(
+      runtime.stream(
+        selection,
+        {
+          systemPrompt: "system",
+          messages: [firstMessage, { role: "user", content: "next" }],
+        },
+        options,
+      ),
+    );
+
+    const [first, resumed] = payloads as Array<{
+      prompt_cache_key?: string;
+      prompt_cache_retention?: string;
+      messages?: unknown[];
+    }>;
+    expect(first.prompt_cache_key).toBe("stable-scope");
+    expect(resumed.prompt_cache_key).toBe(first.prompt_cache_key);
+    expect(first.prompt_cache_retention).toBe("24h");
+    expect(resumed.messages?.slice(0, first.messages?.length)).toEqual(first.messages);
     await manager.dispose();
   });
 

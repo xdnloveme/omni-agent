@@ -81,8 +81,12 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
           cacheReadTokens: usage.cacheRead,
           cacheWriteTokens: usage.cacheWrite,
         });
-        if (outcome === "success" && decision.directive.retention !== "none") {
-          // Failed and cancelled requests must never replace the last successful baseline.
+        if (
+          outcome === "success" &&
+          options.identity.purpose === "primary" &&
+          decision.directive.retention !== "none"
+        ) {
+          // Only a successful primary request may replace the primary conversation baseline.
           this.coordinator.recordSuccess({
             scopeId: decision.directive.scopeId,
             retention: decision.directive.retention,
@@ -118,6 +122,18 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
   clear(): void {
     this.coordinator.clear();
   }
+
+  hydrateCacheLease(snapshot: unknown): string | undefined {
+    return this.coordinator.hydrate(snapshot);
+  }
+
+  snapshotCacheLease(scopeId: string): unknown | undefined {
+    return this.coordinator.snapshot(scopeId);
+  }
+
+  forgetCacheLease(scopeId: string): void {
+    this.coordinator.remove(scopeId);
+  }
 }
 
 function createReport(input: {
@@ -148,6 +164,7 @@ function createReport(input: {
     capability: {
       ...input.capability,
       retentions: [...input.capability.retentions],
+      stableScopeRetentions: [...input.capability.stableScopeRetentions],
     },
     ...input.comparison,
     cacheReadTokens: input.cacheReadTokens,

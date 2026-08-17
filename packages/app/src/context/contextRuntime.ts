@@ -1,4 +1,3 @@
-import { join } from "node:path";
 import {
   ApproximateContextTokenEstimator,
   ArtifactProjectionStrategy,
@@ -22,8 +21,7 @@ import { ContextSidecarLayout } from "./sidecarLayout";
 import { ContextSidecarLifecycle } from "./sidecarLifecycle";
 
 export function createContextRuntime(input: {
-  readonly agentId: string;
-  readonly sessionsRoot: string;
+  readonly layout: ContextSidecarLayout;
   readonly agentConfig: AgentConfig;
   readonly artifactRecovery?: ContextArtifactRecoveryCapability;
   readonly policyStages: readonly ContextPolicyStagePort[];
@@ -33,9 +31,8 @@ export function createContextRuntime(input: {
   readonly onDiagnostic: (message: string) => void;
 }) {
   assertArtifactRecovery(input.artifactRecovery, input.agentConfig);
-  const layout = new ContextSidecarLayout(join(input.sessionsRoot, input.agentId, "context"));
-  const checkpoints = new ContextCheckpointRepository(layout, input.onDiagnostic);
-  const projections = new ContextProjectionRepository(layout, input.onDiagnostic);
+  const checkpoints = new ContextCheckpointRepository(input.layout, input.onDiagnostic);
+  const projections = new ContextProjectionRepository(input.layout, input.onDiagnostic);
   const estimator = new ApproximateContextTokenEstimator();
   const skillStrategies = input.skillStrategies ?? [];
   const conversationToolNames = input.agentConfig.tools
@@ -68,7 +65,7 @@ export function createContextRuntime(input: {
         estimator,
       ),
     ),
-    contextStorage: new ContextSidecarLifecycle(layout),
+    contextStorage: new ContextSidecarLifecycle(input.layout),
   };
 }
 

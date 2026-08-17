@@ -127,6 +127,39 @@ describe("model cache infrastructure", () => {
     ).toBe("unknown_expiry");
   });
 
+  it("restores only a valid unexpired successful lease baseline", async () => {
+    const source = new CacheAwareModelRuntime(
+      successfulTransport([]),
+      new DefaultModelCachePolicy(),
+      () => capability("anthropic-messages"),
+    );
+    const first = reportOf(
+      await collect(source.stream(selection, request, primaryOptions("persisted"))),
+    );
+    const snapshot = source.snapshotCacheLease(first.scopeId);
+    expect(snapshot).toBeDefined();
+
+    const restored = new CacheAwareModelRuntime(
+      successfulTransport([]),
+      new DefaultModelCachePolicy(),
+      () => capability("anthropic-messages"),
+    );
+    expect(restored.hydrateCacheLease(snapshot)).toBe(first.scopeId);
+    const continued = reportOf(
+      await collect(
+        restored.stream(
+          selection,
+          { ...request, messages: [...request.messages, assistant("next")] },
+          primaryOptions("resumed"),
+        ),
+      ),
+    );
+    expect(continued.lifecycle).toBe("append_only");
+
+    const expired = { ...(snapshot as Record<string, unknown>), expiresAt: 1 };
+    expect(new RuntimeModelCacheState().hydrate(expired, 1)).toBeUndefined();
+  });
+
   it("inspects expiry without consuming the next lifecycle classification", () => {
     let now = 1_000;
     const coordinator = new ModelCacheCoordinator(
@@ -159,7 +192,7 @@ describe("model cache infrastructure", () => {
     ).toBe("expired");
   });
 
-  it("keeps auxiliary calls cache-disabled and out of runtime cache state", async () => {
+  it("keeps auxiliary calls from replacing the primary cache baseline", async () => {
     const seen: ModelTransportExecutionOptions[] = [];
     const runtime = new CacheAwareModelRuntime(
       successfulTransport(seen),
@@ -183,12 +216,30 @@ describe("model cache infrastructure", () => {
     expect(reportOf(first).appliedRetention).toBe("none");
     expect(reportOf(first).cacheHitRate).toBeUndefined();
     expect(reportOf(second).lifecycle).toBe("cold");
-    expect(seen.every((entry) => entry.providerCache.sessionId === undefined)).toBe(true);
+    expect(seen.slice(0, 2).every((entry) => entry.providerCache.sessionId === undefined)).toBe(
+      true,
+    );
     expect(seen).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ providerCache: { cacheRetention: "none" } }),
       ]),
     );
+
+    await collect(runtime.stream(selection, request, primaryOptions("primary-baseline")));
+    const changed = { ...request, messages: [{ role: "user" as const, content: "changed" }] };
+    const explicitAuxiliary = await collect(
+      runtime.stream(selection, changed, {
+        ...options,
+        identity: { ...options.identity, modelCallId: "summary-explicit" },
+        cache: { retention: "short" },
+      }),
+    );
+    const nextPrimary = await collect(
+      runtime.stream(selection, changed, primaryOptions("primary-after-summary")),
+    );
+
+    expect(reportOf(explicitAuxiliary).appliedRetention).toBe("short");
+    expect(reportOf(nextPrimary).lifecycle).toBe("tail_changed");
   });
 
   it("reports real provider token cache hit rate without counting cache writes as hits", async () => {
@@ -310,7 +361,7 @@ describe("model cache infrastructure", () => {
     ).toEqual({
       mode: "none",
       retentions: ["none"],
-      supportsStableScopeKey: false,
+      stableScopeRetentions: [],
     });
     expect(
       resolveModelCacheCapability({
@@ -319,23 +370,23 @@ describe("model cache infrastructure", () => {
         explicit: {
           mode: "automatic_prefix",
           retentions: ["none", "short"],
-          supportsStableScopeKey: true,
+          stableScopeRetentions: ["short"],
         },
       }),
-    ).toMatchObject({ mode: "automatic_prefix", supportsStableScopeKey: true });
+    ).toMatchObject({ mode: "automatic_prefix", stableScopeRetentions: ["short"] });
   });
 
   it("derives capability from protocol, base URL, and compat flags", () => {
     expect(capability("anthropic-messages")).toMatchObject({
       retentions: ["none", "short", "long"],
-      supportsStableScopeKey: false,
+      stableScopeRetentions: [],
       shortTtlMs: 300_000,
       longTtlMs: 3_600_000,
     });
     expect(capability("anthropic-messages", { supportsLongCacheRetention: false })).toEqual({
       mode: "explicit_breakpoint",
       retentions: ["none", "short"],
-      supportsStableScopeKey: false,
+      stableScopeRetentions: [],
       shortTtlMs: 300_000,
     });
     expect(
@@ -343,47 +394,47 @@ describe("model cache infrastructure", () => {
         supportsLongCacheRetention: false,
         sendSessionAffinityHeaders: true,
       }),
-    ).toMatchObject({ retentions: ["none", "short"], supportsStableScopeKey: true });
+    ).toMatchObject({ retentions: ["none", "short"], stableScopeRetentions: ["short"] });
     expect(capability("openai-responses")).toMatchObject({
       retentions: ["none", "short", "long"],
-      supportsStableScopeKey: true,
+      stableScopeRetentions: ["short", "long"],
       longTtlMs: 86_400_000,
     });
     expect(capability("openai-responses", { supportsLongCacheRetention: false })).toEqual({
       mode: "automatic_prefix",
       retentions: ["none", "short"],
-      supportsStableScopeKey: true,
+      stableScopeRetentions: ["short"],
     });
     expect(capability("openai-completions")).toMatchObject({
       retentions: ["none", "short", "long"],
-      supportsStableScopeKey: true,
+      stableScopeRetentions: ["long"],
       longTtlMs: 86_400_000,
     });
     expect(capability("openai-completions", { supportsLongCacheRetention: false })).toEqual({
       mode: "automatic_prefix",
       retentions: ["none", "short"],
-      supportsStableScopeKey: false,
+      stableScopeRetentions: [],
     });
     expect(
       capability("openai-completions", {
         supportsLongCacheRetention: false,
         sendSessionAffinityHeaders: true,
       }),
-    ).toMatchObject({ retentions: ["none", "short"], supportsStableScopeKey: true });
+    ).toMatchObject({ retentions: ["none", "short"], stableScopeRetentions: ["short"] });
     expect(
       resolveModelCacheCapability({
         api: "openai-completions",
         baseUrl: "https://api.openai.com/v1",
         compat: { supportsLongCacheRetention: false },
       }),
-    ).toMatchObject({ supportsStableScopeKey: true });
+    ).toMatchObject({ stableScopeRetentions: ["short"] });
     expect(capability("google-generative-ai")).toMatchObject({
       mode: "automatic_prefix",
-      supportsStableScopeKey: false,
+      stableScopeRetentions: [],
     });
     expect(capability("mistral-conversations")).toMatchObject({
       mode: "automatic_prefix",
-      supportsStableScopeKey: true,
+      stableScopeRetentions: ["short"],
     });
   });
 
@@ -392,14 +443,14 @@ describe("model cache infrastructure", () => {
       normalizeModelCacheCapability({
         mode: "none",
         retentions: ["none", "short"],
-        supportsStableScopeKey: false,
+        stableScopeRetentions: [],
       }),
     ).toThrow("Disabled model cache capability");
     expect(() =>
       normalizeModelCacheCapability({
         mode: "automatic_prefix",
         retentions: ["none", "short"],
-        supportsStableScopeKey: true,
+        stableScopeRetentions: ["short"],
         longTtlMs: 1,
       }),
     ).toThrow("requires long retention support");
@@ -416,7 +467,7 @@ describe("model cache infrastructure", () => {
         {
           mode: "none",
           retentions: ["none", "short"],
-          supportsStableScopeKey: false,
+          stableScopeRetentions: [],
         },
       ),
     ).toThrow("Disabled model cache capability");

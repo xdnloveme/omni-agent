@@ -1,6 +1,7 @@
 export { ModelRuntime } from "./runtime/model-runtime";
 export { CacheAwareModelRuntime } from "./cache/cacheAwareRuntime";
 export { DefaultModelCachePolicy } from "./cache/policy";
+export { assertModelCacheLeaseSnapshot } from "./cache/state";
 export type {
   AvailableModel,
   CredentialStatus,
@@ -62,6 +63,7 @@ export { createVolcengineVendorPlugin } from "./providers/volcengine";
 export { createZhipuVendorPlugin } from "./providers/zhipu";
 export type {
   CompatibleModelDefinition,
+  CompatibleProviderCompat,
   CompatibleProtocol,
   ModelCatalogRefreshContext,
 } from "./providers/custom/types";

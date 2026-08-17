@@ -6,7 +6,7 @@ const MODES = ["none", "automatic_prefix", "explicit_breakpoint"] as const;
 const NONE: ModelCacheCapability = {
   mode: "none",
   retentions: ["none"],
-  supportsStableScopeKey: false,
+  stableScopeRetentions: [],
 };
 
 export interface ModelCacheCapabilitySource {
@@ -24,20 +24,27 @@ export function resolveModelCacheCapability(
   // Capability follows the concrete API and compat flags; Vendor names are not protocol facts.
   if (source.api === "anthropic-messages") {
     const supportsLong = compatBoolean(source.compat, "supportsLongCacheRetention") !== false;
+    const retentions: ModelCacheRetention[] = supportsLong
+      ? ["none", "short", "long"]
+      : ["none", "short"];
+    const sendsAffinity = compatBoolean(source.compat, "sendSessionAffinityHeaders") === true;
     return normalizeModelCacheCapability({
       mode: "explicit_breakpoint",
-      retentions: supportsLong ? ["none", "short", "long"] : ["none", "short"],
-      supportsStableScopeKey: compatBoolean(source.compat, "sendSessionAffinityHeaders") === true,
+      retentions,
+      stableScopeRetentions: sendsAffinity ? activeRetentions(retentions) : [],
       shortTtlMs: 5 * 60 * 1000,
       ...(supportsLong ? { longTtlMs: 60 * 60 * 1000 } : {}),
     });
   }
   if (source.api === "openai-responses") {
     const supportsLong = compatBoolean(source.compat, "supportsLongCacheRetention") !== false;
+    const retentions: ModelCacheRetention[] = supportsLong
+      ? ["none", "short", "long"]
+      : ["none", "short"];
     return normalizeModelCacheCapability({
       mode: "automatic_prefix",
-      retentions: supportsLong ? ["none", "short", "long"] : ["none", "short"],
-      supportsStableScopeKey: true,
+      retentions,
+      stableScopeRetentions: activeRetentions(retentions),
       ...(supportsLong ? { longTtlMs: 24 * 60 * 60 * 1000 } : {}),
     });
   }
@@ -45,12 +52,18 @@ export function resolveModelCacheCapability(
     const supportsLong = compatBoolean(source.compat, "supportsLongCacheRetention") !== false;
     const nativeOpenAi = source.baseUrl.includes("api.openai.com");
     const sendsAffinity = compatBoolean(source.compat, "sendSessionAffinityHeaders") === true;
+    const retentions: ModelCacheRetention[] = supportsLong
+      ? ["none", "short", "long"]
+      : ["none", "short"];
     return normalizeModelCacheCapability({
       mode: "automatic_prefix",
-      retentions: supportsLong ? ["none", "short", "long"] : ["none", "short"],
-      // Stable scope exists only when the transport consumes sessionId: native OpenAI,
-      // affinity headers, or the long-retention path that emits a stable prefix key.
-      supportsStableScopeKey: nativeOpenAi || sendsAffinity || supportsLong,
+      retentions,
+      // pi-ai consumes sessionId per retention: native OpenAI emits a stable request key for
+      // every active retention, compatible APIs emit it for long retention, and affinity
+      // headers consume it for every active retention when explicitly enabled.
+      stableScopeRetentions: activeRetentions(retentions).filter(
+        (retention) => nativeOpenAi || sendsAffinity || retention === "long",
+      ),
       ...(supportsLong ? { longTtlMs: 24 * 60 * 60 * 1000 } : {}),
     });
   }
@@ -58,14 +71,14 @@ export function resolveModelCacheCapability(
     return normalizeModelCacheCapability({
       mode: "automatic_prefix",
       retentions: ["none", "short"],
-      supportsStableScopeKey: false,
+      stableScopeRetentions: [],
     });
   }
   if (source.api === "mistral-conversations") {
     return normalizeModelCacheCapability({
       mode: "automatic_prefix",
       retentions: ["none", "short"],
-      supportsStableScopeKey: true,
+      stableScopeRetentions: ["short"],
     });
   }
   return normalizeModelCacheCapability(NONE);
@@ -88,14 +101,22 @@ export function normalizeModelCacheCapability(
   ) {
     throw new Error("Invalid model cache retentions");
   }
-  if (typeof capability.supportsStableScopeKey !== "boolean") {
+  const stableScopeRetentions = capability.stableScopeRetentions as readonly ModelCacheRetention[];
+  if (
+    !Array.isArray(stableScopeRetentions) ||
+    stableScopeRetentions.some(
+      (retention) =>
+        retention === "none" || !RETENTIONS.includes(retention) || !retentions.includes(retention),
+    ) ||
+    new Set(stableScopeRetentions).size !== stableScopeRetentions.length
+  ) {
     throw new Error("Invalid model cache stable-scope capability");
   }
   if (mode === "none") {
     if (
       retentions.length !== 1 ||
       retentions[0] !== "none" ||
-      capability.supportsStableScopeKey ||
+      stableScopeRetentions.length > 0 ||
       capability.shortTtlMs !== undefined ||
       capability.longTtlMs !== undefined
     ) {
@@ -106,7 +127,19 @@ export function normalizeModelCacheCapability(
   }
   validateTtl("short", capability.shortTtlMs, retentions);
   validateTtl("long", capability.longTtlMs, retentions);
-  return { ...capability, retentions: [...retentions] };
+  return {
+    ...capability,
+    retentions: [...retentions],
+    stableScopeRetentions: [...stableScopeRetentions],
+  };
+}
+
+function activeRetentions(
+  retentions: readonly ModelCacheRetention[],
+): Array<Exclude<ModelCacheRetention, "none">> {
+  return retentions.filter(
+    (retention): retention is Exclude<ModelCacheRetention, "none"> => retention !== "none",
+  );
 }
 
 function validateTtl(

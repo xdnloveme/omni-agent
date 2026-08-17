@@ -2,8 +2,8 @@
 
 ## Ownership
 
-Provider infrastructure owns actual prompt-cache content. Omni Agent owns a small,
-runtime-only control plane:
+Provider infrastructure owns actual prompt-cache content. Omni Agent owns a small control
+plane whose successful lease baseline can survive Session resume:
 
 ```text
 Model call identity + cache intent
@@ -17,7 +17,8 @@ Model call identity + cache intent
 
 Session JSONL remains the durable source of truth for Transcript and Environment records.
 Context remains an ephemeral model projection. Neither subsystem imports the Models cache
-runtime or persists its state.
+runtime. App persists one optional, derived lease sidecar beside Context state; it never
+changes the Session JSONL schema or attempts to persist Provider cache content.
 
 ## Policy and scope
 
@@ -42,6 +43,9 @@ and compatibility flags:
 
 Capability normalization, cross-field validation, and copying have one owner. Disabled
 capabilities can declare only `none`; a TTL is legal only when its retention is supported.
+Stable scope support is retention-aware through `stableScopeRetentions`, because pi-ai may
+consume `sessionId` for one retention but not another. Configured compatible providers may
+set only the validated pi-ai compat subset supported by their selected protocol.
 
 ## Fingerprints and lifecycle
 
@@ -64,9 +68,17 @@ and never changes the deterministic classification.
 
 Only successful cache-enabled calls replace state. Failed and cancelled calls emit a
 report without destroying the previous baseline. The LRU stores at most 256 small entries
-containing digests, applied retention, and known expiry; it lazily
-removes known-expired entries and clears on runtime disposal. It never stores request
-bodies, credentials, or raw headers.
+containing digests, applied retention, and known expiry; it lazily removes known-expired
+entries and clears on runtime disposal. It never stores request bodies, credentials, or raw
+headers.
+
+After each successful cache-enabled call, App atomically writes only the latest lease for
+that Session to
+`<sessionsRoot>/<agentId>/context/<sessionId>/cache-lease.json`. Resume hydrates this
+baseline before the Context rewrite guard is created. The sidecar reuses the Context lock,
+corrupt-file quarantine, and clear lifecycle. Missing, invalid, expired, or unreadable
+state degrades to `cold`; persistence errors are diagnostic-only. The snapshot contains
+only `scopeId`, semantic fingerprint digests, retention, and optional `expiresAt`.
 
 The fingerprint, LRU entry, Provider cache DTO, and inner transport event/options are
 Models implementation details. The transport event contract excludes cache reports, so
@@ -94,7 +106,7 @@ usage.
 
 Future cache breakpoint strategies and complete request snapshots must be added as
 separate consumers. They must not move Provider semantics into Context or durable cache
-state into Session.
+state into Session JSONL.
 
 ## Cache hit display metric
 
@@ -106,7 +118,10 @@ cacheHitRate       = cacheReadTokens / totalPromptTokens
 ```
 
 Cache writes contribute to the denominator but are not hits. Cache-disabled calls,
-auxiliary calls, failed/cancelled calls, and zero or unreliable usage report an unknown
-rate. The CLI correlates a successful report to `contextSnapshotId` and displays only the
-last successful primary model call beside the matching Context occupancy. It never
-estimates cache hit from common-prefix message counts.
+auxiliary calls, failed/cancelled calls, and zero usage report an unknown rate. Values come
+only from pi-ai normalized `input`, `cacheRead`, and `cacheWrite` usage; Omni never reparses
+Provider responses. When normalized prompt usage is positive, an upstream `cacheRead` value
+of zero is a real 0% result. The CLI correlates a successful report to
+`contextSnapshotId` and displays only the last successful primary model call beside the
+matching Context occupancy. It never estimates cache hit from common-prefix message counts,
+and cache-hit reports themselves are not restored from the lease sidecar.

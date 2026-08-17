@@ -1,7 +1,11 @@
 import type { JSONSchemaType } from "ajv";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import type { CompatibleModelDefinition, CompatibleProtocol } from "../providers/custom/types";
+import type {
+  CompatibleModelDefinition,
+  CompatibleProtocol,
+  CompatibleProviderCompat,
+} from "../providers/custom/types";
 import { containsSecretField, SchemaCompiler } from "../schema/vendor-settings";
 import { AtomicJsonFile } from "../storage/atomic-json-file";
 import {
@@ -20,6 +24,7 @@ export interface ProviderConnectionDefinition {
   readonly baseUrl: string;
   readonly envVars: readonly string[];
   readonly protocol: CompatibleProtocol;
+  readonly compat?: CompatibleProviderCompat;
   readonly credentialAliases?: readonly string[];
   readonly models: readonly CompatibleModelDefinition[];
 }
@@ -48,6 +53,7 @@ interface ProviderConnectionDefinitionDto {
   baseUrl: string;
   envVars: string[];
   protocol: CompatibleProtocol;
+  compat?: CompatibleProviderCompat;
   credentialAliases: string[];
   models: CompatibleModelDefinitionDto[];
 }
@@ -103,6 +109,27 @@ const providerFileSchema: JSONSchemaType<ProviderConfigFileDto> = {
                     "google-generative-ai",
                     "mistral-conversations",
                   ],
+                },
+                compat: {
+                  type: "object",
+                  nullable: true,
+                  properties: {
+                    supportsUsageInStreaming: { type: "boolean", nullable: true },
+                    sendSessionAffinityHeaders: { type: "boolean", nullable: true },
+                    sessionAffinityFormat: {
+                      type: "string",
+                      enum: ["openai", "openai-nosession", "openrouter"],
+                      nullable: true,
+                    },
+                    supportsLongCacheRetention: { type: "boolean", nullable: true },
+                    cacheControlFormat: {
+                      type: "string",
+                      enum: ["anthropic"],
+                      nullable: true,
+                    },
+                  },
+                  required: [],
+                  additionalProperties: false,
                 },
                 credentialAliases: {
                   type: "array",
@@ -331,6 +358,7 @@ function validateDefinitions(
       connectionIds.add(connection.id);
       providerIds.add(connection.providerId);
       validateHttpEndpoint(connection.baseUrl, `${connectionPath}.baseUrl`);
+      validateCompatibleProviderCompat(connection, connectionPath);
       validateEnvironmentVariables(connection.envVars, `${connectionPath}.envVars`);
       validateUniqueModelIds(connection.models, `${connectionPath}.models`);
       return {
@@ -342,6 +370,39 @@ function validateDefinitions(
     });
     return { ...vendor, connections };
   });
+}
+
+function validateCompatibleProviderCompat(
+  connection: ProviderConnectionDefinition,
+  path: string,
+): void {
+  const compat = (connection as { readonly compat?: unknown }).compat;
+  if (compat === undefined) return;
+  if (!compat || typeof compat !== "object" || Array.isArray(compat)) {
+    throw new Error(`${path}.compat must be an object`);
+  }
+  const allowed = new Set<keyof CompatibleProviderCompat>(
+    connection.protocol === "openai-completions"
+      ? [
+          "supportsUsageInStreaming",
+          "sendSessionAffinityHeaders",
+          "sessionAffinityFormat",
+          "supportsLongCacheRetention",
+          "cacheControlFormat",
+        ]
+      : connection.protocol === "openai-responses"
+        ? ["sessionAffinityFormat", "supportsLongCacheRetention"]
+        : connection.protocol === "anthropic-messages"
+          ? ["sendSessionAffinityHeaders", "supportsLongCacheRetention"]
+          : [],
+  );
+  for (const [rawKey, value] of Object.entries(compat)) {
+    const key = rawKey as keyof CompatibleProviderCompat;
+    if (!allowed.has(key)) {
+      throw new Error(`${path}.compat.${key} is not supported by ${connection.protocol}`);
+    }
+    if (value === null) throw new Error(`${path}.compat.${key} must not be null`);
+  }
 }
 
 function applyDefaults(input: unknown): unknown {

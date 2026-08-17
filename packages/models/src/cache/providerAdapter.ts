@@ -7,7 +7,7 @@ export function toProviderCacheOptions(
 ): ProviderCacheOptions {
   // Disabling cache must also suppress Provider affinity/cache-key metadata.
   return {
-    ...(capability.supportsStableScopeKey && directive.retention !== "none"
+    ...(capability.stableScopeRetentions.includes(directive.retention)
       ? { sessionId: directive.scopeId }
       : {}),
     cacheRetention: directive.retention,

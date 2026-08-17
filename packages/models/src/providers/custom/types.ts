@@ -24,6 +24,15 @@ export type CompatibleProtocol =
   | "google-generative-ai"
   | "mistral-conversations";
 
+/** Validated pi-ai compatibility overrides supported by configured providers. */
+export interface CompatibleProviderCompat {
+  readonly supportsUsageInStreaming?: boolean;
+  readonly sendSessionAffinityHeaders?: boolean;
+  readonly sessionAffinityFormat?: "openai" | "openai-nosession" | "openrouter";
+  readonly supportsLongCacheRetention?: boolean;
+  readonly cacheControlFormat?: "anthropic";
+}
+
 export interface ModelTransportModel {
   readonly id: string;
   readonly providerId: string;

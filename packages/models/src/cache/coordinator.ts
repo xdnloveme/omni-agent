@@ -87,4 +87,16 @@ export class ModelCacheCoordinator implements ModelCacheLeaseAdvisorPort {
   clear(): void {
     this.state.clear();
   }
+
+  hydrate(snapshot: unknown): string | undefined {
+    return this.state.hydrate(snapshot, this.now());
+  }
+
+  snapshot(scopeId: string): unknown | undefined {
+    return this.state.snapshot(scopeId);
+  }
+
+  remove(scopeId: string): void {
+    this.state.remove(scopeId);
+  }
 }

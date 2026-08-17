@@ -116,6 +116,7 @@ PreparedModelContext
        -> semantic request fingerprint
        -> bounded in-memory state
        -> concrete ModelRuntime
+  -> App cache-lease sidecar (successful digest baseline only)
   -> pi-ai Provider adapter
   -> remote Provider prompt cache
 ```
@@ -129,8 +130,9 @@ resolved scope and retention to `pi-ai` `sessionId` and `cacheRetention`; Provid
 decorator can emit `cache_report`; the inner transport event contract excludes it.
 
 Cache state contains only SHA-256 digests, applied retention, and known expiry. It is
-bounded to 256 scopes, is cleared with the Models runtime, and is
-never written to Session or Context sidecars. Lifecycle classification is deterministic:
+bounded to 256 scopes and is cleared with the Models runtime. App persists at most one
+successful baseline per Session in the existing Context sidecar directory, without changing
+Session JSONL; missing, corrupt, or expired state degrades to `cold`. Lifecycle classification is deterministic:
 incompatible request semantics, known expiry, static-prefix rebase, append-only history,
 last-message replacement, whole-history rebase, then other prefix rewrites.
 
@@ -140,8 +142,9 @@ cache-disabled; a custom transport may declare a capability explicitly. Cache re
 read-only stream events correlated by model-call and Context snapshot IDs. Context and
 Session modules do not import cache runtime implementations.
 
-Capability resolution uses the catalog model's API, base URL, and compatibility flags,
-not its Vendor name. Capability validation and copying have one Models-layer owner.
+Capability resolution uses the catalog model's API, base URL, and validated pi-ai
+compatibility flags, not its Vendor name. Stable scope support is declared per retention.
+Capability validation and copying have one Models-layer owner.
 Fingerprints, bounded state, and transport execution contracts are internal implementation
 details rather than Models package exports.
 

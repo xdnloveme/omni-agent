@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +13,8 @@ import {
   ContextSidecarLifecycle,
   ContextSidecarLayout,
 } from "../context";
+import { ModelCacheLeaseRepository } from "../models/cache/model-cache-lease-repository";
+import { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
 
 const roots: string[] = [];
 
@@ -105,6 +107,51 @@ describe("Context sidecar storage", () => {
         name.startsWith("checkpoints.json.corrupt-"),
       ),
     ).toBe(true);
+  });
+
+  it("stores one validated cache lease in the Session sidecar directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "omni-context-storage-"));
+    roots.push(root);
+    const layout = new ContextSidecarLayout(join(root, "coding", "context"));
+    const repository = new ModelCacheLeaseRepository(layout);
+    const digest = "a".repeat(64);
+    const snapshot = {
+      version: 1,
+      scopeId: digest,
+      fingerprint: {
+        staticPrefixDigest: digest,
+        messageDigests: [digest],
+        requestSemanticsDigest: digest,
+      },
+      retention: "short",
+      expiresAt: 10,
+    };
+
+    await repository.save("session-1", snapshot);
+
+    expect(await repository.load("session-1")).toEqual(snapshot);
+    expect(
+      JSON.parse(
+        await readFile(join(layout.contextDirectory("session-1"), "cache-lease.json"), "utf8"),
+      ),
+    ).toEqual(snapshot);
+  });
+
+  it("retries lease hydration after a transient repository failure", async () => {
+    const load = vi.fn().mockRejectedValueOnce(new Error("temporary")).mockResolvedValue(undefined);
+    const controller = new ModelCacheLeaseController(
+      {
+        hydrateCacheLease: vi.fn(),
+        snapshotCacheLease: vi.fn(),
+        forgetCacheLease: vi.fn(),
+      },
+      { load, save: vi.fn() } as unknown as ModelCacheLeaseRepository,
+    );
+
+    await controller.hydrate("session-1");
+    await controller.hydrate("session-1");
+
+    expect(load).toHaveBeenCalledTimes(2);
   });
 
   it("validates checkpoint lineage and distinguishes idempotence from id conflicts", async () => {

@@ -280,7 +280,7 @@ describe("runAgentLoop", () => {
       capability: {
         mode: "automatic_prefix" as const,
         retentions: ["none", "short"] as const,
-        supportsStableScopeKey: true,
+        stableScopeRetentions: ["short"] as const,
       },
       lifecycle: "cold" as const,
       commonPrefixMessageCount: 0,

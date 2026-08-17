@@ -7,6 +7,16 @@ export interface RuntimeModelCacheEntry {
   readonly expiresAt?: number;
 }
 
+interface ModelCacheLeaseSnapshot {
+  readonly version: 1;
+  readonly scopeId: string;
+  readonly fingerprint: ModelCacheFingerprint;
+  readonly retention: Exclude<ModelCacheDirective["retention"], "none">;
+  readonly expiresAt?: number;
+}
+
+const SHA256_PATTERN = /^[a-f0-9]{64}$/;
+
 export interface ModelCacheComparison {
   readonly lifecycle: ModelCacheLifecycle;
   readonly commonPrefixMessageCount: number;
@@ -48,6 +58,32 @@ export class RuntimeModelCacheState {
     }
   }
 
+  hydrate(snapshot: unknown, now = Date.now()): string | undefined {
+    assertModelCacheLeaseSnapshot(snapshot);
+    if (snapshot.expiresAt !== undefined && now >= snapshot.expiresAt) {
+      this.entries.delete(snapshot.scopeId);
+      return undefined;
+    }
+    this.set(snapshot.scopeId, snapshot);
+    return snapshot.scopeId;
+  }
+
+  snapshot(scopeId: string): unknown | undefined {
+    const entry = this.peek(scopeId);
+    if (!entry || entry.retention === "none") return undefined;
+    return {
+      version: 1,
+      scopeId,
+      fingerprint: entry.fingerprint,
+      retention: entry.retention,
+      ...(entry.expiresAt === undefined ? {} : { expiresAt: entry.expiresAt }),
+    } satisfies ModelCacheLeaseSnapshot;
+  }
+
+  remove(scopeId: string): void {
+    this.entries.delete(scopeId);
+  }
+
   clear(): void {
     this.entries.clear();
   }
@@ -55,6 +91,47 @@ export class RuntimeModelCacheState {
   get size(): number {
     return this.entries.size;
   }
+}
+
+export function assertModelCacheLeaseSnapshot(
+  value: unknown,
+): asserts value is ModelCacheLeaseSnapshot {
+  if (
+    !isRecord(value) ||
+    !hasOnlyKeys(value, ["version", "scopeId", "fingerprint", "retention", "expiresAt"])
+  ) {
+    throw new Error("Invalid model cache lease snapshot");
+  }
+  const candidate = value as Partial<ModelCacheLeaseSnapshot>;
+  const fingerprint = candidate.fingerprint;
+  if (
+    candidate.version !== 1 ||
+    !isDigest(candidate.scopeId) ||
+    (candidate.retention !== "short" && candidate.retention !== "long") ||
+    (candidate.expiresAt !== undefined &&
+      (!Number.isSafeInteger(candidate.expiresAt) || candidate.expiresAt <= 0)) ||
+    !isRecord(fingerprint) ||
+    !hasOnlyKeys(fingerprint, ["staticPrefixDigest", "messageDigests", "requestSemanticsDigest"]) ||
+    !isDigest(fingerprint.staticPrefixDigest) ||
+    !isDigest(fingerprint.requestSemanticsDigest) ||
+    !Array.isArray(fingerprint.messageDigests) ||
+    !fingerprint.messageDigests.every(isDigest)
+  ) {
+    throw new Error("Invalid model cache lease snapshot");
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
+  const keys = Object.keys(value);
+  return keys.every((key) => allowed.includes(key));
+}
+
+function isDigest(value: unknown): value is string {
+  return typeof value === "string" && SHA256_PATTERN.test(value);
 }
 
 export function compareModelCacheState(
