@@ -62,8 +62,8 @@ export async function persistOnboardingSelection(
   current: ResolvedModelConfiguration | null,
 ): Promise<void> {
   if (current?.kind === "agent") {
-    await configService.saveAgentModel(agentId, selection, { scope: current.scope });
+    await configService.saveAgentModel(agentId, selection, { scope: "global" });
     return;
   }
-  await configService.saveSharedModel(selection);
+  await configService.saveSharedModel(selection, { scope: "global" });
 }

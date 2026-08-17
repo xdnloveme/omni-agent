@@ -74,7 +74,7 @@ export class ConfigService {
     model: ModelSelection,
     options: { scope?: ConfigurationScope } = {},
   ): Promise<void> {
-    const scope = options.scope ?? "project";
+    const scope = options.scope ?? "global";
     const current = await this.loadWritableLayer(scope, model);
     await this.writeLayer(scope, { ...current, model });
   }
@@ -85,7 +85,7 @@ export class ConfigService {
     options: { scope?: ConfigurationScope } = {},
   ): Promise<void> {
     assertAgentId(agentId);
-    const scope = options.scope ?? "project";
+    const scope = options.scope ?? "global";
     const shared = await this.resolveSharedModel();
     const current = await this.loadWritableLayer(scope, shared ?? model);
     await this.writeLayer(scope, {
@@ -102,53 +102,13 @@ export class ConfigService {
     options: { scope?: ConfigurationScope } = {},
   ): Promise<void> {
     assertAgentId(agentId);
-    const scope = options.scope ?? "project";
+    const scope = options.scope ?? "global";
     const layer = await this.loadLayer(scope);
     if (!layer.present) return;
     if (!layer.config) throw new InvalidConfigError(`Cannot update invalid ${scope} config`);
     if (!layer.config.agents?.[agentId]) return;
 
     await this.writeLayer(scope, withoutAgentModel(layer.config, agentId));
-  }
-
-  async clearAgentModelOverrides(agentId: string): Promise<void> {
-    assertAgentId(agentId);
-    const layers = await this.loadLayers();
-    if (layers.project.present && !layers.project.config) {
-      throw new InvalidConfigError("Cannot update invalid project config");
-    }
-    if (layers.global.present && !layers.global.config) {
-      throw new InvalidConfigError("Cannot update invalid global config");
-    }
-
-    const updates = (["global", "project"] as const).flatMap((scope) => {
-      const config = layers[scope].config;
-      if (!config?.agents?.[agentId]) return [];
-      return [{ scope, previous: config, next: withoutAgentModel(config, agentId) }];
-    });
-    const applied: typeof updates = [];
-    try {
-      for (const update of updates) {
-        await this.writeLayer(update.scope, update.next);
-        applied.push(update);
-      }
-    } catch (error) {
-      const rollbackErrors: unknown[] = [];
-      for (const update of [...applied].reverse()) {
-        try {
-          await this.writeLayer(update.scope, update.previous);
-        } catch (rollbackError) {
-          rollbackErrors.push(rollbackError);
-        }
-      }
-      if (rollbackErrors.length > 0) {
-        throw new AggregateError(
-          [error, ...rollbackErrors],
-          `Failed to clear model overrides for Agent: ${agentId}`,
-        );
-      }
-      throw error;
-    }
   }
 
   private async loadLayers(): Promise<ConfigLayers> {
@@ -167,16 +127,17 @@ export class ConfigService {
     const layer = await this.loadLayer(scope);
     if (layer.config) return layer.config;
     if (layer.present) throw new InvalidConfigError(`Cannot update invalid ${scope} config`);
-    return { version: 3, model: fallbackModel };
+    return { model: fallbackModel };
   }
 
   private async loadLayer(scope: ConfigurationScope): Promise<ConfigLayer> {
     try {
       const value = await new AtomicJsonFile<unknown>(this.path(scope)).read();
       if (value === undefined) return { present: false, config: null };
-      if (!isOmniConfig(value)) throw new InvalidConfigError("Configuration format is invalid");
-      assertSecretFreeConfig(value);
-      return { present: true, config: value };
+      const config = parseOmniConfig(value);
+      if (!config) throw new InvalidConfigError("Configuration format is invalid");
+      assertSecretFreeConfig(config);
+      return { present: true, config };
     } catch (error) {
       this.diagnostics.push({
         code:
@@ -192,7 +153,8 @@ export class ConfigService {
 
   private writeLayer(scope: ConfigurationScope, config: OmniConfig): Promise<void> {
     assertSecretFreeConfig(config);
-    return new AtomicJsonFile<OmniConfig>(this.path(scope)).write(config);
+    const persisted = scope === "global" ? { version: 3 as const, ...config } : config;
+    return new AtomicJsonFile<unknown>(this.path(scope)).write(persisted);
   }
 
   private path(scope: ConfigurationScope): string {
@@ -208,13 +170,17 @@ function assertSecretFreeConfig(config: OmniConfig): void {
   }
 }
 
-function isOmniConfig(value: unknown): value is OmniConfig {
-  if (!isRecord(value) || value.version !== 3 || !isModelSelection(value.model)) return false;
-  if (value.agents === undefined) return true;
-  if (!isRecord(value.agents)) return false;
-  return Object.entries(value.agents).every(
+function parseOmniConfig(value: unknown): OmniConfig | null {
+  if (!isRecord(value)) return null;
+  if (value.version !== undefined && value.version !== 3) return null;
+  const { version: _legacyVersion, ...config } = value;
+  if (!isModelSelection(config.model)) return null;
+  if (config.agents === undefined) return config as unknown as OmniConfig;
+  if (!isRecord(config.agents)) return null;
+  const validAgents = Object.entries(config.agents).every(
     ([agentId, entry]) => isAgentId(agentId) && isRecord(entry) && isModelSelection(entry.model),
   );
+  return validAgents ? (config as unknown as OmniConfig) : null;
 }
 
 function withoutAgentModel(config: OmniConfig, agentId: string): OmniConfig {

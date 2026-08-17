@@ -124,21 +124,24 @@ async function selectCustomModel(
     validate: (value) =>
       /^[A-Za-z_][A-Za-z0-9_]*$/.test(value) || "Enter a valid environment variable name",
   });
-  await new ProviderRegistrationCoordinator(modelService).register({
-    id,
-    displayName: id,
-    connections: [
-      {
-        id: "default",
-        displayName: "Default",
-        providerId: id,
-        baseUrl,
-        envVars: [envVar],
-        protocol: "openai-completions",
-        models: [{ id: modelId, contextWindow, maxTokens }],
-      },
-    ],
-  });
+  await new ProviderRegistrationCoordinator(modelService).register(
+    {
+      id,
+      displayName: id,
+      connections: [
+        {
+          id: "default",
+          displayName: "Default",
+          providerId: id,
+          baseUrl,
+          envVars: [envVar],
+          protocol: "openai-completions",
+          models: [{ id: modelId, contextWindow, maxTokens }],
+        },
+      ],
+    },
+    { scope: "global" },
+  );
   await prepareProvider(id);
   return { vendorId: id, connectionId: "default", modelId };
 }

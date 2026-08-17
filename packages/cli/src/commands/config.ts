@@ -13,7 +13,7 @@ export function createConfigCommand(app: AgentApplication): Command {
       let updated = false;
       try {
         const action = await select({
-          message: "Choose model configuration scope",
+          message: "Choose model configuration",
           choices: [
             {
               name: `Set a model for ${app.agentId}`,
@@ -49,10 +49,11 @@ export function createConfigCommand(app: AgentApplication): Command {
       } finally {
         ctx.interaction.resume();
       }
-      if (updated)
+      if (updated) {
         ctx.interaction.line(
-          chalk.green(`Configuration updated. Using ${app.modelSelection.vendorId} now.`),
+          chalk.green(`Global configuration updated. Using ${app.modelSelection.vendorId} now.`),
         );
+      }
       ctx.interaction.spacer();
     },
   };

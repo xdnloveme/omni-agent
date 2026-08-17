@@ -16,7 +16,7 @@ function configService() {
 }
 
 describe("persistOnboardingSelection", () => {
-  it("updates an existing Agent override in its owning scope", async () => {
+  it("stores an Agent override globally even when the effective override is project-level", async () => {
     const config = configService();
 
     await persistOnboardingSelection(config, "coding", selection, {
@@ -31,12 +31,12 @@ describe("persistOnboardingSelection", () => {
     expect(config.saveSharedModel).not.toHaveBeenCalled();
   });
 
-  it("creates or updates the shared project default when no Agent override exists", async () => {
+  it("creates or updates the shared global default when no Agent override exists", async () => {
     const config = configService();
 
     await persistOnboardingSelection(config, "coding", selection, null);
 
-    expect(config.saveSharedModel).toHaveBeenCalledWith(selection);
+    expect(config.saveSharedModel).toHaveBeenCalledWith(selection, { scope: "global" });
     expect(config.saveAgentModel).not.toHaveBeenCalled();
   });
 });

@@ -50,8 +50,13 @@ async function fixture() {
   const configService = {
     saveAgentModel: vi.fn(async () => undefined),
     saveSharedModel: vi.fn(async () => undefined),
-    clearAgentModelOverrides: vi.fn(async () => undefined),
+    removeAgentModel: vi.fn(async () => undefined),
     resolveModel: vi.fn(async () => selection),
+    resolveModelConfiguration: vi.fn(async () => ({
+      selection,
+      scope: "global" as const,
+      kind: "shared" as const,
+    })),
     resolveSharedModel: vi.fn(async () => selection),
   } as unknown as ConfigService;
   const dispose = vi.fn(async () => undefined);
@@ -135,10 +140,13 @@ describe("AgentApplication model selection", () => {
   it("persists an Agent override before activating it", async () => {
     const { app, configService } = await fixture();
     const next = { vendorId: "next", connectionId: "regional", modelId: "next-model" };
+    vi.mocked(configService.resolveModel).mockResolvedValueOnce(next);
 
     await app.setAgentModel(next);
 
-    expect(configService.saveAgentModel).toHaveBeenCalledWith("test", next);
+    expect(configService.saveAgentModel).toHaveBeenCalledWith("test", next, {
+      scope: "global",
+    });
     expect(app.modelSelection).toEqual(next);
   });
 
@@ -155,17 +163,29 @@ describe("AgentApplication model selection", () => {
     expect(app.modelSelection).toBe(previous);
   });
 
-  it("removes an Agent override before activating the shared model", async () => {
+  it("removes only the global Agent override before activating the shared model", async () => {
     const { app, configService } = await fixture();
 
     await app.useSharedModel();
 
-    expect(configService.clearAgentModelOverrides).toHaveBeenCalledWith("test");
+    expect(configService.removeAgentModel).toHaveBeenCalledWith("test", { scope: "global" });
     expect(app.modelSelection).toEqual({
       vendorId: "test",
       connectionId: "default",
       modelId: "model",
     });
+  });
+
+  it("does not remove a project-level Agent override", async () => {
+    const { app, configService } = await fixture();
+    vi.mocked(configService.resolveModelConfiguration).mockResolvedValueOnce({
+      selection: { vendorId: "project", connectionId: "default", modelId: "project-model" },
+      scope: "project",
+      kind: "agent",
+    });
+
+    await expect(app.useSharedModel()).rejects.toThrow("Cannot remove the project-level override");
+    expect(configService.removeAgentModel).not.toHaveBeenCalled();
   });
 
   it("disposes extensions idempotently through its owning instance", async () => {

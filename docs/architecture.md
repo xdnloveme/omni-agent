@@ -242,7 +242,7 @@ validated responses without adding a second production interaction implementatio
 Global configuration under `~/.omni-agent` is the baseline. Files in the
 current project root form the override layer:
 
-- `omni.config.json`: version 3 stores a shared default model and optional
+- `omni.config.json`: stores a shared default model and optional
   `agents.<agent-id>.model` overrides. Resolution order is project Agent,
   global Agent, project shared, then global shared.
 - `omni.providers.json`: vendors merge with global
@@ -270,8 +270,10 @@ introduced only when a verified endpoint requires one.
 
 `AgentRunner` receives exactly one `ModelRuntimePort` through its constructor.
 There is no legacy execution branch, global runtime setter, static model
-registry, or API key in `AgentConfig`. Runtime configuration accepts only
-`OmniConfig` version 3; historical formats do not participate in model execution.
+registry, or API key in `AgentConfig`. Runtime configuration accepts only the
+validated `OmniConfig` structure. The global file may carry an internal
+storage-version marker owned by the CLI; that marker is not part of the project
+configuration contract.
 The default CLI preserves the existing command, tool, event, and TUI behavior.
 
 Agent packages expose an `agentBlueprint` from their package root. The CLI keeps

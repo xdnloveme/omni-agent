@@ -97,8 +97,83 @@ Project Agent overrides win over global Agent overrides, followed by project and
 global shared defaults. Provider vendors merge by `id` and
 connections by `id`, with project connections replacing matching global
 connections. Invalid project files are reported instead of silently falling
-back to global configuration. Project configuration can be committed; secrets
-remain in keytar or an ignored `.env` file.
+back to global configuration. The CLI writes its own model choices only to
+`~/.omni-agent/config.json` and interactive custom Provider definitions only to
+`~/.omni-agent/providers.json`. Project-level `omni.config.json` and
+`omni.providers.json` files are read-only inputs: the CLI never creates, updates,
+or removes them during onboarding or `/config`. Project configuration can be
+committed; secrets remain in keytar or an ignored `.env` file.
+
+### Model configuration
+
+The global `~/.omni-agent/config.json` is owned by the CLI. To configure a
+repository, create `omni.config.json` manually with a shared model and optional
+Agent-specific overrides:
+
+```json
+{
+  "model": {
+    "vendorId": "anthropic",
+    "connectionId": "default",
+    "modelId": "claude-sonnet-4-5"
+  },
+  "agents": {
+    "financial-analysis": {
+      "model": {
+        "vendorId": "openai",
+        "connectionId": "default",
+        "modelId": "gpt-5"
+      }
+    }
+  }
+}
+```
+
+The supported JSON Schema is:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Omni model configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["model"],
+  "properties": {
+    "model": { "$ref": "#/$defs/modelSelection" },
+    "agents": {
+      "type": "object",
+      "propertyNames": { "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["model"],
+        "properties": {
+          "model": { "$ref": "#/$defs/modelSelection" }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "modelSelection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["vendorId", "connectionId", "modelId"],
+      "properties": {
+        "vendorId": { "type": "string", "minLength": 1 },
+        "connectionId": { "type": "string", "minLength": 1 },
+        "modelId": { "type": "string", "minLength": 1 },
+        "requestedOutputTokens": { "type": "integer", "minimum": 1 },
+        "settings": { "type": "object" }
+      }
+    }
+  }
+}
+```
+
+Resolution order is project Agent override, global Agent override, project shared
+model, then global shared model. Model configuration must not contain credentials
+or secret-like fields such as `apiKey`, `password`, `accessToken`, or `privateKey`;
+use keytar or environment variables for those values.
 
 Provider plugins compose connection-level Factory strategies rather than building
 adapters in Core. Agent-facing connection settings use a constrained JSON Schema

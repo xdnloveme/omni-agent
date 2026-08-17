@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ConfigService } from "../config/config-service";
 import type { ModelSelection } from "../models/model-service";
-import { AtomicJsonFile } from "../persistence/atomic-json-file";
 
 const directories: string[] = [];
 
@@ -39,10 +38,22 @@ async function writeConfig(
   shared: ModelSelection,
   agents?: Record<string, { model: ModelSelection }>,
 ) {
-  await writeFile(path, JSON.stringify({ version: 3, model: shared, agents }));
+  await writeFile(path, JSON.stringify({ model: shared, agents }));
 }
 
-describe("ConfigService v3", () => {
+describe("ConfigService", () => {
+  it("writes new configuration globally by default without creating a project file", async () => {
+    const { service, projectPath, globalPath } = await fixture();
+
+    await service.saveSharedModel(model("global"));
+
+    expect(JSON.parse(await readFile(globalPath, "utf8"))).toEqual({
+      version: 3,
+      model: model("global"),
+    });
+    await expect(readFile(projectPath, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
   it("resolves project Agent, global Agent, project shared, then global shared", async () => {
     const { service, projectPath, globalPath } = await fixture();
     await writeConfig(globalPath, model("global"), {
@@ -85,11 +96,10 @@ describe("ConfigService v3", () => {
       coding: { model: model("coding") },
     });
 
-    await service.saveAgentModel("financial", model("financial"));
+    await service.saveAgentModel("financial", model("financial"), { scope: "project" });
     const saved = JSON.parse(await readFile(projectPath, "utf8"));
 
     expect(saved).toEqual({
-      version: 3,
       model: model("shared"),
       agents: {
         coding: { model: model("coding") },
@@ -104,70 +114,11 @@ describe("ConfigService v3", () => {
       coding: { model: model("coding") },
     });
 
-    await service.removeAgentModel("coding");
+    await service.removeAgentModel("coding", { scope: "project" });
 
     await expect(service.resolveModel("coding")).resolves.toEqual(model("shared"));
     expect(JSON.parse(await readFile(projectPath, "utf8"))).toEqual({
-      version: 3,
       model: model("shared"),
-    });
-  });
-
-  it("clears Agent overrides in both scopes without changing shared or sibling models", async () => {
-    const { service, projectPath, globalPath } = await fixture();
-    await writeConfig(globalPath, model("global"), {
-      coding: { model: model("global-coding") },
-      sibling: { model: model("global-sibling") },
-    });
-    await writeConfig(projectPath, model("project"), {
-      coding: { model: model("project-coding") },
-    });
-
-    await service.clearAgentModelOverrides("coding");
-
-    expect(JSON.parse(await readFile(globalPath, "utf8"))).toEqual({
-      version: 3,
-      model: model("global"),
-      agents: { sibling: { model: model("global-sibling") } },
-    });
-    expect(JSON.parse(await readFile(projectPath, "utf8"))).toEqual({
-      version: 3,
-      model: model("project"),
-    });
-  });
-
-  it("restores the first scope when clearing the second scope fails", async () => {
-    const { service, projectPath, globalPath } = await fixture();
-    await writeConfig(globalPath, model("global"), {
-      coding: { model: model("global-coding") },
-    });
-    await writeConfig(projectPath, model("project"), {
-      coding: { model: model("project-coding") },
-    });
-    const write = AtomicJsonFile.prototype.write;
-    let writeCount = 0;
-    vi.spyOn(AtomicJsonFile.prototype, "write").mockImplementation(function (
-      this: AtomicJsonFile<unknown>,
-      value,
-    ) {
-      writeCount += 1;
-      if (writeCount === 2) return Promise.reject(new Error("project write failed"));
-      return write.call(this, value);
-    });
-
-    await expect(service.clearAgentModelOverrides("coding")).rejects.toThrow(
-      "project write failed",
-    );
-
-    expect(JSON.parse(await readFile(globalPath, "utf8"))).toEqual({
-      version: 3,
-      model: model("global"),
-      agents: { coding: { model: model("global-coding") } },
-    });
-    expect(JSON.parse(await readFile(projectPath, "utf8"))).toEqual({
-      version: 3,
-      model: model("project"),
-      agents: { coding: { model: model("project-coding") } },
     });
   });
 
@@ -177,13 +128,13 @@ describe("ConfigService v3", () => {
       coding: { model: model("coding") },
     });
 
-    await service.saveSharedModel(model("new"));
+    await service.saveSharedModel(model("new"), { scope: "project" });
 
     await expect(service.resolveModel("coding")).resolves.toEqual(model("coding"));
     await expect(service.resolveModel("financial")).resolves.toEqual(model("new"));
   });
 
-  it("rejects version 2 without migrating or rewriting it", async () => {
+  it("rejects an unsupported internal version without rewriting it", async () => {
     const { service, projectPath } = await fixture();
     const original = JSON.stringify({ version: 2, model: model("legacy") });
     await writeFile(projectPath, original);
@@ -193,6 +144,18 @@ describe("ConfigService v3", () => {
       expect.objectContaining({ code: "invalid_config", source: "project" }),
     ]);
     await expect(readFile(projectPath, "utf8")).resolves.toBe(original);
+  });
+
+  it("accepts the internal version marker while keeping it out of project writes", async () => {
+    const { service, projectPath } = await fixture();
+    await writeFile(projectPath, JSON.stringify({ version: 3, model: model("legacy") }));
+
+    await expect(service.resolveModel("coding")).resolves.toEqual(model("legacy"));
+    await service.saveSharedModel(model("current"), { scope: "project" });
+
+    expect(JSON.parse(await readFile(projectPath, "utf8"))).toEqual({
+      model: model("current"),
+    });
   });
 
   it("rejects invalid Agent IDs in configuration and write operations", async () => {

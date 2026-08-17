@@ -6,7 +6,6 @@ export interface AgentModelConfig {
 }
 
 export interface OmniConfig {
-  version: 3;
   model: ModelSelection;
   agents?: Record<string, AgentModelConfig>;
 }

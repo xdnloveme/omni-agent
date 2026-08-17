@@ -1031,7 +1031,6 @@ const agentConfig: AgentConfig = {
 
 ```json
 {
-  "version": 3,
   "model": {
     "vendorId": "anthropic",
     "connectionId": "default",

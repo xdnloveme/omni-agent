@@ -119,8 +119,9 @@ export class AgentApplication {
     const next = await this.modelService.resolve(selection);
     const auth = await this.modelService.isConfigured(next.providerId);
     if (!auth) throw new Error(`Provider is not configured: ${next.providerId}`);
-    await this.configService.saveAgentModel(this.agentId, selection);
-    this.activateModel(selection, next);
+    await this.configService.saveAgentModel(this.agentId, selection, { scope: "global" });
+    const effective = await this.requireEffectiveModel();
+    this.activateModel(effective.selection, effective.model);
   }
 
   async setSharedModel(selection: ModelSelection): Promise<void> {
@@ -128,27 +129,21 @@ export class AgentApplication {
     if (!(await this.modelService.isConfigured(shared.providerId))) {
       throw new Error(`Provider is not configured: ${shared.providerId}`);
     }
-    await this.configService.saveSharedModel(selection);
-    const effective = await this.configService.resolveModel(this.agentId);
-    if (!effective) throw new Error(`Model is not configured for agent: ${this.agentId}`);
-    const next = await this.modelService.resolve(effective);
-    if (!(await this.modelService.isConfigured(next.providerId))) {
-      throw new Error(`Provider is not configured: ${next.providerId}`);
-    }
-    this.activateModel(effective, next);
+    await this.configService.saveSharedModel(selection, { scope: "global" });
+    const effective = await this.requireEffectiveModel();
+    this.activateModel(effective.selection, effective.model);
   }
 
   async useSharedModel(): Promise<void> {
-    const shared = await this.configService.resolveSharedModel();
-    if (!shared) throw new Error("Shared model is not configured");
-    const next = await this.modelService.resolve(shared);
-    if (!(await this.modelService.isConfigured(next.providerId))) {
-      throw new Error(`Provider is not configured: ${next.providerId}`);
+    const current = await this.configService.resolveModelConfiguration(this.agentId);
+    if (current?.scope === "project" && current.kind === "agent") {
+      throw new Error(
+        `Cannot remove the project-level override for ${this.agentId}; edit omni.config.json manually`,
+      );
     }
-    await this.configService.clearAgentModelOverrides(this.agentId);
-    const effective = await this.configService.resolveModel(this.agentId);
-    if (!effective) throw new Error("Shared model is not configured");
-    this.activateModel(effective, next);
+    await this.configService.removeAgentModel(this.agentId, { scope: "global" });
+    const effective = await this.requireEffectiveModel();
+    this.activateModel(effective.selection, effective.model);
   }
 
   get modelSelection(): ModelSelection {
@@ -197,6 +192,19 @@ export class AgentApplication {
   private activateModel(selection: ModelSelection, model: AgentConfig["model"]): void {
     this.activeSelection = selection;
     this.agentConfig.model = model;
+  }
+
+  private async requireEffectiveModel(): Promise<{
+    selection: ModelSelection;
+    model: AgentConfig["model"];
+  }> {
+    const selection = await this.configService.resolveModel(this.agentId);
+    if (!selection) throw new Error(`Model is not configured for agent: ${this.agentId}`);
+    const model = await this.modelService.resolve(selection);
+    if (!(await this.modelService.isConfigured(model.providerId))) {
+      throw new Error(`Provider is not configured: ${model.providerId}`);
+    }
+    return { selection, model };
   }
 }
 
