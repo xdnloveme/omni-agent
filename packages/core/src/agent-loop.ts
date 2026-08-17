@@ -15,6 +15,7 @@ import { createContextPreparationRequest } from "./agent/contextInput";
 import { WorkingConversation } from "./agent/workingConversation";
 import { createContextPreparationStream } from "./agent/contextPreparationStream";
 import { createToolBatchDescriptor } from "./agent/toolBatch";
+import { EnvironmentContextError } from "./environment";
 
 export interface AgentLoopOptions {
   /** Optional StreamSession for state-machine-driven event dispatch */
@@ -79,6 +80,30 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
   for (let turn = 0; maxTurns === undefined || turn < maxTurns; turn++) {
     throwIfAborted(signal);
 
+    try {
+      const capture = await input.environmentContext.capture(
+        conversation.snapshot().environment,
+        signal,
+      );
+      if (capture.changed) conversation.updateEnvironment(capture.context);
+    } catch (error) {
+      if (!(error instanceof EnvironmentContextError)) throw error;
+      const agentEvent: AgentEvent = {
+        type: "error",
+        failure: {
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+          ...(error.field ? { field: error.field } : {}),
+        },
+        produced: conversation.produced(),
+        usage: lastUsage,
+      };
+      session?.handle({ type: "error", failure: agentEvent.failure });
+      yield agentEvent;
+      return;
+    }
+
     // Call LLM
     let assistantMessage: AssistantTranscriptMessage | null = null;
 
@@ -87,6 +112,8 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       config.tools.length > 0,
     );
     const conversationSnapshot = conversation.snapshot();
+    const environment = conversationSnapshot.environment;
+    if (!environment) throw new Error("Environment context is missing after capture");
     const preparation = createContextPreparationStream(contextEngine, (progress) =>
       createContextPreparationRequest({
         identity: {
@@ -160,8 +187,14 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       }
       if (event.type === "error") {
         const errorMsg = event.error.errorMessage ?? "LLM error";
-        session?.handle({ type: "error", error: errorMsg });
-        yield { type: "error", error: errorMsg };
+        const failure = { code: "model_runtime_error", message: errorMsg, retryable: true };
+        const produced = conversation.produced();
+        session?.handle({ type: "error", failure });
+        yield {
+          type: "error",
+          failure,
+          ...(produced.length > 0 ? { produced } : {}),
+        };
         return;
       }
     }
@@ -169,8 +202,18 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     throwIfAborted(signal);
 
     if (!assistantMessage) {
-      session?.handle({ type: "error", error: "No response from LLM" });
-      yield { type: "error", error: "No response from LLM" };
+      const produced = conversation.produced();
+      const failure = {
+        code: "model_response_missing",
+        message: "No response from LLM",
+        retryable: true,
+      };
+      session?.handle({ type: "error", failure });
+      yield {
+        type: "error",
+        failure,
+        ...(produced.length > 0 ? { produced } : {}),
+      };
       return;
     }
 
@@ -229,7 +272,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         { toolName: call.name, toolCallId: call.id, input: call.arguments, signal },
         {
           agentId: input.agentId,
-          cwd: input.cwd,
+          cwd: environment.snapshot.workspace.cwd,
           middleware: config.middleware ?? [],
           lifecycleAdapters: config.toolLifecycleAdapters ?? [],
         },
@@ -308,11 +351,15 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     const loopDecision = loopProtection.completeToolBatch();
     for (const message of toolResultMessages) conversation.append(message);
     if (loopDecision.type === "halt") {
-      session?.handle({ type: "error", error: loopDecision.error });
+      const failure = {
+        code: "tool_loop_detected",
+        message: loopDecision.error,
+        retryable: false,
+      };
+      session?.handle({ type: "error", failure });
       yield {
         type: "error",
-        error: loopDecision.error,
-        code: "tool_loop_detected",
+        failure,
         loop: loopDecision.diagnostic,
         produced: conversation.produced(),
         usage: lastUsage,
@@ -325,11 +372,11 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
 
   if (maxTurns !== undefined) {
     const error = `Max turns reached (${maxTurns})`;
-    session?.handle({ type: "error", error });
+    const failure = { code: "max_turns_reached", message: error, retryable: false };
+    session?.handle({ type: "error", failure });
     yield {
       type: "error",
-      error,
-      code: "max_turns_reached",
+      failure,
       produced: conversation.produced(),
       usage: lastUsage,
       turnCount: maxTurns,

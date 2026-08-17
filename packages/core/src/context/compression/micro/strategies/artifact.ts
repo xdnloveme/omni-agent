@@ -1,11 +1,11 @@
 import { throwIfAborted } from "../../../../execution";
 import type { ToolResultTranscriptMessage } from "../../../../messages";
 import { digestContextValue } from "../../../digest";
-import { cloneContextFrame } from "../../../policy/types";
+import { cloneContextHistoryFrame } from "../../../policy/types";
 import type {
   ContextArtifactRecoveryCapability,
   ContextEntry,
-  ContextFrame,
+  ContextHistoryFrame,
 } from "../../../contracts/types";
 import type {
   ContextProjectionStorePort,
@@ -52,7 +52,7 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
   }
 
   canAdvance(
-    frame: Readonly<ContextFrame>,
+    frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
   ): boolean {
     if (!this.recovery) return false;
@@ -63,7 +63,7 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
   }
 
   async replay(
-    frame: Readonly<ContextFrame>,
+    frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
     options: Readonly<MicroProjectionOptions>,
   ): Promise<MicroProjectionResult> {
@@ -71,7 +71,7 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
     if (!this.recovery || records.length === 0)
       return unchangedProjection(frame, this.createState());
     const recordIndex = indexProjectionRecords(records);
-    const output = cloneContextFrame(frame);
+    const output = cloneContextHistoryFrame(frame);
     let replayed = 0;
     const retained: MicroProjectionRecord[] = [];
     const entries: ContextEntry[] = [];
@@ -121,7 +121,7 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
   }
 
   async advance(
-    frame: Readonly<ContextFrame>,
+    frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
     options: Readonly<MicroProjectionOptions>,
   ): Promise<MicroProjectionResult> {
@@ -139,7 +139,7 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
         frame,
         createStrategyState(this, this.configurationDigest, records),
       );
-    const output = cloneContextFrame(frame);
+    const output = cloneContextHistoryFrame(frame);
     const entries: ContextEntry[] = [];
     const artifacts: PendingContextArtifact[] = [];
     for (const entry of output.entries) {
@@ -205,7 +205,7 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
   }
 
   private selectedCandidates(
-    frame: Readonly<ContextFrame>,
+    frame: Readonly<ContextHistoryFrame>,
   ): Extract<ContextEntry, { kind: "transcript" }>[] {
     const candidates = frame.entries.filter(
       (entry): entry is Extract<ContextEntry, { kind: "transcript" }> =>

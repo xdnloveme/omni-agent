@@ -20,7 +20,7 @@ import {
   type ContextRewriteGuardPort,
   type ContextSummaryGeneratorPort,
 } from "../context";
-import { createContextFrame } from "../context/policy/types";
+import { createContextEnvelope } from "../context/policy/types";
 import { projectContextEntries } from "../context/assembly/entryProjection";
 import { partitionContextEntries } from "../context/compression/partition";
 import {
@@ -34,19 +34,21 @@ const compression = { begin() {}, record() {} };
 
 function gateOptions(
   estimator: ApproximateContextTokenEstimator,
-  frame: ReturnType<typeof createContextFrame>,
+  frame: ReturnType<typeof createContextEnvelope>,
 ): ContextFinalGateOptions {
   return {
+    model: frame.fixed.model,
     agentId: "coding",
     sessionId: "session-1",
     sessionRevision: 3,
     modelCallId: "call-1",
     middlewareDigest: "middleware",
-    sourceMessages: frame.entries
+    sourceMessages: frame.history.entries
       .filter((entry) => entry.kind === "transcript")
       .map((entry) => entry.message),
     precedingStages: [],
     estimate: estimator.estimate(frame),
+    estimateHistory: (history) => estimator.estimate({ fixed: frame.fixed, history }),
     compression,
   };
 }
@@ -63,7 +65,7 @@ function finalGate(order?: string[]): ContextFinalGatePort {
 }
 
 function frame(messages: TranscriptMessage[], contextWindow = 600) {
-  return createContextFrame({
+  return createContextEnvelope({
     systemPrompt: "system",
     messages,
     tools: [],
@@ -134,7 +136,7 @@ function validSummaryGenerator() {
 describe("Context policy pipeline", () => {
   it("uses one conservative estimator for ASCII and non-ASCII context", () => {
     const estimator = new ApproximateContextTokenEstimator();
-    const source = createContextFrame({
+    const source = createContextEnvelope({
       systemPrompt: "a",
       messages: [{ role: "user", content: "b", timestamp: 1 }],
       tools: [],
@@ -171,7 +173,7 @@ describe("Context policy pipeline", () => {
 
   it("reserves the requested output budget instead of the model output capacity", () => {
     const estimator = new ApproximateContextTokenEstimator();
-    const source = createContextFrame({
+    const source = createContextEnvelope({
       systemPrompt: "system",
       messages: [],
       tools: [],
@@ -190,7 +192,7 @@ describe("Context policy pipeline", () => {
 
   it("keeps an assistant tool call and its result in the same partition group", () => {
     const estimator = new ApproximateContextTokenEstimator();
-    const source = createContextFrame({
+    const source = createContextEnvelope({
       systemPrompt: "system",
       messages: [
         { role: "user", content: "inspect", timestamp: 1 },
@@ -222,11 +224,15 @@ describe("Context policy pipeline", () => {
         requestedOutputTokens: 100,
       },
     });
-    const firstTurnCost = source.entries
+    const firstTurnCost = source.history.entries
       .slice(0, 3)
       .reduce((total, entry) => total + estimator.estimateEntry(entry), 0);
 
-    const belowGroupBudget = partitionContextEntries(source.entries, firstTurnCost - 1, estimator);
+    const belowGroupBudget = partitionContextEntries(
+      source.history.entries,
+      firstTurnCost - 1,
+      estimator,
+    );
 
     expect(belowGroupBudget.tailEntries).toHaveLength(1);
     expect(belowGroupBudget.tailEntries[0]).toMatchObject({ sourceIndex: 3 });
@@ -277,12 +283,13 @@ describe("Context policy pipeline", () => {
 
     expect(order).toEqual(["first", "second", "final"]);
     expect(result.decisions.map((decision) => decision.type)).toEqual(["first", "second"]);
-    expect(result.frame).not.toBe(source);
+    expect(result.envelope.history).not.toBe(source.history);
     expect(result.stages).toHaveLength(3);
     expect(Object.keys(receivedOptions!).sort()).toEqual([
       "agentId",
       "compression",
       "estimate",
+      "estimateHistory",
       "modelCallId",
       "sessionId",
       "signal",
@@ -300,7 +307,7 @@ describe("Context policy pipeline", () => {
     };
     const summaries: ContextSummaryGeneratorPort = { generate: vi.fn() };
     const pipeline = new ContextPolicyPipeline(
-      [stableMicro(projections, estimator)],
+      [stableMicro(projections)],
       new HeavyCheckpointGateStage(checkpoints, summaries, estimator),
       estimator,
     );
@@ -316,7 +323,7 @@ describe("Context policy pipeline", () => {
       progress,
     });
 
-    expect(result.frame.entries).toEqual(source.entries);
+    expect(result.envelope.history.entries).toEqual(source.history.entries);
     expect(projections.commit).not.toHaveBeenCalled();
     expect(summaries.generate).not.toHaveBeenCalled();
   });
@@ -350,7 +357,7 @@ describe("Context policy pipeline", () => {
     const progressEvents: unknown[] = [];
     const pipeline = new ContextPolicyPipeline(
       [
-        stableMicro(projections, estimator, {
+        stableMicro(projections, {
           assess: () => ({ action: "defer", reason: "active" }),
         }),
       ],
@@ -369,7 +376,7 @@ describe("Context policy pipeline", () => {
     });
 
     expect(generate).toHaveBeenCalled();
-    expect(result.frame.entries[0]).toMatchObject({ kind: "checkpoint" });
+    expect(result.envelope.history.entries[0]).toMatchObject({ kind: "checkpoint" });
     expect(progressEvents).toEqual([
       expect.objectContaining({ type: "compression_started", startedKind: "heavy_checkpoint" }),
       expect.objectContaining({
@@ -397,7 +404,7 @@ describe("StableMicroCompressionStage", () => {
     const estimator = new ApproximateContextTokenEstimator();
     const begin = vi.fn();
     const record = vi.fn();
-    const result = await stableMicro(projections, estimator).apply(source, {
+    const result = await stableMicro(projections).apply(source.history, {
       ...gateOptions(estimator, source),
       compression: { begin, record },
     });
@@ -417,16 +424,16 @@ describe("StableMicroCompressionStage", () => {
       "transcript",
       "transcript",
     ]);
-    const replayed = await stableMicro(projections, estimator).apply(
-      source,
+    const replayed = await stableMicro(projections).apply(
+      source.history,
       gateOptions(estimator, source),
     );
     expect(replayed.frame).toEqual(result.frame);
     expect(projections.commit).toHaveBeenCalledOnce();
 
     projections.artifacts.splice(0);
-    const rebuilt = await stableMicro(projections, estimator).apply(
-      source,
+    const rebuilt = await stableMicro(projections).apply(
+      source.history,
       gateOptions(estimator, source),
     );
     expect(
@@ -447,10 +454,10 @@ describe("StableMicroCompressionStage", () => {
     }));
     const source = frame(messages, 100_000);
     const estimator = new ApproximateContextTokenEstimator();
-    const stage = stableMicro(projections, estimator, {
+    const stage = stableMicro(projections, {
       assess: () => ({ action: "defer", reason: "active", reconsiderAt: 10 }),
     });
-    const result = await stage.apply(source, gateOptions(estimator, source));
+    const result = await stage.apply(source.history, gateOptions(estimator, source));
 
     expect(projections.commit).not.toHaveBeenCalled();
     expect(result.decisions[0]).toMatchObject({ type: "stable_micro_deferred" });
@@ -471,7 +478,6 @@ describe("StableMicroCompressionStage", () => {
     const estimator = new ApproximateContextTokenEstimator();
     const stage = new StableMicroCompressionStage({
       projections,
-      estimator,
       rewriteGuard: { assess: () => ({ action: "allow", reason: "test" }) },
       strategies: [
         new ArtifactProjectionStrategy(projections, undefined, ["skill_read"]),
@@ -480,7 +486,7 @@ describe("StableMicroCompressionStage", () => {
       ],
     });
 
-    const result = await stage.apply(source, gateOptions(estimator, source));
+    const result = await stage.apply(source.history, gateOptions(estimator, source));
     expect(result.frame.entries.slice(0, 2)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
@@ -518,7 +524,6 @@ describe("StableMicroCompressionStage", () => {
     const estimator = new ApproximateContextTokenEstimator();
     const stage = new StableMicroCompressionStage({
       projections,
-      estimator,
       rewriteGuard: { assess: () => ({ action: "allow", reason: "test" }) },
       strategies: [
         new ArtifactProjectionStrategy(projections, undefined),
@@ -527,10 +532,13 @@ describe("StableMicroCompressionStage", () => {
     });
     const clearingDigest = stage.configurationDigest();
 
-    const result = await stage.apply(source, gateOptions(estimator, source));
+    const result = await stage.apply(source.history, gateOptions(estimator, source));
     const assistantEntries = result.frame.entries.filter(
-      (entry): entry is Extract<ContextEntry, { kind: "transcript" }> =>
-        entry.kind === "transcript" && entry.message.role === "assistant",
+      (
+        entry,
+      ): entry is Extract<ContextEntry, { kind: "transcript" }> & {
+        message: Extract<TranscriptMessage, { role: "assistant" }>;
+      } => entry.kind === "transcript" && entry.message.role === "assistant",
     );
     expect(assistantEntries[0]?.message.content[0]).toMatchObject({
       type: "thinking",
@@ -547,21 +555,19 @@ describe("StableMicroCompressionStage", () => {
 
     thinkingPolicy = "preserve_all";
     expect(stage.configurationDigest()).not.toBe(clearingDigest);
-    const preserved = await stage.apply(source, gateOptions(estimator, source));
-    expect(preserved.frame.entries).toEqual(source.entries);
+    const preserved = await stage.apply(source.history, gateOptions(estimator, source));
+    expect(preserved.frame.entries).toEqual(source.history.entries);
   });
 });
 
 function stableMicro(
   projections: ReturnType<typeof projectionStore>,
-  estimator: ApproximateContextTokenEstimator,
   rewriteGuard: ContextRewriteGuardPort = {
     assess: () => ({ action: "allow", reason: "test" }),
   },
 ) {
   return new StableMicroCompressionStage({
     projections,
-    estimator,
     rewriteGuard,
     strategies: [
       new ArtifactProjectionStrategy(projections, {
@@ -610,15 +616,17 @@ describe("HeavyCheckpointGateStage", () => {
     const source = heavyFrame();
     const stage = new HeavyCheckpointGateStage(store, { generate }, estimator);
 
-    const first = await stage.apply(source, gateOptions(estimator, source));
-    const second = await stage.apply(source, gateOptions(estimator, source));
+    const first = await stage.apply(source.history, gateOptions(estimator, source));
+    const second = await stage.apply(source.history, gateOptions(estimator, source));
 
     expect(generate).toHaveBeenCalledOnce();
     expect(checkpoints).toHaveLength(1);
     expect(checkpoints[0].coveredMessageCount).toBe(3);
     expect(first.frame.entries[0]).toMatchObject({ kind: "checkpoint" });
     expect(second.decisions[0]).toMatchObject({ type: "checkpoint_reused" });
-    expect(estimator.estimate(first.frame).usageRatio).toBeLessThanOrEqual(0.5);
+    expect(
+      estimator.estimate({ fixed: source.fixed, history: first.frame }).usageRatio,
+    ).toBeLessThanOrEqual(0.5);
   });
 
   it("retries summary generation once and never falls back to full history", async () => {
@@ -632,7 +640,7 @@ describe("HeavyCheckpointGateStage", () => {
 
     await expect(
       new HeavyCheckpointGateStage(store, { generate }, estimator).apply(
-        source,
+        source.history,
         gateOptions(estimator, source),
       ),
     ).rejects.toThrow("after two attempts");
@@ -662,7 +670,7 @@ describe("HeavyCheckpointGateStage", () => {
     );
 
     await new HeavyCheckpointGateStage(store, { generate }, estimator).apply(
-      source,
+      source.history,
       gateOptions(estimator, source),
     );
 
@@ -682,7 +690,7 @@ describe("HeavyCheckpointGateStage", () => {
     const source = heavyFrame();
 
     await new HeavyCheckpointGateStage(store, { generate }, estimator).apply(
-      source,
+      source.history,
       gateOptions(estimator, source),
     );
 
@@ -703,7 +711,7 @@ describe("HeavyCheckpointGateStage", () => {
         { list: async () => [], append: vi.fn() },
         { generate: cancelledGenerate },
         estimator,
-      ).apply(source, { ...gateOptions(estimator, source), signal: controller.signal }),
+      ).apply(source.history, { ...gateOptions(estimator, source), signal: controller.signal }),
     ).rejects.toMatchObject({ name: "AbortError" });
     expect(cancelledGenerate).toHaveBeenCalledOnce();
 
@@ -718,7 +726,7 @@ describe("HeavyCheckpointGateStage", () => {
         },
         { generate: successfulGenerate },
         estimator,
-      ).apply(source, gateOptions(estimator, source)),
+      ).apply(source.history, gateOptions(estimator, source)),
     ).rejects.toThrow("Failed to persist context checkpoint");
     expect(successfulGenerate).toHaveBeenCalledOnce();
   });
@@ -737,8 +745,8 @@ describe("HeavyCheckpointGateStage", () => {
     const extended = frame(messages, 50_000);
     const stage = new HeavyCheckpointGateStage(store, { generate }, estimator);
 
-    await stage.apply(initial, gateOptions(estimator, initial));
-    const extension = await stage.apply(extended, gateOptions(estimator, extended));
+    await stage.apply(initial.history, gateOptions(estimator, initial));
+    const extension = await stage.apply(extended.history, gateOptions(estimator, extended));
 
     expect(checkpoints).toHaveLength(2);
     expect(checkpoints[1]?.parentId).toBe(checkpoints[0]?.id);
@@ -755,7 +763,7 @@ describe("HeavyCheckpointGateStage", () => {
     const generate = validSummaryGenerator();
     const initialStore = checkpointStore(created);
     await new HeavyCheckpointGateStage(initialStore, { generate }, estimator).apply(
-      source,
+      source.history,
       gateOptions(estimator, source),
     );
     const append = vi.fn<ContextCheckpointStorePort["append"]>();
@@ -765,7 +773,7 @@ describe("HeavyCheckpointGateStage", () => {
       { list: async () => [v1], append },
       { generate },
       estimator,
-    ).apply(source, gateOptions(estimator, source));
+    ).apply(source.history, gateOptions(estimator, source));
 
     expect(result.decisions[0]?.type).toBe("checkpoint_created");
     expect(generate).toHaveBeenCalledTimes(2);
@@ -782,7 +790,7 @@ describe("HeavyCheckpointGateStage", () => {
         { list: async () => [], append: vi.fn() },
         { generate },
         estimator,
-      ).apply(source, gateOptions(estimator, source)),
+      ).apply(source.history, gateOptions(estimator, source)),
     ).rejects.toThrow("exceeds input limit");
     expect(generate).not.toHaveBeenCalled();
   });
@@ -827,7 +835,7 @@ describe("Checkpoint summary contract", () => {
       10_000,
     );
 
-    const projected = createCheckpointSourceEntries(source.entries);
+    const projected = createCheckpointSourceEntries(source.history.entries);
     const serialized = JSON.stringify(projected);
     expect(serialized).not.toContain("raw-image-data");
     expect(serialized).not.toContain("private reasoning");

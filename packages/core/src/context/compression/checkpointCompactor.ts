@@ -9,7 +9,7 @@ import type {
   ContextDecision,
   ContextEntry,
   ContextFinalGateOptions,
-  ContextFrame,
+  ContextHistoryFrame,
   ContextTokenEstimate,
 } from "../contracts/types";
 import { digestContextValue } from "../digest";
@@ -29,7 +29,7 @@ import { validateCheckpointSummary } from "./summary";
 const SUMMARY_INPUT_SAFETY_BUFFER_TOKENS = 1_024;
 
 export interface CheckpointCompactionResult {
-  readonly frame: ContextFrame;
+  readonly frame: ContextHistoryFrame;
   readonly decision: ContextDecision;
   readonly operation: {
     readonly action: "create" | "extend";
@@ -45,7 +45,7 @@ export class CheckpointCompactor {
   ) {}
 
   async compact(input: {
-    readonly frame: ContextFrame;
+    readonly frame: ContextHistoryFrame;
     readonly estimate: ContextTokenEstimate;
     readonly messages: readonly TranscriptMessage[];
     readonly checkpoint?: ContextCheckpoint;
@@ -75,7 +75,7 @@ export class CheckpointCompactor {
       previousSummary: input.checkpoint?.summary,
       coveredEntries: partition.coveredEntries,
       maxOutputTokens: maxSummaryTokens,
-      contextWindow: input.frame.model.contextWindow,
+      contextWindow: input.options.model.contextWindow,
       signal: input.options.signal,
     });
 
@@ -83,7 +83,7 @@ export class CheckpointCompactor {
     let prepared:
       | {
           readonly checkpoint: ContextCheckpoint;
-          readonly frame: ContextFrame;
+          readonly frame: ContextHistoryFrame;
           readonly attempt: number;
         }
       | undefined;
@@ -107,11 +107,10 @@ export class CheckpointCompactor {
           estimatedSummaryTokens: summary.estimatedTokens,
           summaryModelCallId,
         });
-        const frame: ContextFrame = {
-          ...input.frame,
+        const frame: ContextHistoryFrame = {
           entries: [toCheckpointEntry(checkpoint), ...partition.tailEntries],
         };
-        const estimate = this.estimator.estimate(frame);
+        const estimate = input.options.estimateHistory(frame);
         if (estimate.usageRatio > DEFAULT_CONTEXT_COMPRESSION_BUDGET.compressedTargetRatio) {
           throw new ContextCompressionTargetError(
             `Checkpoint context ratio ${estimate.usageRatio.toFixed(3)} exceeds target`,

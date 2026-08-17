@@ -15,8 +15,9 @@ Model call identity + cache intent
   -> normalized cache report
 ```
 
-Session JSONL remains the transcript source of truth. Context remains an ephemeral model
-projection. Neither subsystem imports the Models cache runtime or persists its state.
+Session JSONL remains the durable source of truth for Transcript and Environment records.
+Context remains an ephemeral model projection. Neither subsystem imports the Models cache
+runtime or persists its state.
 
 ## Policy and scope
 
@@ -49,6 +50,12 @@ Provider cache keys. They cover the system prompt, ordered tools, each ordered m
 message, model selection, request-facing model, model settings, request-header digest,
 and cache semantics version. Credentials, timeouts, retries, cancellation, timestamps,
 and model-call IDs are excluded.
+
+The current Environment is one of those ordered model messages, ahead of conversation
+history. An unchanged Environment therefore preserves the same cacheable request prefix; a
+changed fingerprint replaces that one complete entry and is classified through the normal
+prefix-rewrite lifecycle. Environment refresh never initiates a separate model call and does
+not create cache state outside the existing coordinator.
 
 The runtime compares the previous successful fingerprint in a fixed order and reports
 `cold`, `incompatible`, `expired`, `rebased`, `append_only`, `tail_changed`, or

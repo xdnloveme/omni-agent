@@ -1,6 +1,6 @@
 import type { StreamEvent, StreamCallbacks, StreamState, AccumulatedMessage } from "./types";
 import type { ExtensionEvent } from "../extension-events";
-import type { TokenUsage } from "../types";
+import type { AgentFailure, TokenUsage } from "../types";
 import { cloneData } from "../dataCopy";
 
 /**
@@ -64,7 +64,7 @@ export class StreamSession {
         this.handleDone(event.usage);
         break;
       case "error":
-        this.handleError(event.error);
+        this.handleError(event.failure);
         break;
     }
   }
@@ -156,15 +156,15 @@ export class StreamSession {
     this.notify(() => this._callbacks.onDone?.(usage ? cloneData(usage) : undefined));
   }
 
-  private handleError(error: string): void {
+  private handleError(failure: AgentFailure): void {
     this.transitionTo("error");
     this._messages.push({
       type: "text",
-      content: `[error] ${error}`,
+      content: `[error] ${failure.message}`,
       timestamp: Date.now(),
-      meta: { error },
+      meta: { failure: cloneData(failure) },
     });
-    this.notify(() => this._callbacks.onError?.(error));
+    this.notify(() => this._callbacks.onError?.(cloneData(failure)));
   }
 
   private notify(callback: () => void): void {

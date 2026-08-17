@@ -35,7 +35,7 @@ export type {
   ContextEntry,
   ContextFinalGateOptions,
   ContextFinalGatePort,
-  ContextFrame,
+  ContextHistoryFrame,
   ContextMiddlewareOptions,
   ContextMiddlewarePort,
   ContextModelLimits,
@@ -165,6 +165,7 @@ export { isAgentId, isToolOriginId } from "./identifiers";
 export type {
   AgentConfig,
   AgentEvent,
+  AgentFailure,
   AgentLoopInput,
   AgentToolDefinition,
   RegisteredAgentTool,
@@ -274,7 +275,8 @@ export type {
   AgentSessionRepositoryOptions,
   SessionEntry,
   SessionIndex,
-  SessionTranscriptSnapshot,
+  SessionRecord,
+  SessionSnapshot,
 } from "./session/index";
 export { ContentBlockType, MessageRole } from "./messages";
 export type {
@@ -294,5 +296,19 @@ export type {
   UserModelContextMessage,
   UserTranscriptMessage,
 } from "./messages";
+export {
+  EnvironmentContextController,
+  EnvironmentContextError,
+  normalizeEnvironmentSnapshot,
+  renderEnvironmentContext,
+} from "./environment";
+export type {
+  EnvironmentCaptureResult,
+  EnvironmentContextRecord,
+  EnvironmentContextControllerPort,
+  RuntimeEnvironmentProviderPort,
+  RuntimeEnvironmentSnapshot,
+  RuntimePlatform,
+} from "./environment";
 export { assertJsonObject, isJsonValue } from "./data";
 export type { DeepReadonly, JsonValue } from "./data";

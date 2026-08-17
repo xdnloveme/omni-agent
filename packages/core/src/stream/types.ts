@@ -7,6 +7,7 @@
 
 import type { ExtensionEvent } from "../extension-events";
 import type {
+  AgentFailure,
   TokenUsage,
   ToolBatchDescriptor,
   ToolBatchPosition,
@@ -77,7 +78,7 @@ export interface ContextProgressStreamEvent {
 /** Stream encountered an error */
 export interface ErrorEvent {
   type: "error";
-  error: string;
+  failure: AgentFailure;
 }
 
 /** Union of all stream events */
@@ -118,7 +119,7 @@ export interface StreamCallbacks {
   onToolBatchEnd?: (event: ToolBatchCompletedEvent) => void;
   onExtensionEvent?: (event: ExtensionEvent) => void;
   onDone?: (usage?: TokenUsage) => void;
-  onError?: (error: string) => void;
+  onError?: (failure: AgentFailure) => void;
 }
 
 /** State of the stream session state machine */

@@ -20,9 +20,27 @@ import {
   type ContextEnginePort,
   type ContextMiddlewarePort,
 } from "../context";
+import {
+  EnvironmentContextController,
+  type EnvironmentContextRecord,
+  type RuntimeEnvironmentSnapshot,
+} from "../environment";
+import type { SessionRecord } from "../session";
+import { digestStableValue } from "../valueDigest";
 
 const streamModel = vi.fn<ModelRuntimePort["stream"]>();
 const modelRuntime: ModelRuntimePort = { stream: streamModel };
+const TEST_ENVIRONMENT_SNAPSHOT: RuntimeEnvironmentSnapshot = {
+  workspace: { cwd: process.cwd(), roots: [process.cwd()] },
+  time: { currentDate: "2026-08-17", timezone: "UTC" },
+  execution: { platform: "linux", arch: "x64", shell: "sh", kind: "host" },
+};
+const TEST_ENVIRONMENT: EnvironmentContextRecord = {
+  revision: 1,
+  fingerprint: digestStableValue(TEST_ENVIRONMENT_SNAPSHOT),
+  capturedAt: 0,
+  snapshot: TEST_ENVIRONMENT_SNAPSHOT,
+};
 
 function makeTool(name = "test_tool"): RegisteredAgentTool {
   return {
@@ -76,12 +94,17 @@ function executeLoop(
       sessionId: "test-session",
       revision: 1,
       messages,
+      environment: TEST_ENVIRONMENT,
     },
     contextEngine,
     contextMiddleware,
     modelRuntime,
     agentId: "test",
-    cwd: process.cwd(),
+    environmentContext: {
+      async capture() {
+        return { changed: false as const };
+      },
+    },
     toolCallCoordinator: createCoordinator(),
     signal,
   });
@@ -166,6 +189,10 @@ async function collectEvents(gen: AsyncGenerator<AgentEvent>): Promise<AgentEven
     events.push(event);
   }
   return events;
+}
+
+function producedMessages(records: readonly SessionRecord[] | undefined): TranscriptMessage[] {
+  return records?.flatMap((record) => (record.kind === "message" ? [record.message] : [])) ?? [];
 }
 
 describe("runAgentLoop", () => {
@@ -308,9 +335,9 @@ describe("runAgentLoop", () => {
     const doneEvent = events.find((e) => e.type === "done");
     expect(doneEvent).toBeDefined();
     expect(doneEvent!.type).toBe("done");
-    if (doneEvent!.type === "done") {
-      expect(doneEvent!.produced).toHaveLength(1);
-      expect(doneEvent!.produced![0]).toMatchObject(assistantMsg);
+    if (doneEvent?.type === "done") {
+      expect(doneEvent.produced).toHaveLength(1);
+      expect(producedMessages(doneEvent.produced)[0]).toMatchObject(assistantMsg);
     }
   });
 
@@ -415,10 +442,89 @@ describe("runAgentLoop", () => {
     // Verify produced messages include assistant + tool_result + assistant
     if (doneEvent.type === "done") {
       expect(doneEvent.produced).toHaveLength(3); // assistant(toolUse) + toolResult + assistant(text)
-      expect(doneEvent.produced![0].role).toBe("assistant");
-      expect(doneEvent.produced![1].role).toBe("toolResult");
-      expect(doneEvent.produced![2].role).toBe("assistant");
+      expect(producedMessages(doneEvent.produced).map((message) => message.role)).toEqual([
+        "assistant",
+        "toolResult",
+        "assistant",
+      ]);
     }
+  });
+
+  it("injects a complete environment replacement between model calls and binds tool cwd", async () => {
+    const tool = makeTool("bash");
+    const config = makeConfig({ tools: [tool] });
+    streamModel
+      .mockReturnValueOnce(
+        fakeStream([
+          {
+            type: "done",
+            message: {
+              content: [{ type: "toolCall", id: "call_1", name: "bash", arguments: {} }],
+              stopReason: "toolUse",
+            },
+          },
+        ]) as never,
+      )
+      .mockReturnValueOnce(
+        fakeStream([
+          {
+            type: "done",
+            message: { content: [{ type: "text", text: "done" }], stopReason: "endTurn" },
+          },
+        ]) as never,
+      );
+    let captures = 0;
+    const environmentContext = new EnvironmentContextController({
+      async snapshot() {
+        captures += 1;
+        return {
+          workspace: { cwd: "/workspace/project", roots: ["/workspace"] },
+          time: {
+            currentDate: captures === 1 ? "2026-08-17" : "2026-08-18",
+            timezone: captures === 1 ? "Asia/Shanghai" : "America/New_York",
+          },
+          execution: { platform: "linux", arch: "x64", shell: "zsh", kind: "host" },
+        };
+      },
+    });
+
+    const events = await collectEvents(
+      runAgentLoop({
+        config,
+        snapshot: { sessionId: "test-session", revision: 1, messages: makeMessages("work") },
+        contextEngine: createContextEngine(),
+        contextMiddleware: [],
+        modelRuntime,
+        agentId: "test",
+        environmentContext,
+        toolCallCoordinator: createCoordinator(),
+      }),
+    );
+
+    expect(tool.execute).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({ cwd: "/workspace/project" }),
+    );
+    const secondContext = streamModel.mock.calls[1]![1];
+    const renderedEnvironments = secondContext.messages.filter(
+      (message) =>
+        message.role === "user" &&
+        typeof message.content === "string" &&
+        message.content.includes("<environment_context"),
+    );
+    expect(renderedEnvironments).toHaveLength(1);
+    expect(renderedEnvironments[0]).toMatchObject({
+      role: "user",
+      content: expect.stringContaining("America/New_York"),
+    });
+    const done = events[events.length - 1];
+    expect(done?.type).toBe("done");
+    if (done?.type !== "done") throw new Error("Expected done event");
+    expect(
+      done.produced?.flatMap((record) =>
+        record.kind === "environment" ? [record.context.revision] : [],
+      ),
+    ).toEqual([1, 2]);
   });
 
   it("runs completion and tool middleware around their owned phases", async () => {
@@ -531,15 +637,15 @@ describe("runAgentLoop", () => {
     const events = await collectEvents(executeLoop(config, makeMessages("run")));
     const secondRequest = streamModel.mock.calls[1]?.[1];
     expect(tool.execute).toHaveBeenCalledOnce();
-    expect(secondRequest.messages[0]).toMatchObject({ content: "run" });
-    expect(secondRequest.messages[1]).toMatchObject({
+    expect(secondRequest.messages[1]).toMatchObject({ content: "run" });
+    expect(secondRequest.messages[2]).toMatchObject({
       role: "assistant",
       content: [expect.objectContaining({ type: "toolCall", name: "bash" })],
     });
     const done = events.at(-1);
     expect(done?.type).toBe("done");
     if (done?.type === "done") {
-      expect(done.produced?.[0]).toMatchObject({
+      expect(producedMessages(done.produced)[0]).toMatchObject({
         content: [expect.objectContaining({ name: "bash" })],
       });
     }
@@ -567,8 +673,8 @@ describe("runAgentLoop", () => {
     );
     const snapshots = events.filter((event) => event.type === "model_context_prepared");
     expect(snapshots).toHaveLength(2);
-    expect(snapshots[0].manifest.outputMessageCount).toBe(1);
-    expect(snapshots[1].manifest.outputMessageCount).toBe(3);
+    expect(snapshots[0].manifest.outputMessageCount).toBe(2);
+    expect(snapshots[1].manifest.outputMessageCount).toBe(4);
     expect(snapshots[1].manifest.snapshotId).not.toBe(snapshots[0].manifest.snapshotId);
   });
 
@@ -647,7 +753,7 @@ describe("runAgentLoop", () => {
     const done = events.find((event) => event.type === "done");
     expect(
       done?.type === "done"
-        ? done.produced?.find((message) => message.role === "toolResult")
+        ? producedMessages(done.produced).find((message) => message.role === "toolResult")
         : undefined,
     ).toMatchObject({
       details: {
@@ -731,7 +837,7 @@ describe("runAgentLoop", () => {
     expect(doneEvent.type).toBe("done");
     if (doneEvent.type === "done") {
       expect(doneEvent.produced).toHaveLength(3);
-      expect(doneEvent.produced![1]).toMatchObject({
+      expect(producedMessages(doneEvent.produced)[1]).toMatchObject({
         role: "toolResult",
         toolCallId: "call_1",
         toolName: "bash",
@@ -770,11 +876,20 @@ describe("runAgentLoop", () => {
     const lastEvent = events[events.length - 1];
     expect(lastEvent).toEqual({
       type: "error",
-      error: "Max turns reached (1)",
-      code: "max_turns_reached",
+      failure: {
+        code: "max_turns_reached",
+        message: "Max turns reached (1)",
+        retryable: false,
+      },
       produced: expect.arrayContaining([
-        expect.objectContaining({ role: "assistant", stopReason: "toolUse" }),
-        expect.objectContaining({ role: "toolResult", toolCallId: "call_1" }),
+        expect.objectContaining({
+          kind: "message",
+          message: expect.objectContaining({ role: "assistant", stopReason: "toolUse" }),
+        }),
+        expect.objectContaining({
+          kind: "message",
+          message: expect.objectContaining({ role: "toolResult", toolCallId: "call_1" }),
+        }),
       ]),
       usage: expect.objectContaining({ contextWindow: 128_000 }),
       turnCount: 1,
@@ -875,7 +990,7 @@ describe("runAgentLoop", () => {
     expect(grep.execute).toHaveBeenCalledTimes(4);
     expect(terminal).toMatchObject({
       type: "error",
-      code: "tool_loop_detected",
+      failure: { code: "tool_loop_detected" },
       loop: { kind: "repeated_batch", count: 4, period: 1 },
       produced: expect.any(Array),
     });
@@ -919,7 +1034,7 @@ describe("runAgentLoop", () => {
     expect(grep.execute).toHaveBeenCalledTimes(4);
     expect(terminal).toMatchObject({
       type: "error",
-      code: "tool_loop_detected",
+      failure: { code: "tool_loop_detected" },
       loop: { kind: "alternating_batch", count: 4, period: 2 },
     });
   });
@@ -988,7 +1103,14 @@ describe("runAgentLoop", () => {
     const events = await collectEvents(executeLoop(config, makeMessages("Hi")));
 
     expect(events.filter((event) => event.type === "error")).toEqual([
-      { type: "error", error: "Rate limit exceeded" },
+      {
+        type: "error",
+        failure: {
+          code: "model_runtime_error",
+          message: "Rate limit exceeded",
+          retryable: true,
+        },
+      },
     ]);
   });
 

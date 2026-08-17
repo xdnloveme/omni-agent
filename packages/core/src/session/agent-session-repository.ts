@@ -3,14 +3,21 @@ import { appendFile, mkdir, readFile, rename, unlink, writeFile } from "node:fs/
 import { join } from "node:path";
 import { InterprocessFileLock } from "../persistence";
 import { isAgentId } from "../identifiers";
-import { cloneTranscriptMessages } from "../messages";
+import {
+  assertTranscriptMessages,
+  cloneTranscriptMessage,
+  cloneTranscriptMessages,
+} from "../messages";
+import { cloneData } from "../dataCopy";
+import { assertEnvironmentContextRecord, type EnvironmentContextRecord } from "../environment";
 import type { TranscriptMessage } from "../messages";
 
-import type { SessionEntry, SessionIndex, SessionTranscriptSnapshot } from "./types";
+import type { SessionEntry, SessionIndex, SessionRecord, SessionSnapshot } from "./types";
 
 export interface AgentSession {
   readonly id: string;
   readonly messages: readonly TranscriptMessage[];
+  readonly environment?: EnvironmentContextRecord;
 }
 
 export interface AgentSessionRepositoryOptions {
@@ -25,6 +32,7 @@ export class AgentSessionRepository {
   private readonly lock: InterprocessFileLock;
   private activeId: string | null = null;
   private activeMessages: TranscriptMessage[] = [];
+  private activeEnvironment: EnvironmentContextRecord | undefined;
   private revision = 0;
 
   constructor(options: AgentSessionRepositoryOptions) {
@@ -39,12 +47,15 @@ export class AgentSessionRepository {
     return this.activeId;
   }
 
-  snapshot(): SessionTranscriptSnapshot {
+  snapshot(): SessionSnapshot {
     if (!this.activeId) throw new Error("Agent session is not initialized");
     return {
       sessionId: this.activeId,
       revision: this.revision,
       messages: cloneTranscriptMessages(this.activeMessages),
+      ...(this.activeEnvironment
+        ? { environment: cloneData(this.activeEnvironment) as EnvironmentContextRecord }
+        : {}),
     };
   }
 
@@ -54,7 +65,7 @@ export class AgentSessionRepository {
       if (index.sessions.length === 0) return this.createPersistedSession(index);
 
       const entry = [...index.sessions].sort((a, b) => b.lastActiveAt - a.lastActiveAt)[0];
-      return { id: entry.id, messages: await this.replay(entry.id) };
+      return this.replay(entry.id);
     });
     return this.activate(session);
   }
@@ -73,27 +84,27 @@ export class AgentSessionRepository {
       if (!index.sessions.some((entry) => entry.id === sessionId)) {
         throw new Error(`Session not found: ${sessionId}`);
       }
-      return { id: sessionId, messages: await this.replay(sessionId) };
+      return this.replay(sessionId);
     });
     return this.activate(session);
   }
 
-  async append(sessionId: string, messages: readonly TranscriptMessage[]): Promise<void> {
-    if (messages.length === 0) return;
+  async append(sessionId: string, records: readonly SessionRecord[]): Promise<void> {
+    if (records.length === 0) return;
     assertSessionId(sessionId);
-    const ownedMessages = cloneTranscriptMessages(messages);
+    const ownedRecords = records.map(cloneSessionRecord);
     await this.exclusive(async () => {
       const index = await this.readIndex();
       const entry = index.sessions.find((candidate) => candidate.id === sessionId);
       if (!entry) throw new Error(`Session not found: ${sessionId}`);
 
-      const lines = `${ownedMessages.map((message) => JSON.stringify(message)).join("\n")}\n`;
+      const lines = `${ownedRecords.map((record) => JSON.stringify(record)).join("\n")}\n`;
       await appendFile(this.sessionPath(sessionId), lines, { encoding: "utf8", mode: 0o600 });
       entry.lastActiveAt = Date.now();
       await this.writeIndex(index);
     });
     if (this.activeId === sessionId) {
-      this.activeMessages.push(...ownedMessages);
+      this.applyRecords(ownedRecords);
       this.revision += 1;
     }
   }
@@ -109,6 +120,7 @@ export class AgentSessionRepository {
     });
     if (this.activeId === sessionId) {
       this.activeMessages = [];
+      this.activeEnvironment = undefined;
       this.revision += 1;
     }
   }
@@ -122,14 +134,24 @@ export class AgentSessionRepository {
     const entry: SessionEntry = { id: randomUUID(), createdAt: now, lastActiveAt: now };
     index.sessions.push(entry);
     await this.writeIndex(index);
+    await writeFile(this.sessionPath(entry.id), "", { encoding: "utf8", mode: 0o600 });
     return { id: entry.id, messages: [] };
   }
 
   private activate(session: AgentSession): AgentSession {
     this.activeId = session.id;
     this.activeMessages = cloneTranscriptMessages(session.messages);
+    this.activeEnvironment = session.environment
+      ? (cloneData(session.environment) as EnvironmentContextRecord)
+      : undefined;
     this.revision = 0;
-    return { id: session.id, messages: cloneTranscriptMessages(this.activeMessages) };
+    return {
+      id: session.id,
+      messages: cloneTranscriptMessages(this.activeMessages),
+      ...(this.activeEnvironment
+        ? { environment: cloneData(this.activeEnvironment) as EnvironmentContextRecord }
+        : {}),
+    };
   }
 
   private async readIndex(): Promise<SessionIndex> {
@@ -158,21 +180,41 @@ export class AgentSessionRepository {
     }
   }
 
-  private async replay(sessionId: string): Promise<TranscriptMessage[]> {
+  private async replay(sessionId: string): Promise<AgentSession> {
     try {
       const messages: TranscriptMessage[] = [];
+      let environment: EnvironmentContextRecord | undefined;
+      let environmentRevision = 0;
       for (const line of (await readFile(this.sessionPath(sessionId), "utf8")).split("\n")) {
         if (!line.trim()) continue;
-        try {
-          messages.push(JSON.parse(line) as TranscriptMessage);
-        } catch {
-          // Ignore a malformed partial line without discarding the valid session history.
+        const record = JSON.parse(line) as unknown;
+        assertSessionRecord(record);
+        if (record.kind === "message") {
+          messages.push(cloneTranscriptMessage(record.message));
+        } else {
+          if (record.context.revision !== environmentRevision + 1) {
+            throw new Error("Session environment revisions are not contiguous");
+          }
+          environment = cloneData(record.context) as EnvironmentContextRecord;
+          environmentRevision = environment.revision;
         }
       }
-      return messages;
+      return { id: sessionId, messages, ...(environment ? { environment } : {}) };
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") {
+        return { id: sessionId, messages: [] };
+      }
       throw error;
+    }
+  }
+
+  private applyRecords(records: readonly SessionRecord[]): void {
+    for (const record of records) {
+      if (record.kind === "message") {
+        this.activeMessages.push(cloneTranscriptMessage(record.message));
+      } else {
+        this.activeEnvironment = cloneData(record.context) as EnvironmentContextRecord;
+      }
     }
   }
 
@@ -184,6 +226,29 @@ export class AgentSessionRepository {
   private sessionPath(sessionId: string): string {
     return join(this.directory, `${sessionId}.jsonl`);
   }
+}
+
+function cloneSessionRecord(record: SessionRecord): SessionRecord {
+  return record.kind === "message"
+    ? { kind: "message", message: cloneTranscriptMessage(record.message) }
+    : { kind: "environment", context: cloneData(record.context) as EnvironmentContextRecord };
+}
+
+function assertSessionRecord(value: unknown): asserts value is SessionRecord {
+  if (!value || typeof value !== "object") throw new Error("Session record is invalid");
+  const record = value as { kind?: unknown; message?: unknown; context?: unknown };
+  if (record.kind === "message") {
+    assertTranscriptMessages(
+      [record.message],
+      (message) => new Error(`Session message record ${message}`),
+    );
+    return;
+  }
+  if (record.kind === "environment") {
+    assertEnvironmentContextRecord(record.context);
+    return;
+  }
+  throw new Error('Session record kind must be "message" or "environment"');
 }
 
 function assertAgentId(agentId: string): void {

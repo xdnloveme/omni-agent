@@ -1,8 +1,8 @@
 import { throwIfAborted } from "../../../../execution";
 import type { AssistantTranscriptMessage } from "../../../../messages";
 import { digestContextValue } from "../../../digest";
-import { cloneContextFrame } from "../../../policy/types";
-import type { ContextEntry, ContextFrame } from "../../../contracts/types";
+import { cloneContextHistoryFrame } from "../../../policy/types";
+import type { ContextEntry, ContextHistoryFrame } from "../../../contracts/types";
 import type {
   MicroProjectionOptions,
   MicroProjectionRecord,
@@ -50,7 +50,7 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
   }
 
   canAdvance(
-    frame: Readonly<ContextFrame>,
+    frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
   ): boolean {
     if (this.currentPolicy() !== "clear_old_text") return false;
@@ -61,7 +61,7 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
   }
 
   async replay(
-    frame: Readonly<ContextFrame>,
+    frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
     options: Readonly<MicroProjectionOptions>,
   ): Promise<MicroProjectionResult> {
@@ -70,7 +70,7 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
       return unchangedProjection(frame, this.createState());
     }
     const recordIndex = indexProjectionRecords(records);
-    const output = cloneContextFrame(frame);
+    const output = cloneContextHistoryFrame(frame);
     let replayed = 0;
     const retained: MicroProjectionRecord[] = [];
     const entries = output.entries.map((entry): ContextEntry => {
@@ -100,7 +100,7 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
   }
 
   async advance(
-    frame: Readonly<ContextFrame>,
+    frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
     options: Readonly<MicroProjectionOptions>,
   ): Promise<MicroProjectionResult> {
@@ -118,7 +118,7 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
         frame,
         createStrategyState(this, this.configurationDigest(), records),
       );
-    const output = cloneContextFrame(frame);
+    const output = cloneContextHistoryFrame(frame);
     let affectedCount = 0;
     const entries = output.entries.map((entry): ContextEntry => {
       throwIfAborted(options.signal);
@@ -153,7 +153,7 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
   }
 
   private selectedCandidates(
-    frame: Readonly<ContextFrame>,
+    frame: Readonly<ContextHistoryFrame>,
   ): Extract<ContextEntry, { kind: "transcript" }>[] {
     const candidates = frame.entries.filter(
       (entry): entry is Extract<ContextEntry, { kind: "transcript" }> =>

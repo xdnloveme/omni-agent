@@ -3,8 +3,7 @@ import type { JsonValue } from "../../../data";
 import { throwIfAborted } from "../../../execution";
 import type { ContextPolicyStagePort, ContextRewriteGuardPort } from "../../contracts/ports";
 import type { ContextPolicyStageResult, ContextTokenEstimate } from "../../contracts/types";
-import type { ContextTokenEstimatorPort } from "../../contracts/ports";
-import { cloneContextFrame } from "../../policy/types";
+import { cloneContextHistoryFrame } from "../../policy/types";
 import { microDecision } from "./decisions";
 import type {
   ContextProjectionState,
@@ -20,7 +19,6 @@ import { assertMicroProjectionResult, InvalidMicroProjectionResultError } from "
 export interface StableMicroCompressionDependencies {
   readonly projections: ContextProjectionStorePort;
   readonly strategies: readonly MicroProjectionStrategyPort[];
-  readonly estimator: ContextTokenEstimatorPort;
   readonly rewriteGuard: ContextRewriteGuardPort;
 }
 
@@ -50,8 +48,8 @@ export class StableMicroCompressionStage implements ContextPolicyStagePort {
     const loaded = await this.dependencies.projections.load(options.sessionId);
     const expectedRevision = loaded?.revision ?? 0;
     let state = reconcileProjectionState(loaded, options.sessionId, this.dependencies.strategies);
-    let current = cloneContextFrame(frame);
-    let estimate = this.dependencies.estimator.estimate(current);
+    let current = cloneContextHistoryFrame(frame);
+    let estimate = options.estimateHistory(current);
     const replayDetails: { [key: string]: JsonValue }[] = [];
 
     for (const strategy of this.dependencies.strategies) {
@@ -64,9 +62,9 @@ export class StableMicroCompressionStage implements ContextPolicyStagePort {
         signal: options.signal,
       });
       assertMicroProjectionResult(result, strategy, "replay");
-      current = cloneContextFrame(result.frame);
+      current = cloneContextHistoryFrame(result.frame);
       state = withStrategyState(state, strategy.key, result.state);
-      estimate = this.dependencies.estimator.estimate(current);
+      estimate = options.estimateHistory(current);
       if (result.details)
         replayDetails.push({ strategy: strategy.name, ...cloneData(result.details) });
     }
@@ -185,9 +183,9 @@ export class StableMicroCompressionStage implements ContextPolicyStagePort {
         usableInputBudget: estimate.usableInputBudget,
         thresholdTokens: microCompressionThreshold(estimate),
       });
-      current = cloneContextFrame(result.frame);
+      current = cloneContextHistoryFrame(result.frame);
       state = withStrategyState(state, strategy.key, result.state);
-      estimate = this.dependencies.estimator.estimate(current);
+      estimate = options.estimateHistory(current);
       changed ||= result.changed;
       options.compression.record({
         kind: strategy.compressionKind,

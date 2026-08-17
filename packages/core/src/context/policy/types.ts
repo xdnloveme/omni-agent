@@ -1,28 +1,45 @@
 import { cloneData } from "../../dataCopy";
 import type { TranscriptMessage } from "../../messages";
 import type { DeepReadonly } from "../../data";
-import type { ContextFrame } from "../contracts/types";
+import type { ContextEnvelope, ContextHistoryFrame } from "../contracts/types";
+import type { EnvironmentContextRecord } from "../../environment";
+import type { ModelToolSpec } from "../../models/runtime";
+import type { ContextModelLimits } from "../contracts/types";
 
-export function createContextFrame(input: {
+export function createContextEnvelope(input: {
   readonly systemPrompt: string;
   readonly messages: readonly TranscriptMessage[];
-  readonly tools: ContextFrame["tools"];
-  readonly model: ContextFrame["model"];
-}): ContextFrame {
+  readonly tools: readonly ModelToolSpec[];
+  readonly model: ContextModelLimits;
+  readonly environment?: EnvironmentContextRecord;
+}): ContextEnvelope {
   return {
-    entries: input.messages.map((message, sourceIndex) => ({
-      kind: "transcript" as const,
-      sourceIndex,
-      message: cloneData(message),
-    })),
-    systemPrompt: input.systemPrompt,
-    tools: cloneData(input.tools),
-    model: { ...input.model },
+    fixed: {
+      systemPrompt: input.systemPrompt,
+      tools: cloneData(input.tools),
+      model: { ...input.model },
+      ...(input.environment
+        ? { environment: cloneData(input.environment) as EnvironmentContextRecord }
+        : {}),
+    },
+    history: {
+      entries: input.messages.map((message, sourceIndex) => ({
+        kind: "transcript" as const,
+        sourceIndex,
+        message: cloneData(message),
+      })),
+    },
   };
 }
 
-export function cloneContextFrame(frame: DeepReadonly<ContextFrame>): ContextFrame {
-  return cloneData(frame) as ContextFrame;
+export function cloneContextHistoryFrame(
+  frame: DeepReadonly<ContextHistoryFrame>,
+): ContextHistoryFrame {
+  return cloneData(frame) as ContextHistoryFrame;
+}
+
+export function cloneContextEnvelope(envelope: DeepReadonly<ContextEnvelope>): ContextEnvelope {
+  return cloneData(envelope) as ContextEnvelope;
 }
 
 export function cloneContextDecisions<T>(decisions: T): T {

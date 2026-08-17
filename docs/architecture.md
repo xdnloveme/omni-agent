@@ -240,13 +240,15 @@ Model context is an ephemeral projection, not the Session transcript. The runtim
 three explicit ownership layers and a business-independent policy hook:
 
 ```text
-SessionTranscriptSnapshot
+SessionSnapshot
   -> WorkingConversation
   -> Agent Context Input Adapter
   -> ContextConversationSource
   -> detached ContextDraft
   -> Context middleware
-  -> ContextFrame
+  -> ContextEnvelope
+       -> fixed Environment context
+       -> ContextHistoryFrame
   -> ContextPolicyPipeline
        -> Agent and Extension policy stages
        -> StableMicroCompressionStage
@@ -261,11 +263,12 @@ SessionTranscriptSnapshot
   -> ModelRuntimePort
 ```
 
-`AgentSessionRepository` owns persisted `TranscriptMessage` state. It copies messages on append,
-returns a detached snapshot, and maintains a process-local revision for the active
-Session. `WorkingConversation` owns one Agent run, including assistant and tool-result
-messages that will be persisted when the run terminates. It has no Repository, context,
-or model dependency.
+`AgentSessionRepository` owns a strict JSONL stream of typed `SessionRecord` values:
+ordinary Transcript messages and Environment snapshots. It returns a detached
+`SessionSnapshot` containing pure conversation messages plus only the latest Environment,
+and maintains a process-local revision for the active Session. There is no legacy reader,
+migration, or format fallback. `WorkingConversation` owns one Agent run and returns all new
+records through the terminal `produced` path. It has no Repository, Context, or model dependency.
 
 Transcript and model messages are distinct semantic contracts. `TranscriptMessage`
 retains timestamps, usage, diagnostics, response IDs, errors, deferred state, tool-result
@@ -273,6 +276,25 @@ details, and routing metadata. `ModelContextMessage` contains only model-visible
 tool-call pairing, and the routing fields needed for continuing an assistant response.
 The system prompt remains a separate request field and is never represented as a
 transcript message.
+
+Mutable runtime facts are not Transcript messages. App captures
+a normalized workspace/date/timezone/platform/architecture/shell snapshot before each
+user-message append, and Core refreshes it before each primary model preparation. Identical
+fingerprints produce no Environment Record, no environment-specific revision advance, and no
+extra write; changes produce a complete `environment` Session Record rather than a diff.
+Pre-run Environment and user records are committed in one append. Session JSONL retains every
+replacement for audit. Context carries the latest snapshot in the fixed side of a
+`ContextEnvelope`, structurally outside middleware, compression, and checkpoints.
+
+Each stateless primary model request contains exactly one rendered Environment user-context
+entry ahead of history. It is not stable system-prompt text, does not become a Transcript
+message, and does not trigger an additional model call. Its token cost and fingerprint are
+included in Context estimates and request digests. Tool execution binds to the `cwd` from the
+same record used for the requesting model call. Mid-run replacements use the existing terminal
+`produced` persistence path rather than a parallel incremental Session write. Snapshot
+normalization, real calendar/IANA validation, fingerprinting, and prompt-budget validation
+complete before persistence. Failures are structured, stop the affected run, and never reuse a
+stale capture. The Node host provider uses `unknown` only when the shell cannot be identified.
 
 The only Agent-to-Context boundary is `agent/contextInput.ts`. It copies a
 `WorkingConversationSnapshot` into a Context-owned `ContextConversationSource` and

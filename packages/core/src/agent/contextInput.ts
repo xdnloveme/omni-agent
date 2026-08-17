@@ -27,6 +27,9 @@ export function createContextPreparationRequest(
   return {
     identity: { ...input.identity },
     source: { messages: cloneTranscriptMessages(input.conversation.messages) },
+    ...(input.conversation.environment
+      ? { environment: cloneData(input.conversation.environment) }
+      : {}),
     systemPrompt: input.systemPrompt,
     tools: input.tools.map(toModelToolSpec),
     model: { ...input.model },

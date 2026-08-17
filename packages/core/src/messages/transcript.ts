@@ -93,3 +93,46 @@ export function cloneTranscriptMessages(
 ): TranscriptMessage[] {
   return messages.map((message) => cloneTranscriptMessage(message));
 }
+
+export function assertTranscriptMessages(
+  messages: readonly unknown[],
+  error: (message: string) => Error,
+): asserts messages is readonly TranscriptMessage[] {
+  for (const message of messages) {
+    if (!message || typeof message !== "object") throw error("contains an invalid message");
+    const candidate = message as Record<string, unknown>;
+    if (!Number.isFinite(candidate.timestamp)) throw error("contains a message without timestamp");
+    if (candidate.role === "user") {
+      if (typeof candidate.content !== "string" && !Array.isArray(candidate.content)) {
+        throw error("contains an invalid user message");
+      }
+      continue;
+    }
+    if (candidate.role === "assistant") {
+      if (
+        !Array.isArray(candidate.content) ||
+        typeof candidate.api !== "string" ||
+        typeof candidate.provider !== "string" ||
+        typeof candidate.model !== "string" ||
+        typeof candidate.stopReason !== "string" ||
+        !candidate.usage ||
+        typeof candidate.usage !== "object"
+      ) {
+        throw error("contains an invalid assistant message");
+      }
+      continue;
+    }
+    if (candidate.role === "toolResult") {
+      if (
+        typeof candidate.toolCallId !== "string" ||
+        typeof candidate.toolName !== "string" ||
+        !Array.isArray(candidate.content) ||
+        typeof candidate.isError !== "boolean"
+      ) {
+        throw error("contains an invalid tool-result message");
+      }
+      continue;
+    }
+    throw error("contains a message with an unknown role");
+  }
+}

@@ -1,6 +1,7 @@
 import type { ContextFinalGatePort, ContextPolicyStagePort } from "../contracts/ports";
 import type {
-  ContextFrame,
+  ContextEnvelope,
+  ContextHistoryFrame,
   ContextPolicyResult,
   ContextPolicyStageResult,
 } from "../contracts/types";
@@ -17,7 +18,7 @@ export function assertContextPolicyResult(value: unknown): asserts value is Cont
     throw new InvalidContextPolicyResultError("Context policy returned no result");
   }
   const result = value as Partial<ContextPolicyResult>;
-  assertFrame(result.frame, "Context policy");
+  assertEnvelope(result.envelope, "Context policy");
   assertDecisions(result.decisions, "Context policy");
   if (!Array.isArray(result.stages) || !result.estimate || typeof result.estimate !== "object") {
     throw new InvalidContextPolicyResultError("Context policy returned invalid trace data");
@@ -55,34 +56,35 @@ export function assertPolicyStageResult(
   if (!result || typeof result !== "object") {
     throw new InvalidContextPolicyResultError(`Context policy stage returned no frame: ${name}`);
   }
-  assertFrame(result.frame, `Context policy stage ${name}`);
+  assertHistoryFrame(result.frame, `Context policy stage ${name}`);
   assertDecisions(result.decisions, `Context policy stage ${name}`);
 }
 
-function assertFrame(value: unknown, label: string): asserts value is ContextFrame {
+function assertEnvelope(value: unknown, label: string): asserts value is ContextEnvelope {
   if (!value || typeof value !== "object") {
-    throw new InvalidContextPolicyResultError(`${label} returned no frame`);
+    throw new InvalidContextPolicyResultError(`${label} returned no envelope`);
   }
-  const frame = value as Partial<ContextFrame>;
-  if (!Array.isArray(frame.entries) || !Array.isArray(frame.tools)) {
-    throw new InvalidContextPolicyResultError(`${label} returned an invalid frame`);
+  const envelope = value as Partial<ContextEnvelope>;
+  if (!envelope.fixed || typeof envelope.fixed !== "object") {
+    throw new InvalidContextPolicyResultError(`${label} returned invalid fixed context`);
   }
+  const fixed = envelope.fixed;
   if (
-    typeof frame.systemPrompt !== "string" ||
-    !frame.model ||
-    typeof frame.model !== "object" ||
-    typeof frame.model.modelId !== "string" ||
-    !Number.isFinite(frame.model.contextWindow) ||
-    !Number.isFinite(frame.model.modelMaxOutputTokens) ||
-    !Number.isFinite(frame.model.requestedOutputTokens) ||
-    frame.model.requestedOutputTokens <= 0 ||
-    frame.model.requestedOutputTokens > frame.model.modelMaxOutputTokens ||
-    frame.model.requestedOutputTokens >= frame.model.contextWindow
+    typeof fixed.systemPrompt !== "string" ||
+    !Array.isArray(fixed.tools) ||
+    !fixed.model ||
+    typeof fixed.model !== "object" ||
+    typeof fixed.model.modelId !== "string" ||
+    !Number.isFinite(fixed.model.contextWindow) ||
+    !Number.isFinite(fixed.model.modelMaxOutputTokens) ||
+    !Number.isFinite(fixed.model.requestedOutputTokens) ||
+    fixed.model.requestedOutputTokens <= 0 ||
+    fixed.model.requestedOutputTokens > fixed.model.modelMaxOutputTokens ||
+    fixed.model.requestedOutputTokens >= fixed.model.contextWindow
   ) {
     throw new InvalidContextPolicyResultError(`${label} returned invalid model limits`);
   }
-  for (const entry of frame.entries) assertEntry(entry, label);
-  for (const tool of frame.tools) {
+  for (const tool of fixed.tools) {
     if (
       !tool ||
       typeof tool !== "object" ||
@@ -94,9 +96,21 @@ function assertFrame(value: unknown, label: string): asserts value is ContextFra
       throw new InvalidContextPolicyResultError(`${label} returned an invalid model tool`);
     }
   }
+  assertHistoryFrame(envelope.history, label);
 }
 
-function assertEntry(entry: ContextFrame["entries"][number], label: string): void {
+function assertHistoryFrame(value: unknown, label: string): asserts value is ContextHistoryFrame {
+  if (!value || typeof value !== "object") {
+    throw new InvalidContextPolicyResultError(`${label} returned no history frame`);
+  }
+  const frame = value as Partial<ContextHistoryFrame>;
+  if (!Array.isArray(frame.entries)) {
+    throw new InvalidContextPolicyResultError(`${label} returned an invalid history frame`);
+  }
+  for (const entry of frame.entries) assertEntry(entry, label);
+}
+
+function assertEntry(entry: ContextHistoryFrame["entries"][number], label: string): void {
   if (
     !entry ||
     typeof entry !== "object" ||

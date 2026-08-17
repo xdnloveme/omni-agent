@@ -1,8 +1,9 @@
 import type { DeepReadonly } from "../../data";
-import type { ContextEntry, ContextFrame, ContextTokenEstimate } from "../contracts/types";
+import type { ContextEnvelope, ContextEntry, ContextTokenEstimate } from "../contracts/types";
 import type { ContextTokenEstimatorPort } from "../contracts/ports";
 import { serializeContextValue } from "../digest";
 import { estimateContextTextTokens } from "../../tokenEstimate";
+import { renderEnvironmentContext } from "../../environment";
 
 const MESSAGE_OVERHEAD_TOKENS = 4;
 const CONTENT_BLOCK_OVERHEAD_TOKENS = 2;
@@ -11,13 +12,17 @@ const CHECKPOINT_OVERHEAD_TOKENS = 40;
 const ARTIFACT_OVERHEAD_TOKENS = 48;
 
 export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPort {
-  estimate(frame: DeepReadonly<ContextFrame>): ContextTokenEstimate {
-    const systemPromptTokens = estimateContextTextTokens(frame.systemPrompt);
-    const messageTokens = frame.entries.reduce(
-      (total, entry) => total + this.estimateEntry(entry),
-      0,
-    );
-    const toolTokens = frame.tools.reduce(
+  estimate(envelope: DeepReadonly<ContextEnvelope>): ContextTokenEstimate {
+    const { fixed, history } = envelope;
+    const systemPromptTokens = estimateContextTextTokens(fixed.systemPrompt);
+    const environmentTokens = fixed.environment
+      ? MESSAGE_OVERHEAD_TOKENS +
+        estimateContextTextTokens(renderEnvironmentContext(fixed.environment))
+      : 0;
+    const messageTokens =
+      environmentTokens +
+      history.entries.reduce((total, entry) => total + this.estimateEntry(entry), 0);
+    const toolTokens = fixed.tools.reduce(
       (total, tool) =>
         total +
         TOOL_OVERHEAD_TOKENS +
@@ -30,7 +35,7 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
     const totalInputTokens = systemPromptTokens + messageTokens + toolTokens;
     const usableInputBudget = Math.max(
       1,
-      frame.model.contextWindow - frame.model.requestedOutputTokens,
+      fixed.model.contextWindow - fixed.model.requestedOutputTokens,
     );
     return {
       systemPromptTokens,

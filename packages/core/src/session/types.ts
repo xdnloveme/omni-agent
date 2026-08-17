@@ -1,9 +1,15 @@
 import type { TranscriptMessage } from "../messages";
+import type { EnvironmentContextRecord } from "../environment";
 
-export interface SessionTranscriptSnapshot {
+export type SessionRecord =
+  | { readonly kind: "message"; readonly message: TranscriptMessage }
+  | { readonly kind: "environment"; readonly context: EnvironmentContextRecord };
+
+export interface SessionSnapshot {
   readonly sessionId: string;
   readonly revision: number;
   readonly messages: readonly TranscriptMessage[];
+  readonly environment?: EnvironmentContextRecord;
 }
 
 /**

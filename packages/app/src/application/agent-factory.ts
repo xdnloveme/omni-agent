@@ -7,6 +7,7 @@ import {
   ToolCallCoordinator,
   ToolInvocationRunner,
   ToolInputValidator,
+  EnvironmentContextController,
   type AgentConfig,
   type ContextCapability,
   type ApprovalBroker,
@@ -14,6 +15,7 @@ import {
   type PermissionObserver,
   type SandboxRunnerPort,
   type SkillRuntime,
+  type RuntimeEnvironmentProviderPort,
 } from "@omni-agent/core";
 import { AgentApplication } from "./agent-application";
 import type { ConfigService } from "../config/config-service";
@@ -24,6 +26,7 @@ import type { ModelService } from "../models/model-service";
 import { createPermissionRuntime } from "../permissions/create-permission-runtime";
 import { ToolRegistry } from "../registry/tool-registry";
 import { createContextRuntime } from "../context/contextRuntime";
+import { NodeRuntimeEnvironmentProvider } from "../environment";
 
 export interface SkillCapability {
   readonly runtime: SkillRuntime;
@@ -58,6 +61,8 @@ export interface AgentInstance {
 
 export interface AgentFactoryOptions {
   readonly cwd?: string;
+  readonly workspaceRoots?: readonly string[];
+  readonly environmentProvider?: RuntimeEnvironmentProviderPort;
   readonly globalDirectory?: string;
   readonly configService: ConfigService;
   readonly modelService: ModelService;
@@ -160,6 +165,13 @@ export class AgentFactory {
         }),
         inputValidator: toolInputValidator,
       });
+      const environmentContext = new EnvironmentContextController(
+        this.options.environmentProvider ??
+          new NodeRuntimeEnvironmentProvider({
+            cwd: this.cwd,
+            workspaceRoots: this.options.workspaceRoots,
+          }),
+      );
       const application = new AgentApplication({
         extensions: manager,
         sessions,
@@ -174,6 +186,7 @@ export class AgentFactory {
         contextEngine,
         contextMiddleware: manager.contextMiddleware,
         contextStorage,
+        environmentContext,
       });
       let disposed = false;
       return {

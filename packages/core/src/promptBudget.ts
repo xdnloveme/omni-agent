@@ -1,6 +1,7 @@
 import { estimateContextTextTokens } from "./tokenEstimate";
 
 export const PROMPT_CONTRIBUTION_BUDGETS = Object.freeze({
+  environmentContext: 2_048,
   projectRules: 24_000,
   skillIndex: 16_000,
   skillBody: 32_000,

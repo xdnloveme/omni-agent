@@ -7,6 +7,7 @@ import {
   ApproximateContextTokenEstimator,
   ContextPolicyPipeline,
   DefaultContextEngine,
+  EnvironmentContextController,
   ToolAuthorizationRouter,
   ToolCallCoordinator,
   ToolInputValidator,
@@ -69,6 +70,7 @@ async function fixture() {
     globalDirectory: root,
   });
   const contextStorage = { clear: vi.fn(async () => undefined) };
+  let currentDate = "2026-08-17";
   return {
     app: new AgentApplication({
       extensions,
@@ -100,12 +102,24 @@ async function fixture() {
       ),
       contextMiddleware: [],
       contextStorage,
+      environmentContext: new EnvironmentContextController({
+        async snapshot() {
+          return {
+            workspace: { cwd: root, roots: [root] },
+            time: { currentDate, timezone: "UTC" },
+            execution: { platform: "linux", arch: "x64", shell: "sh", kind: "host" },
+          };
+        },
+      }),
     }),
     configService,
     dispose,
     isConfigured,
     sessions,
     contextStorage,
+    setCurrentDate(value: string) {
+      currentDate = value;
+    },
   };
 }
 
@@ -154,11 +168,49 @@ describe("AgentApplication model selection", () => {
 });
 
 describe("AgentApplication session persistence", () => {
+  it("writes one initial environment snapshot, skips identical snapshots, and replaces on change", async () => {
+    const { app, sessions, setCurrentDate } = await fixture();
+    vi.spyOn(app.runner, "run").mockImplementation(() =>
+      (async function* () {
+        yield { type: "done" as const };
+      })(),
+    );
+
+    await app.run("first", {});
+    await app.run("second", {});
+    expect(sessions.snapshot().environment).toMatchObject({ revision: 1 });
+    expect(sessions.snapshot().messages).toHaveLength(2);
+
+    setCurrentDate("2026-08-18");
+    await app.run("third", {});
+    expect(sessions.snapshot().environment).toMatchObject({ revision: 2 });
+    expect(sessions.snapshot().messages).toHaveLength(3);
+  });
+
+  it("reports an initial environment failure without persisting the user message", async () => {
+    const { app, sessions, setCurrentDate } = await fixture();
+    setCurrentDate("invalid");
+    const onError = vi.fn();
+
+    await app.run("must not persist", { onError });
+
+    expect(onError).toHaveBeenCalledWith({
+      code: "environment_context_invalid",
+      message: "Current date must be a valid YYYY-MM-DD calendar date.",
+      field: "time.currentDate",
+      retryable: false,
+    });
+    expect(sessions.snapshot()).toMatchObject({ messages: [] });
+  });
+
   it("clears Session transcript and Context sidecar through separate owners", async () => {
     const { app, sessions, contextStorage } = await fixture();
     const sessionId = sessions.currentId!;
     await sessions.append(sessionId, [
-      { role: "user", content: "remove me", timestamp: Date.now() },
+      {
+        kind: "message",
+        message: { role: "user", content: "remove me", timestamp: Date.now() },
+      },
     ]);
 
     await app.clearSession();
@@ -169,7 +221,7 @@ describe("AgentApplication session persistence", () => {
 
   it("persists produced messages when the turn limit is reached", async () => {
     const { app, sessions } = await fixture();
-    const produced: TranscriptMessage[] = [
+    const producedMessages: TranscriptMessage[] = [
       {
         role: "assistant",
         content: [
@@ -196,13 +248,17 @@ describe("AgentApplication session persistence", () => {
         timestamp: Date.now(),
       },
     ];
+    const produced = producedMessages.map((message) => ({ kind: "message" as const, message }));
 
     vi.spyOn(app.runner, "run").mockReturnValue(
       (async function* () {
         yield {
           type: "error" as const,
-          error: "Max turns reached (30)",
-          code: "max_turns_reached" as const,
+          failure: {
+            code: "max_turns_reached",
+            message: "Max turns reached (30)",
+            retryable: false,
+          },
           produced,
           turnCount: 30,
           maxTurns: 30,
@@ -213,6 +269,6 @@ describe("AgentApplication session persistence", () => {
     await app.run("keep working", {});
 
     expect(sessions.snapshot().messages).toHaveLength(3);
-    expect(sessions.snapshot().messages.slice(1)).toEqual(produced);
+    expect(sessions.snapshot().messages.slice(1)).toEqual(producedMessages);
   });
 });

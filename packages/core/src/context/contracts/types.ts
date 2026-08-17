@@ -6,6 +6,7 @@ import type {
   TranscriptMessage,
 } from "../../messages";
 import type { ModelToolSpec } from "../../models/runtime";
+import type { EnvironmentContextRecord } from "../../environment";
 import type { ContextCompressionReporterPort, ContextProgressSinkPort } from "./progress";
 
 export interface ContextConversationSource {
@@ -43,6 +44,7 @@ export interface ContextPolicyStageOptions {
   readonly sessionId: string;
   readonly modelCallId: string;
   readonly estimate: ContextTokenEstimate;
+  readonly estimateHistory: (history: DeepReadonly<ContextHistoryFrame>) => ContextTokenEstimate;
   readonly compression: ContextCompressionReporterPort;
   readonly signal?: AbortSignal;
 }
@@ -64,6 +66,7 @@ export type ContextRewriteGuardDecision =
     };
 
 export interface ContextFinalGateOptions extends ContextPolicyStageOptions {
+  readonly model: ContextModelLimits;
   readonly sessionRevision: number;
   readonly middlewareDigest: string;
   readonly sourceMessages: readonly TranscriptMessage[];
@@ -118,11 +121,20 @@ export interface ToolResultArtifactEntry {
 export type ContextEntry =
   TranscriptContextEntry | CheckpointContextEntry | ToolResultArtifactEntry;
 
-export interface ContextFrame {
+export interface ContextHistoryFrame {
   readonly entries: readonly ContextEntry[];
+}
+
+export interface ContextFixedInput {
   readonly systemPrompt: string;
   readonly tools: readonly ModelToolSpec[];
   readonly model: ContextModelLimits;
+  readonly environment?: EnvironmentContextRecord;
+}
+
+export interface ContextEnvelope {
+  readonly fixed: ContextFixedInput;
+  readonly history: ContextHistoryFrame;
 }
 
 export interface ContextTokenEstimate {
@@ -135,7 +147,7 @@ export interface ContextTokenEstimate {
 }
 
 export interface ContextPolicyStageResult {
-  readonly frame: ContextFrame;
+  readonly frame: ContextHistoryFrame;
   readonly decisions: readonly ContextDecision[];
 }
 
@@ -145,7 +157,7 @@ export interface ContextPolicyStageManifest extends ContextComponentManifest {
 }
 
 export interface ContextPolicyResult {
-  readonly frame: ContextFrame;
+  readonly envelope: ContextEnvelope;
   readonly decisions: readonly ContextDecision[];
   readonly stages: readonly ContextPolicyStageManifest[];
   readonly estimate: ContextTokenEstimate;
@@ -172,6 +184,7 @@ export interface ModelContextSnapshotManifest {
   readonly outputDigest: string;
   readonly systemPromptDigest: string;
   readonly toolsetDigest: string;
+  readonly environmentFingerprint?: string;
   readonly estimatedInputTokens: number;
   readonly contextWindow: number;
   readonly modelMaxOutputTokens: number;

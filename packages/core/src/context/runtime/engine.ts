@@ -11,7 +11,7 @@ import type {
 } from "../contracts/types";
 import { ContextAssembler, assertContextDraft } from "../assembly/assembler";
 import { cloneContextDraft, createContextDraft } from "../assembly/draft";
-import { createContextFrame } from "../policy/types";
+import { createContextEnvelope } from "../policy/types";
 import { assertContextPolicyResult } from "../policy/pipeline";
 import { digestContextValue } from "../digest";
 import { cloneTranscriptMessages } from "../../messages";
@@ -49,11 +49,12 @@ export class DefaultContextEngine implements ContextEnginePort {
     }
 
     throwIfAborted(request.signal);
-    const frame = createContextFrame({
+    const frame = createContextEnvelope({
       systemPrompt: current.systemPrompt,
       messages: current.messages,
       tools: current.tools,
       model: current.model,
+      environment: request.environment,
     });
     const result = await this.policy.resolve(frame, {
       ...options,

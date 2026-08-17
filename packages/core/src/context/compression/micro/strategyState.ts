@@ -1,5 +1,5 @@
-import { cloneContextFrame } from "../../policy/types";
-import type { ContextFrame } from "../../contracts/types";
+import { cloneContextHistoryFrame } from "../../policy/types";
+import type { ContextHistoryFrame } from "../../contracts/types";
 import type {
   MicroProjectionRecord,
   MicroProjectionResult,
@@ -33,10 +33,10 @@ export function validStrategyRecords(
 }
 
 export function unchangedProjection(
-  frame: Readonly<ContextFrame>,
+  frame: Readonly<ContextHistoryFrame>,
   state: MicroStrategyProjectionState,
 ): MicroProjectionResult {
-  return { frame: cloneContextFrame(frame), state, changed: false, artifacts: [] };
+  return { frame: cloneContextHistoryFrame(frame), state, changed: false, artifacts: [] };
 }
 
 export function indexProjectionRecords(

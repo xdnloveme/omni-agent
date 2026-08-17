@@ -1,5 +1,5 @@
 import { cloneData } from "../../dataCopy";
-import { cloneTranscriptMessages } from "../../messages";
+import { assertTranscriptMessages, cloneTranscriptMessages } from "../../messages";
 import type {
   ContextComponentManifest,
   ContextDecision,
@@ -11,6 +11,7 @@ import type {
 import { cloneModelToolSpec } from "./draft";
 import { projectContextEntries } from "./entryProjection";
 import { digestContextValue } from "../digest";
+import { renderEnvironmentContext } from "../../environment";
 
 export interface ContextAssemblyInput {
   readonly identity: {
@@ -27,20 +28,30 @@ export interface ContextAssemblyInput {
 export class ContextAssembler {
   assemble(input: ContextAssemblyInput): PreparedModelContext {
     const sourceMessages = cloneTranscriptMessages(input.transformedDraft.messages);
-    const messages = projectContextEntries(input.result.frame.entries);
-    const tools = input.result.frame.tools.map(cloneModelToolSpec);
+    const { fixed, history } = input.result.envelope;
+    const historyMessages = projectContextEntries(history.entries);
+    const messages = fixed.environment
+      ? [
+          { role: "user" as const, content: renderEnvironmentContext(fixed.environment) },
+          ...historyMessages,
+        ]
+      : historyMessages;
+    const tools = fixed.tools.map(cloneModelToolSpec);
     const decisions = cloneData(input.result.decisions) as ContextDecision[];
-    const sourceDigest = digestContextValue(sourceMessages);
-    const contextEntryDigest = digestContextValue(input.result.frame.entries);
+    const sourceDigest = digestContextValue({
+      messages: sourceMessages,
+      environmentFingerprint: fixed.environment?.fingerprint,
+    });
+    const contextEntryDigest = digestContextValue(history.entries);
     const outputDigest = digestContextValue(messages);
-    const systemPromptDigest = digestContextValue(input.result.frame.systemPrompt);
+    const systemPromptDigest = digestContextValue(fixed.systemPrompt);
     const toolsetDigest = digestContextValue(tools);
     const middleware = input.middleware.map((entry) => ({ ...entry }));
     const policyStages = input.result.stages.map((stage) => cloneData(stage));
-    const artifactIds = input.result.frame.entries
+    const artifactIds = history.entries
       .filter((entry) => entry.kind === "toolResultArtifact")
       .map((entry) => entry.artifact.id);
-    const checkpointEntry = input.result.frame.entries.find((entry) => entry.kind === "checkpoint");
+    const checkpointEntry = history.entries.find((entry) => entry.kind === "checkpoint");
     const checkpointDecision = input.result.decisions.find((decision) =>
       ["checkpoint_reused", "checkpoint_created", "checkpoint_extended"].includes(decision.type),
     );
@@ -69,6 +80,7 @@ export class ContextAssembler {
       outputDigest,
       systemPromptDigest,
       toolsetDigest,
+      environmentFingerprint: fixed.environment?.fingerprint,
       decisions,
       artifactIds,
       checkpoint,
@@ -85,10 +97,11 @@ export class ContextAssembler {
       outputDigest,
       systemPromptDigest,
       toolsetDigest,
+      ...(fixed.environment ? { environmentFingerprint: fixed.environment.fingerprint } : {}),
       estimatedInputTokens: input.result.estimate.totalInputTokens,
-      contextWindow: input.result.frame.model.contextWindow,
-      modelMaxOutputTokens: input.result.frame.model.modelMaxOutputTokens,
-      requestedOutputTokens: input.result.frame.model.requestedOutputTokens,
+      contextWindow: fixed.model.contextWindow,
+      modelMaxOutputTokens: fixed.model.modelMaxOutputTokens,
+      requestedOutputTokens: fixed.model.requestedOutputTokens,
       usableInputBudget: input.result.estimate.usableInputBudget,
       usageRatio: input.result.estimate.usageRatio,
       artifactIds,
@@ -99,7 +112,7 @@ export class ContextAssembler {
 
     return {
       snapshotId,
-      systemPrompt: input.result.frame.systemPrompt,
+      systemPrompt: fixed.systemPrompt,
       messages,
       tools,
       manifest,
@@ -116,7 +129,7 @@ export function assertContextDraft(value: unknown): asserts value is ContextDraf
   if (!Array.isArray(draft.messages)) {
     throw new Error("Context middleware returned invalid messages");
   }
-  assertMessages(draft.messages, (message) => new Error(`Context middleware ${message}`));
+  assertTranscriptMessages(draft.messages, (message) => new Error(`Context middleware ${message}`));
   if (!Array.isArray(draft.tools)) throw new Error("Context middleware returned invalid tools");
   if (!draft.model || typeof draft.model !== "object") {
     throw new Error("Context middleware returned invalid model limits");
@@ -145,45 +158,5 @@ export function assertContextDraft(value: unknown): asserts value is ContextDraf
     ) {
       throw new Error("Context middleware returned an invalid model tool");
     }
-  }
-}
-
-function assertMessages(messages: readonly unknown[], error: (message: string) => Error): void {
-  for (const message of messages) {
-    if (!message || typeof message !== "object") throw error("returned an invalid message");
-    const candidate = message as Record<string, unknown>;
-    if (!Number.isFinite(candidate.timestamp)) throw error("returned a message without timestamp");
-    if (candidate.role === "user") {
-      if (typeof candidate.content !== "string" && !Array.isArray(candidate.content)) {
-        throw error("returned an invalid user message");
-      }
-      continue;
-    }
-    if (candidate.role === "assistant") {
-      if (
-        !Array.isArray(candidate.content) ||
-        typeof candidate.api !== "string" ||
-        typeof candidate.provider !== "string" ||
-        typeof candidate.model !== "string" ||
-        typeof candidate.stopReason !== "string" ||
-        !candidate.usage ||
-        typeof candidate.usage !== "object"
-      ) {
-        throw error("returned an invalid assistant message");
-      }
-      continue;
-    }
-    if (candidate.role === "toolResult") {
-      if (
-        typeof candidate.toolCallId !== "string" ||
-        typeof candidate.toolName !== "string" ||
-        !Array.isArray(candidate.content) ||
-        typeof candidate.isError !== "boolean"
-      ) {
-        throw error("returned an invalid tool-result message");
-      }
-      continue;
-    }
-    throw error("returned a message with an unknown role");
   }
 }

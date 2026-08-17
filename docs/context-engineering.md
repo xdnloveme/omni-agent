@@ -5,10 +5,12 @@
 The runtime owns three detached layers:
 
 ```text
-Session Transcript -> Working Conversation -> Model Context
+Session Records -> Session Snapshot -> Working Conversation -> Model Context
 ```
 
-`TranscriptMessage` is the durable run record and retains timestamps, usage,
+`SessionRecord` is the durable JSONL envelope. Its `message` branch contains a
+`TranscriptMessage`; its `environment` branch contains a complete runtime snapshot.
+`TranscriptMessage` retains timestamps, usage,
 diagnostics, response IDs, errors, deferred data, tool-result details, and routing
 metadata. `ModelContextMessage` is the minimum model-visible representation. A system
 prompt remains a separate Context field. `MessageRole` and `ContentBlockType` are runtime
@@ -19,17 +21,61 @@ details, so BigInt, Map, functions, and cyclic extension values cannot break Ses
 The only Agent-to-Context adapter is `createContextPreparationRequest()`. It copies the
 Working Conversation and projects executable `RegisteredAgentTool` values to pure
 `ModelToolSpec` definitions. The only transcript-to-model projection is
-`toContextMessages()`. There are no legacy message aliases or parallel projection paths.
+`toContextMessages()`. Environment has its own fixed-input projection during final
+assembly; it does not pass through the Transcript projection. There are no legacy message
+aliases or parallel Transcript projection paths.
+
+## Runtime environment context
+
+Runtime facts are a typed, framework-owned `environment` Session Record rather than a
+Transcript message or stable system-prompt text. The snapshot contains only model-relevant execution facts:
+workspace `cwd` and roots, current calendar date and IANA timezone, and host platform,
+architecture, and shell. It deliberately excludes exact clock time, permissions, sandbox
+policy, and network policy. A workspace is fixed for the lifetime of an Agent instance;
+changing directories, remote hosts, and containers require a future execution-context
+contract rather than mutating this snapshot implicitly.
+
+App captures the environment before appending each user message, and the Agent loop captures
+it again immediately before every primary model preparation. The normalized snapshot is
+fingerprinted. An identical fingerprint causes no Environment Record, no environment-specific
+revision advance, and no extra JSONL write. The ordinary user-message append still advances
+the active Session revision. A changed fingerprint produces a new, complete snapshot with a
+monotonically increasing Environment revision; it never emits a diff. App commits a pre-run
+replacement and the user message in one append. Historical snapshots remain auditable in
+Session JSONL, while `SessionSnapshot` exposes only the newest complete snapshot.
+
+Logical persistence and physical model input are deliberately different. A stateless primary
+model request is assembled with exactly one current Environment user-context entry ahead of
+history, whether or not the fingerprint changed. This does not create an extra model call or
+append another Transcript message. Context keeps the record in fixed input that middleware and
+compression cannot access; the token estimator includes its rendered cost, and the manifest
+records its fingerprint in request digests. Tool batches use the `cwd` from the exact record
+bound to the model call that requested them. Mid-run replacements follow the existing Working
+Conversation contract: they are committed with the other produced records on terminal `done`
+or structured `error`; there is no environment-specific incremental persistence path.
+
+Environment values are escaped and labeled as facts rather than instructions. Heavy
+checkpoints only summarize `ContextHistoryFrame`; the latest Environment is assembled ahead
+of history after compression. Normalization validates absolute workspace paths, containment,
+a real calendar date, IANA timezone, and required execution facts. The complete rendered entry
+must fit its dedicated prompt budget before it can be persisted. Initial validation failure
+therefore does not persist the pending user message. Invalid facts fail closed with
+`environment_context_invalid`; Provider capture failures use
+`environment_context_unavailable` and never reuse stale data. Both reach stream consumers as a
+structured `AgentFailure`. Host timezone discovery fails closed; an unavailable shell is
+represented honestly as `unknown`.
 
 ## Preparation lifecycle
 
 ```text
-SessionTranscriptSnapshot
+SessionSnapshot
   -> WorkingConversationSnapshot
   -> Agent Context Input Adapter
   -> detached ContextDraft
   -> Context Middleware
-  -> ContextFrame
+  -> ContextEnvelope
+       -> fixed system/tools/model/Environment
+       -> ContextHistoryFrame
   -> ContextPolicyPipeline
        -> Agent policy stages
        -> Extension policy stages
@@ -45,7 +91,9 @@ SessionTranscriptSnapshot
 ```
 
 Middleware transforms the draft before policy resolution. A policy stage receives a
-detached, deep-readonly `ContextFrame` and must return a new frame. The generic pipeline
+detached, deep-readonly `ContextHistoryFrame` and must return a new history frame. Fixed
+input never crosses that interface; the stage receives only the current estimate and an
+`estimateHistory()` capability that closes over fixed token cost. The generic pipeline
 only owns ordering, runtime copying, validation, cancellation, token re-estimation,
 decisions, and trace manifests. It does not know compression thresholds, prompts,
 checkpoints, retrieval, or persistence.
@@ -55,7 +103,7 @@ interface ContextPolicyStagePort {
   readonly name: string;
   readonly version: number;
   apply(
-    frame: DeepReadonly<ContextFrame>,
+    frame: DeepReadonly<ContextHistoryFrame>,
     options: ContextPolicyStageOptions,
   ): Promise<ContextPolicyStageResult>;
 }
@@ -127,7 +175,8 @@ or Provider token-limit fallback.
 The v2 checkpoint prompt consumes a semantic `CheckpointSourceEntry` projection rather
 than serializing Transcript records. It retains visible text, tool-call pairing, errors,
 and stable artifact references while excluding timestamps, usage, diagnostics, routing,
-Thinking text, and raw image bytes. Previous checkpoints are supplied separately. Both
+Thinking text and raw image bytes. Environment is structurally absent from checkpoint input,
+and the latest complete snapshot is assembled separately. Previous checkpoints are supplied separately. Both
 inputs use stable HTML-safe JSON, so historical closing tags remain string data.
 
 The prompt asks for Conversation Facts, Goal and Constraints, Decisions and Rationale,
@@ -180,11 +229,10 @@ lock lives outside the deletable directory and remains held for the complete cle
 quarantined and derived state restarts from the Transcript. `/new` naturally selects a
 new directory; Session clear is orchestrated by the Application through that lifecycle.
 
-This shape follows the common semantic separation used by checkpoint systems while
-avoiding the migration cost of converting the existing message-only JSONL into a
-versioned Event Store. Verdent can place checkpoint events in its Session Event Store
-because that store already owns sequence IDs, event types, read models, and head
-movement. Omni Agent deliberately preserves its pure Transcript JSONL contract.
+This shape follows the common semantic separation used by checkpoint systems. Session
+JSONL is a strict stream of typed Transcript and Environment records; derived Context state
+remains in dedicated sidecars instead of adding checkpoint or projection records to that
+stream.
 
 ## Provider and lifecycle boundary
 

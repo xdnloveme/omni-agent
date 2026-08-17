@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { fileURLToPath } from "node:url";
-import { createContextFrame } from "../../src/context/policy/types";
+import { createContextEnvelope } from "../../src/context/policy/types";
 import { createCheckpointSourceEntries } from "../../src/context/compression/prompt";
 import { loadCheckpointCorpus } from "./corpus";
 import { createCheckpointEvaluationReport, evaluateCheckpointCase } from "./evaluator";
@@ -28,7 +28,7 @@ const validSummary = `<summary>
 const evaluationCase: CheckpointEvaluationCase = {
   id: "case",
   language: "en",
-  sourceEntries: createContextFrame({
+  sourceEntries: createContextEnvelope({
     systemPrompt: "",
     messages: [{ role: "user", content: "Fix cache reuse.", timestamp: 0 }],
     tools: [],
@@ -38,7 +38,7 @@ const evaluationCase: CheckpointEvaluationCase = {
       modelMaxOutputTokens: 2_000,
       requestedOutputTokens: 2_000,
     },
-  }).entries,
+  }).history.entries,
   maxOutputTokens: 2_000,
   expectations: {
     goals: [{ id: "cache", anyOf: ["fix cache reuse"] }],

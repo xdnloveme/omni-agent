@@ -1,4 +1,6 @@
 export { AgentApplication } from "./application/agent-application";
+export { NodeRuntimeEnvironmentProvider } from "./environment/index";
+export type { NodeRuntimeEnvironmentProviderOptions } from "./environment/index";
 export type {
   AgentApplicationDependencies,
   ContextSessionStorage,

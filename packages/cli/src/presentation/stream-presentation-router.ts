@@ -66,9 +66,9 @@ export class StreamPresentationRouter {
         if (usage) this.tui.sink.metrics(this.metrics.present(usage));
         this.tui.sink.spacer();
       },
-      onError: (error) => {
+      onError: (failure) => {
         this.tui.sink.line();
-        this.tui.sink.line(`Error: ${error}`);
+        this.tui.sink.line(`Error: ${failure.message}`);
         this.tui.sink.spacer();
       },
     };

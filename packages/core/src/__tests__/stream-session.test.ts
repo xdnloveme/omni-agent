@@ -306,20 +306,36 @@ describe("StreamSession", () => {
 
   describe("error event", () => {
     it("transitions to error state", () => {
-      session.handle({ type: "error", error: "something broke" });
+      session.handle({
+        type: "error",
+        failure: { code: "test", message: "something broke", retryable: false },
+      });
       expect(session.state).toBe("error");
     });
 
     it("calls onError callback", () => {
-      session.handle({ type: "error", error: "something broke" });
-      expect(callbacks.onError).toHaveBeenCalledWith("something broke");
+      session.handle({
+        type: "error",
+        failure: { code: "test", message: "something broke", retryable: false },
+      });
+      expect(callbacks.onError).toHaveBeenCalledWith({
+        code: "test",
+        message: "something broke",
+        retryable: false,
+      });
     });
 
     it("records error in accumulated messages", () => {
-      session.handle({ type: "error", error: "fail" });
+      session.handle({
+        type: "error",
+        failure: { code: "test", message: "fail", retryable: false },
+      });
       const msgs = session.getAccumulatedMessages();
       expect(msgs).toHaveLength(1);
       expect(msgs[0].content).toBe("[error] fail");
+      expect(msgs[0].meta).toEqual({
+        failure: { code: "test", message: "fail", retryable: false },
+      });
     });
   });
 

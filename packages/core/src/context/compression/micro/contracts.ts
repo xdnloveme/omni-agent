@@ -1,5 +1,5 @@
 import type { DeepReadonly, JsonValue } from "../../../data";
-import type { ContextFrame, ContextTokenEstimate } from "../../contracts/types";
+import type { ContextHistoryFrame, ContextTokenEstimate } from "../../contracts/types";
 import type { ContextCompressionKind } from "../../contracts/progress";
 import type { ThinkingHistoryPolicy } from "../../../models/runtime";
 
@@ -53,7 +53,7 @@ export interface MicroProjectionOptions {
 }
 
 export interface MicroProjectionResult {
-  readonly frame: ContextFrame;
+  readonly frame: ContextHistoryFrame;
   readonly state: MicroStrategyProjectionState;
   readonly changed: boolean;
   readonly affectedCount?: number;
@@ -68,17 +68,17 @@ export interface MicroProjectionStrategyPort {
   readonly compressionKind: ContextCompressionKind;
   createState(): MicroStrategyProjectionState;
   canAdvance(
-    frame: DeepReadonly<ContextFrame>,
+    frame: DeepReadonly<ContextHistoryFrame>,
     state: DeepReadonly<MicroStrategyProjectionState>,
     options: DeepReadonly<MicroProjectionOptions>,
   ): boolean;
   replay(
-    frame: DeepReadonly<ContextFrame>,
+    frame: DeepReadonly<ContextHistoryFrame>,
     state: DeepReadonly<MicroStrategyProjectionState>,
     options: DeepReadonly<MicroProjectionOptions>,
   ): Promise<MicroProjectionResult>;
   advance(
-    frame: DeepReadonly<ContextFrame>,
+    frame: DeepReadonly<ContextHistoryFrame>,
     state: DeepReadonly<MicroStrategyProjectionState>,
     options: DeepReadonly<MicroProjectionOptions>,
   ): Promise<MicroProjectionResult>;

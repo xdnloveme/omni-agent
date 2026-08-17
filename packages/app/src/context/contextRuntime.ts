@@ -53,7 +53,6 @@ export function createContextRuntime(input: {
   ];
   const stableMicro = new StableMicroCompressionStage({
     projections,
-    estimator,
     rewriteGuard: new CacheBackedContextRewriteGuard(
       input.cacheLeaseAdvisor,
       () => input.agentConfig.model,

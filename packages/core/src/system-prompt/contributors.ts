@@ -10,13 +10,6 @@ import { escapeMarkupText } from "../markup";
 export type SystemPromptContributor = (cwd: string) => Promise<string | null>;
 
 /**
- * Injects the current working directory as context.
- */
-export const cwdContributor: SystemPromptContributor = async (cwd) => {
-  return `# Environment\n\nCurrent working directory: ${cwd}`;
-};
-
-/**
  * Reads AGENTS.md from the working directory (if it exists) and injects it as project rules.
  */
 export const agentsMdContributor: SystemPromptContributor = async (cwd) => {
@@ -44,7 +37,7 @@ export const agentsMdContributor: SystemPromptContributor = async (cwd) => {
   return section;
 };
 
-export const defaultContributors: SystemPromptContributor[] = [cwdContributor, agentsMdContributor];
+export const defaultContributors: SystemPromptContributor[] = [agentsMdContributor];
 
 export function createSkillsContributor(registry: SkillRegistry): SystemPromptContributor {
   return async () => {

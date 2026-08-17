@@ -1,5 +1,6 @@
 import {
   AgentRunner,
+  EnvironmentContextError,
   createUserMessage,
   createStreamSession,
   type AgentConfig,
@@ -9,6 +10,7 @@ import {
   type ContextEnginePort,
   type ContextMiddlewarePort,
   type PermissionMode,
+  type EnvironmentContextControllerPort,
 } from "@omni-agent/core";
 import type { AgentSessionRepository } from "@omni-agent/core";
 import { ConfigService } from "../config/config-service";
@@ -28,6 +30,7 @@ export class AgentApplication {
   private activeSelection: ModelSelection;
   private readonly configService: ConfigService;
   private readonly contextStorage: ContextSessionStorage;
+  private readonly environmentContext: EnvironmentContextControllerPort;
 
   constructor(dependencies: AgentApplicationDependencies) {
     this.extensions = dependencies.extensions;
@@ -39,12 +42,13 @@ export class AgentApplication {
     this.activeSelection = dependencies.modelSelection;
     this.configService = dependencies.configService;
     this.contextStorage = dependencies.contextStorage;
+    this.environmentContext = dependencies.environmentContext;
     this.permissions = dependencies.permissionService;
     this.runner = new AgentRunner(
       dependencies.modelService.runtime,
       dependencies.toolCallCoordinator,
       dependencies.agentId,
-      dependencies.cwd,
+      dependencies.environmentContext,
       dependencies.contextEngine,
       dependencies.contextMiddleware,
     );
@@ -52,8 +56,27 @@ export class AgentApplication {
 
   async run(input: string, callbacks: StreamCallbacks, signal?: AbortSignal): Promise<void> {
     const sessionId = this.requireSessionId();
-    await this.sessions.append(sessionId, [createUserMessage(input)]);
     const streamSession = createStreamSession(callbacks);
+    let capture;
+    try {
+      capture = await this.environmentContext.capture(this.sessions.snapshot().environment, signal);
+    } catch (error) {
+      if (!(error instanceof EnvironmentContextError)) throw error;
+      streamSession.handle({
+        type: "error",
+        failure: {
+          code: error.code,
+          message: error.message,
+          retryable: error.retryable,
+          ...(error.field ? { field: error.field } : {}),
+        },
+      });
+      return;
+    }
+    await this.sessions.append(sessionId, [
+      ...(capture.changed ? [{ kind: "environment" as const, context: capture.context }] : []),
+      { kind: "message", message: createUserMessage(input) },
+    ]);
     const events = this.runner.run(this.agentConfig, this.sessions.snapshot(), signal, {
       session: streamSession,
     });
@@ -176,6 +199,7 @@ export interface AgentApplicationDependencies {
   readonly contextEngine: ContextEnginePort;
   readonly contextMiddleware: readonly ContextMiddlewarePort[];
   readonly contextStorage: ContextSessionStorage;
+  readonly environmentContext: EnvironmentContextControllerPort;
 }
 
 export interface ContextSessionStorage {

@@ -1,6 +1,11 @@
 export { ContentBlockType } from "./content";
 export type { ImageContent, TextContent, ThinkingContent, ToolCallContent } from "./content";
-export { MessageRole, cloneTranscriptMessage, cloneTranscriptMessages } from "./transcript";
+export {
+  MessageRole,
+  assertTranscriptMessages,
+  cloneTranscriptMessage,
+  cloneTranscriptMessages,
+} from "./transcript";
 export type {
   AssistantTranscriptMessage,
   DeferredModelResponse,

@@ -1,7 +1,6 @@
 import type { ToolLifecycleAdapter } from "./tool-lifecycle";
 import type { ToolLoopDiagnostic } from "./loop-protection";
 import type { ExtensionEvent } from "./extension-events";
-import type { TranscriptMessage } from "./messages";
 import type { ModelRuntimePort, RuntimeModelSelection } from "./models/runtime";
 import type { ModelCacheReport } from "./models/cache";
 import type { ToolAuthorizationDescriptor } from "./permissions";
@@ -13,7 +12,7 @@ import type {
   ModelContextSnapshotManifest,
   ContextProgressEvent,
 } from "./context";
-import type { SessionTranscriptSnapshot } from "./session";
+import type { SessionRecord, SessionSnapshot } from "./session";
 
 export interface AgentToolDefinition {
   name: string;
@@ -111,14 +110,21 @@ export interface AgentConfig {
   maxTurns?: number;
 }
 
+export interface AgentFailure {
+  readonly code: string;
+  readonly message: string;
+  readonly retryable: boolean;
+  readonly field?: string;
+}
+
 export interface AgentLoopInput {
   config: AgentConfig;
-  snapshot: SessionTranscriptSnapshot;
+  snapshot: SessionSnapshot;
   contextEngine: ContextEnginePort;
   contextMiddleware: readonly ContextMiddlewarePort[];
   modelRuntime: ModelRuntimePort;
   agentId: string;
-  cwd: string;
+  environmentContext: import("./environment").EnvironmentContextControllerPort;
   toolCallCoordinator: import("./tool-calls/tool-call-coordinator").ToolCallCoordinator;
   signal?: AbortSignal;
   options?: import("./agent-loop").AgentLoopOptions;
@@ -157,12 +163,11 @@ export type AgentEvent =
   | ExtensionEvent
   | {
       type: "error";
-      error: string;
-      code?: "max_turns_reached" | "tool_loop_detected";
-      produced?: readonly TranscriptMessage[];
+      failure: AgentFailure;
+      produced?: readonly SessionRecord[];
       usage?: TokenUsage;
       turnCount?: number;
       maxTurns?: number;
       loop?: ToolLoopDiagnostic;
     }
-  | { type: "done"; produced?: readonly TranscriptMessage[]; usage?: TokenUsage };
+  | { type: "done"; produced?: readonly SessionRecord[]; usage?: TokenUsage };

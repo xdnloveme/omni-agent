@@ -52,7 +52,7 @@ describe("message contracts", () => {
       { role: "user", content: "hello" },
       {
         role: "assistant",
-        content: transcript[1].content,
+        content: transcript[1].role === "assistant" ? transcript[1].content : [],
         api: "api",
         provider: "provider",
         model: "model",

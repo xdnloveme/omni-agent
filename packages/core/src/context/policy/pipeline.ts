@@ -1,4 +1,5 @@
 import { throwIfAborted } from "../../execution";
+import type { DeepReadonly } from "../../data";
 import { cloneTranscriptMessages } from "../../messages";
 import type {
   ContextFinalGatePort,
@@ -6,8 +7,13 @@ import type {
   ContextPolicyStagePort,
   ContextTokenEstimatorPort,
 } from "../contracts/ports";
-import type { ContextDecision, ContextFrame, ContextPolicyResult } from "../contracts/types";
-import { cloneContextDecisions, cloneContextFrame } from "./types";
+import type {
+  ContextDecision,
+  ContextEnvelope,
+  ContextHistoryFrame,
+  ContextPolicyResult,
+} from "../contracts/types";
+import { cloneContextDecisions, cloneContextEnvelope, cloneContextHistoryFrame } from "./types";
 import {
   assertPolicyComponent,
   assertPolicyStageResult,
@@ -25,11 +31,14 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
   ) {}
 
   async resolve(
-    frame: ContextFrame,
+    envelope: ContextEnvelope,
     options: Parameters<ContextPolicyPort["resolve"]>[1],
   ): Promise<ContextPolicyResult> {
-    let current = cloneContextFrame(frame);
-    let estimate = this.estimator.estimate(current);
+    const fixed = cloneContextEnvelope(envelope).fixed;
+    let current = cloneContextHistoryFrame(envelope.history);
+    const estimateHistory = (history: DeepReadonly<ContextHistoryFrame>) =>
+      this.estimator.estimate({ fixed, history });
+    let estimate = estimateHistory(current);
     const compression = new ContextCompressionProgressCollector(
       options.modelCallId,
       options.progress,
@@ -43,12 +52,13 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
         throwIfAborted(options.signal);
         assertPolicyComponent(stage);
         const before = estimate;
-        const input = cloneContextFrame(current);
+        const input = cloneContextHistoryFrame(current);
         const result = await stage.apply(input, {
           agentId: options.agentId,
           sessionId: options.sessionId,
           modelCallId: options.modelCallId,
           estimate: { ...before },
+          estimateHistory,
           compression,
           signal: options.signal,
         });
@@ -58,8 +68,8 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
           );
         }
         assertPolicyStageResult(result, stage.name);
-        current = cloneContextFrame(result.frame);
-        estimate = this.estimator.estimate(current);
+        current = cloneContextHistoryFrame(result.frame);
+        estimate = estimateHistory(current);
         decisions.push(...cloneContextDecisions(result.decisions));
         manifests.push({
           name: stage.name,
@@ -75,8 +85,9 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
       throwIfAborted(options.signal);
       assertPolicyComponent(this.finalGate);
       const before = estimate;
-      const gateInput = cloneContextFrame(current);
+      const gateInput = cloneContextHistoryFrame(current);
       const gateResult = await this.finalGate.apply(gateInput, {
+        model: { ...fixed.model },
         agentId: options.agentId,
         sessionId: options.sessionId,
         modelCallId: options.modelCallId,
@@ -89,6 +100,7 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
           ...(configurationDigest ? { configurationDigest } : {}),
         })),
         estimate: { ...before },
+        estimateHistory,
         compression,
         signal: options.signal,
       });
@@ -98,8 +110,8 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
         );
       }
       assertPolicyStageResult(gateResult, this.finalGate.name);
-      current = cloneContextFrame(gateResult.frame);
-      estimate = this.estimator.estimate(current);
+      current = cloneContextHistoryFrame(gateResult.frame);
+      estimate = estimateHistory(current);
       decisions.push(...cloneContextDecisions(gateResult.decisions));
       manifests.push({
         name: this.finalGate.name,
@@ -113,7 +125,12 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
 
       throwIfAborted(options.signal);
       compression.complete(estimate);
-      return { frame: current, decisions, stages: manifests, estimate };
+      return {
+        envelope: { fixed, history: current },
+        decisions,
+        stages: manifests,
+        estimate,
+      };
     } catch (error) {
       compression.fail(error);
       throw error;

@@ -5,7 +5,7 @@ import { resolveCompatibleCheckpoint } from "../checkpoints/resolver";
 import type { ContextFinalGatePort, ContextTokenEstimatorPort } from "../contracts/ports";
 import type { ContextPolicyStageResult } from "../contracts/types";
 import { digestContextValue } from "../digest";
-import { cloneContextFrame } from "../policy/types";
+import { cloneContextHistoryFrame } from "../policy/types";
 import { DEFAULT_CONTEXT_COMPRESSION_BUDGET } from "./budget";
 import { CheckpointCompactor } from "./checkpointCompactor";
 import { restoreCheckpoint } from "./checkpointEntry";
@@ -35,7 +35,7 @@ export class HeavyCheckpointGateStage implements ContextFinalGatePort {
     options: Parameters<ContextFinalGatePort["apply"]>[1],
   ): Promise<ContextPolicyStageResult> {
     throwIfAborted(options.signal);
-    const owned = cloneContextFrame(frame);
+    const owned = cloneContextHistoryFrame(frame);
     const messages = cloneTranscriptMessages(options.sourceMessages);
     const policyDigest = digestContextValue(options.precedingStages);
     const checkpoint = resolveCompatibleCheckpoint({
@@ -49,7 +49,7 @@ export class HeavyCheckpointGateStage implements ContextFinalGatePort {
       promptVersion: CHECKPOINT_PROMPT_VERSION,
     });
     const restored = checkpoint ? restoreCheckpoint(owned, checkpoint) : owned;
-    const estimate = this.estimator.estimate(restored);
+    const estimate = options.estimateHistory(restored);
     if (estimate.usageRatio < DEFAULT_CONTEXT_COMPRESSION_BUDGET.heavyTriggerRatio) {
       return {
         frame: restored,

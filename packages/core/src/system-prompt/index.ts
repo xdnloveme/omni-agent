@@ -1,5 +1,4 @@
 export {
-  cwdContributor,
   agentsMdContributor,
   createSkillsContributor,
   defaultContributors,

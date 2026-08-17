@@ -4,9 +4,10 @@ import type {
   ContextArtifactRecoveryCapability,
   ContextConversationSource,
   ContextDraft,
+  ContextEnvelope,
   ContextMiddlewareOptions,
   ContextModelLimits,
-  ContextFrame,
+  ContextHistoryFrame,
   ContextEntry,
   ContextFinalGateOptions,
   ContextPolicyResult,
@@ -34,7 +35,7 @@ export interface ContextPolicyStagePort {
   readonly version: number;
   configurationDigest?(): string;
   apply(
-    frame: DeepReadonly<ContextFrame>,
+    frame: DeepReadonly<ContextHistoryFrame>,
     options: DeepReadonly<ContextPolicyStageOptions>,
   ): Promise<ContextPolicyStageResult>;
 }
@@ -50,19 +51,19 @@ export interface ContextFinalGatePort {
   readonly version: number;
   configurationDigest?(): string;
   apply(
-    frame: DeepReadonly<ContextFrame>,
+    frame: DeepReadonly<ContextHistoryFrame>,
     options: DeepReadonly<ContextFinalGateOptions>,
   ): Promise<ContextPolicyStageResult>;
 }
 
 export interface ContextTokenEstimatorPort {
-  estimate(frame: DeepReadonly<ContextFrame>): ContextTokenEstimate;
+  estimate(envelope: DeepReadonly<ContextEnvelope>): ContextTokenEstimate;
   estimateEntry(entry: DeepReadonly<ContextEntry>): number;
 }
 
 export interface ContextPolicyPort {
   resolve(
-    frame: DeepReadonly<ContextFrame>,
+    envelope: DeepReadonly<ContextEnvelope>,
     options: DeepReadonly<ContextPolicyResolveOptions>,
   ): Promise<ContextPolicyResult>;
 }
@@ -75,6 +76,7 @@ export interface ContextPreparationRequest {
     readonly modelCallId: string;
   };
   readonly source: ContextConversationSource;
+  readonly environment?: import("../../environment").EnvironmentContextRecord;
   readonly systemPrompt: string;
   readonly tools: readonly ModelToolSpec[];
   readonly model: ContextModelLimits;

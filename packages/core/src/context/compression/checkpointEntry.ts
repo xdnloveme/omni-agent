@@ -1,19 +1,15 @@
 import type { ContextCheckpoint } from "../checkpoints/types";
-import type { ContextEntry, ContextFrame } from "../contracts/types";
+import type { ContextEntry, ContextHistoryFrame } from "../contracts/types";
 
 export function restoreCheckpoint(
-  frame: ContextFrame,
+  frame: ContextHistoryFrame,
   checkpoint: ContextCheckpoint,
-): ContextFrame {
+): ContextHistoryFrame {
+  const tail = frame.entries.filter(
+    (entry) => entry.kind !== "checkpoint" && entry.sourceIndex >= checkpoint.coveredMessageCount,
+  );
   return {
-    ...frame,
-    entries: [
-      toCheckpointEntry(checkpoint),
-      ...frame.entries.filter(
-        (entry) =>
-          entry.kind !== "checkpoint" && entry.sourceIndex >= checkpoint.coveredMessageCount,
-      ),
-    ],
+    entries: [toCheckpointEntry(checkpoint), ...tail],
   };
 }
 
