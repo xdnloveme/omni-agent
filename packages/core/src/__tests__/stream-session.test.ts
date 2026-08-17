@@ -41,6 +41,9 @@ describe("StreamSession", () => {
   beforeEach(() => {
     callbacks = {
       onTextChunk: vi.fn(),
+      onThinkingStart: vi.fn(),
+      onThinkingChunk: vi.fn(),
+      onThinkingEnd: vi.fn(),
       onModelContextPrepared: vi.fn(),
       onModelCacheReport: vi.fn(),
       onContextProgress: vi.fn(),
@@ -92,6 +95,33 @@ describe("StreamSession", () => {
       expect(msgs).toHaveLength(1);
       expect(msgs[0].type).toBe("text");
       expect(msgs[0].content).toBe("Hi");
+    });
+  });
+
+  describe("thinking events", () => {
+    it("routes the lifecycle and accumulates only streamed thinking content", () => {
+      session.handle({ type: "thinking_start", modelCallId: "model", contentIndex: 0 });
+      session.handle({
+        type: "thinking_delta",
+        modelCallId: "model",
+        contentIndex: 0,
+        delta: "checking",
+      });
+      session.handle({
+        type: "thinking_end",
+        modelCallId: "model",
+        contentIndex: 0,
+        content: "checking",
+      });
+
+      expect(callbacks.onThinkingStart).toHaveBeenCalledOnce();
+      expect(callbacks.onThinkingChunk).toHaveBeenCalledWith(
+        expect.objectContaining({ delta: "checking" }),
+      );
+      expect(callbacks.onThinkingEnd).toHaveBeenCalledOnce();
+      expect(session.getAccumulatedMessages()).toEqual([
+        expect.objectContaining({ type: "thinking", content: "checking" }),
+      ]);
     });
   });
 

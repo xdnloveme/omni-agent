@@ -64,6 +64,33 @@ describe("DisclosureMessage", () => {
     expect(message.render(80).join("\n")).toContain("running… 3s");
   });
 
+  it("collapses a streaming disclosure when it completes", () => {
+    const message = new DisclosureMessage(
+      {
+        id: "thinking:1",
+        title: "Thinking",
+        state: "running",
+        tone: "neutral",
+        details: () => ["reasoning"],
+        initiallyExpanded: true,
+        collapseOnComplete: true,
+      },
+      "omni-agent://disclosure/thinking%3A1",
+    );
+    expect(message.render(80).join("\n")).toContain("reasoning");
+
+    message.update({
+      id: "thinking:1",
+      title: "Thinking",
+      state: "completed",
+      tone: "neutral",
+      details: () => ["reasoning"],
+      initiallyExpanded: false,
+      collapseOnComplete: true,
+    });
+    expect(message.render(80).join("\n")).not.toContain("reasoning");
+  });
+
   it("renders nested disclosures and toggles a child independently", () => {
     const message = new DisclosureMessage(
       {

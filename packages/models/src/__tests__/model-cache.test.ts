@@ -72,6 +72,30 @@ describe("model cache infrastructure", () => {
     expect(first.map((event) => event.type)).toEqual(["text_delta", "cache_report", "done"]);
   });
 
+  it("passes thinking events through without treating them as terminal", async () => {
+    const runtime = new CacheAwareModelRuntime(
+      {
+        async *stream(): AsyncIterable<ModelTransportEvent> {
+          yield { type: "thinking_start", contentIndex: 0 };
+          yield { type: "thinking_delta", contentIndex: 0, delta: "checking" };
+          yield { type: "thinking_end", contentIndex: 0, content: "checking" };
+          yield { type: "done", message: assistant("done") };
+        },
+      },
+      new DefaultModelCachePolicy(),
+      () => capability("anthropic-messages"),
+    );
+
+    const events = await collect(runtime.stream(selection, request, primaryOptions("thinking")));
+    expect(events.map((event) => event.type)).toEqual([
+      "thinking_start",
+      "thinking_delta",
+      "thinking_end",
+      "cache_report",
+      "done",
+    ]);
+  });
+
   it("exposes a detached active lease after a successful call", async () => {
     const runtime = new CacheAwareModelRuntime(
       successfulTransport([]),

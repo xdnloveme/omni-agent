@@ -10,6 +10,9 @@ import { SkillCliController } from "../skills";
 import { TuiApprovalBroker } from "../permissions/tui-approval-broker";
 import { SkillStreamPresenter } from "../presentation/skill-stream-presenter";
 import { StreamPresentationRouter } from "../presentation/stream-presentation-router";
+import { TranscriptHistoryPresenter } from "../presentation/transcript-history-presenter";
+
+const INITIAL_HISTORY_TURNS = 10;
 
 export async function runChatMode(agentId: string): Promise<void> {
   const configService = new ConfigService();
@@ -53,6 +56,28 @@ export async function runChatMode(agentId: string): Promise<void> {
     const registry = createCommandRegistry(app);
     let activeAbort: AbortController | null = null;
     let running = false;
+    const restoredMessages = app.currentSessionSnapshot().messages;
+    const historyPresenter = new TranscriptHistoryPresenter(INITIAL_HISTORY_TURNS);
+    let visibleHistoryTurns = INITIAL_HISTORY_TURNS;
+
+    const renderSessionHistory = () => {
+      const viewModel = {
+        ...historyPresenter.present(restoredMessages, visibleHistoryTurns),
+        header: {
+          title: `omni-agent · ${instance.id}`,
+          subtitle: "Session restored. Earlier conversation is shown below.",
+        },
+      };
+      tui.setSessionHistory(
+        viewModel,
+        viewModel.hiddenTurnCount > 0
+          ? () => {
+              visibleHistoryTurns += INITIAL_HISTORY_TURNS;
+              renderSessionHistory();
+            }
+          : undefined,
+      );
+    };
 
     const commandInteraction: CommandInteractionPort = {
       pause: () => tui.pause(),
@@ -68,6 +93,7 @@ export async function runChatMode(agentId: string): Promise<void> {
       description: "Start a new conversation session",
       async execute(ctx) {
         await app.newSession();
+        tui.clearSessionHistory();
         ctx.interaction.line(chalk.green("New session started."));
         ctx.interaction.spacer();
       },
@@ -79,6 +105,7 @@ export async function runChatMode(agentId: string): Promise<void> {
       description: "Clear current session history",
       async execute(ctx) {
         await app.clearSession();
+        tui.clearSessionHistory();
         ctx.interaction.line(chalk.green("Session history cleared."));
         ctx.interaction.spacer();
       },
@@ -183,6 +210,7 @@ export async function runChatMode(agentId: string): Promise<void> {
       activeAbort = new AbortController();
       tui.appendUserMessage(displayInput);
       tui.setStatus(chalk.cyan("thinking..."));
+      tui.startActivity("Thinking…");
 
       const skillPresenter = skillController ? new SkillStreamPresenter(tui) : undefined;
       const streamPresenter = new StreamPresentationRouter(tui, skillPresenter);
@@ -196,18 +224,22 @@ export async function runChatMode(agentId: string): Promise<void> {
         }
       } finally {
         streamPresenter.cancelPending();
+        tui.stopActivity();
         running = false;
         activeAbort = null;
         tui.setStatus(chalk.dim("omni-agent | Ctrl+C to exit"));
       }
     }
 
-    // Welcome message
-    tui.sink.line(chalk.bold(`omni-agent · ${instance.id}`));
-    tui.sink.line(
-      chalk.dim("Type your request below. Session history is preserved across restarts."),
-    );
-    tui.sink.spacer();
+    if (restoredMessages.length > 0) {
+      renderSessionHistory();
+    } else {
+      tui.sink.line(chalk.bold(`omni-agent · ${instance.id}`));
+      tui.sink.line(
+        chalk.dim("Type your request below. Session history is preserved across restarts."),
+      );
+      tui.sink.spacer();
+    }
 
     try {
       await tui.start();

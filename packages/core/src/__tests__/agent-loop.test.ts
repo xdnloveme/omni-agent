@@ -229,6 +229,46 @@ describe("runAgentLoop", () => {
     expect(streamModel.mock.calls[0]?.[2].maxOutputTokens).toBe(config.model.requestedOutputTokens);
   });
 
+  it("forwards thinking lifecycle events with the prepared model call identity", async () => {
+    streamModel.mockReturnValue(
+      fakeStream([
+        { type: "thinking_start", contentIndex: 0 },
+        { type: "thinking_delta", contentIndex: 0, delta: "checking" },
+        { type: "thinking_end", contentIndex: 0, content: "checking" },
+        {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [
+              { type: "thinking", thinking: "checking" },
+              { type: "text", text: "done" },
+            ],
+            stopReason: "endTurn",
+            timestamp: Date.now(),
+          },
+        },
+      ]) as any,
+    );
+
+    const events = await collectEvents(executeLoop(makeConfig({ tools: [] }), makeMessages("Hi")));
+    const context = events.find((event) => event.type === "model_context_prepared");
+    const thinking = events.filter((event) => event.type.startsWith("thinking_"));
+
+    expect(thinking.map((event) => event.type)).toEqual([
+      "thinking_start",
+      "thinking_delta",
+      "thinking_end",
+    ]);
+    expect(thinking).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          modelCallId:
+            context?.type === "model_context_prepared" ? context.manifest.modelCallId : undefined,
+        }),
+      ]),
+    );
+  });
+
   it("forwards cache reports without adding them to the conversation", async () => {
     const report = {
       outcome: "success" as const,

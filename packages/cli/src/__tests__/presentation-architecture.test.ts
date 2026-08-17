@@ -31,8 +31,25 @@ describe("stream presentation architecture", () => {
         .map((file) => readFile(file, "utf8")),
     );
     expect(sources.join("\n")).not.toMatch(
-      /@omni-agent\/app|agents\/|ContextDecision|SKILL_TOOL_NAME|file_read|file_edit|file_write|artifact_projection|heavy_checkpoint/,
+      /@omni-agent\/app|agents\/|ContextDecision|SKILL_TOOL_NAME|TranscriptMessage|ToolResultTranscriptMessage|RegisteredAgentTool|file_read|file_edit|file_write|artifact_projection|heavy_checkpoint/,
     );
+  });
+
+  it("adapts history through existing presenters instead of duplicating TUI components", async () => {
+    const source = await readFile(
+      join(
+        repositoryRoot,
+        "packages",
+        "cli",
+        "src",
+        "presentation",
+        "transcript-history-presenter.ts",
+      ),
+      "utf8",
+    );
+    expect(source).toMatch(/ThinkingPresenter/);
+    expect(source).toMatch(/ToolBatchPresenter/);
+    expect(source).not.toMatch(/MarkdownMessage|DisclosureMessage|new Box\b|pi-tui/);
   });
 
   it("has one presenter path and no legacy command or skill suppression path", async () => {

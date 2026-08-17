@@ -3,6 +3,9 @@ export { createStreamSession } from "./factory";
 export type {
   StreamEvent,
   TextDeltaEvent,
+  ThinkingStartedEvent,
+  ThinkingDeltaEvent,
+  ThinkingCompletedEvent,
   ModelContextPreparedEvent,
   ModelCacheReportEvent,
   ToolBatchStartedEvent,

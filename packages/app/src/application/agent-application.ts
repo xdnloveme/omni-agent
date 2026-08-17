@@ -11,6 +11,7 @@ import {
   type ContextMiddlewarePort,
   type PermissionMode,
   type EnvironmentContextControllerPort,
+  type SessionSnapshot,
 } from "@omni-agent/core";
 import type { AgentSessionRepository } from "@omni-agent/core";
 import { ConfigService } from "../config/config-service";
@@ -87,6 +88,10 @@ export class AgentApplication {
 
   async newSession(): Promise<string> {
     return (await this.sessions.create()).id;
+  }
+
+  currentSessionSnapshot(): SessionSnapshot {
+    return this.sessions.snapshot();
   }
 
   async clearSession(): Promise<void> {

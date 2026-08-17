@@ -3,6 +3,7 @@ import { CompressionEventPresenter } from "./compression-event-presenter";
 import { RunMetricsPresenter } from "./run-metrics-presenter";
 import { ToolEventPresenter } from "./tool-event-presenter";
 import { ToolBatchPresenter } from "./tool-batch-presenter";
+import { ThinkingPresenter } from "./thinking-presenter";
 
 describe("CLI stream presenters", () => {
   it("keeps file details lazy and replaces the provisional path with the canonical resource", () => {
@@ -135,7 +136,7 @@ describe("CLI stream presenters", () => {
       { action: "execute", resource: { kind: "command", value: "pnpm test" } },
       { batchId: "batch", index: 0, total: 2 },
     );
-    expect(running?.summary).toContain("running pnpm test");
+    expect(running?.summary).toBe("0/2 done");
 
     const progressed = presenter.toolCompleted(
       "bash-1",
@@ -160,10 +161,34 @@ describe("CLI stream presenters", () => {
     );
     const completed = presenter.complete("batch", "model-call", 1_200);
     expect(completed).toMatchObject({
+      title: "Tool Calls",
       state: "completed",
-      summary: "2 completed · bash, file_read · 1.2s",
+      summary: "2/2 completed · 1.2s",
     });
     expect(completed?.children?.map((child) => child.state)).toEqual(["completed", "completed"]);
+  });
+
+  it("streams thinking in one disclosure and folds it after completion", () => {
+    let now = 1_000;
+    const presenter = new ThinkingPresenter(() => now);
+    presenter.start("model-call", 0);
+    const running = presenter.append("model-call", 0, "Inspecting the runtime");
+    expect(running).toMatchObject({
+      id: "thinking:model-call:0",
+      title: "Thinking",
+      state: "running",
+      initiallyExpanded: true,
+    });
+    expect(running?.details()).toEqual(["Inspecting the runtime"]);
+
+    now = 2_200;
+    const completed = presenter.complete("model-call", 0, "Inspecting the runtime");
+    expect(completed).toMatchObject({
+      state: "completed",
+      summary: "1.2s",
+      initiallyExpanded: false,
+      collapseOnComplete: true,
+    });
   });
 
   it("maps one compression lifecycle to one stable disclosure id", () => {

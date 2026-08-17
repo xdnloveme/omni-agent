@@ -50,6 +50,17 @@ export function createTransportStreams(transport: ModelTransport): ProviderStrea
     void (async () => {
       let text = "";
       let textStarted = false;
+      let textContentIndex: number | undefined;
+      const thinking = new Map<number, string>();
+      const thinkingStarted = new Set<number>();
+      const replaceContent = (
+        contentIndex: number,
+        content: AssistantMessage["content"][number],
+      ) => {
+        const contents = [...partial.content];
+        contents[contentIndex] = content;
+        partial = { ...partial, content: contents };
+      };
       try {
         if (options.cacheRetention === undefined) {
           throw new Error("Custom model transport requires resolved cache retention");
@@ -77,19 +88,74 @@ export function createTransportStreams(transport: ModelTransport): ProviderStrea
           if (event.type === "text_delta") {
             if (!textStarted) {
               textStarted = true;
-              partial = { ...partial, content: [{ type: "text", text: "" }] };
-              output.push({ type: "text_start", contentIndex: 0, partial });
+              textContentIndex = partial.content.length;
+              replaceContent(textContentIndex, { type: "text", text: "" });
+              output.push({ type: "text_start", contentIndex: textContentIndex, partial });
             }
             text += event.delta;
-            partial = { ...partial, content: [{ type: "text", text }] };
-            output.push({ type: "text_delta", contentIndex: 0, delta: event.delta, partial });
+            replaceContent(textContentIndex!, { type: "text", text });
+            output.push({
+              type: "text_delta",
+              contentIndex: textContentIndex!,
+              delta: event.delta,
+              partial,
+            });
+            continue;
+          }
+          if (event.type === "thinking_start") {
+            thinkingStarted.add(event.contentIndex);
+            thinking.set(event.contentIndex, "");
+            replaceContent(event.contentIndex, { type: "thinking", thinking: "" });
+            output.push({ type: "thinking_start", contentIndex: event.contentIndex, partial });
+            continue;
+          }
+          if (event.type === "thinking_delta") {
+            if (!thinkingStarted.has(event.contentIndex)) {
+              thinkingStarted.add(event.contentIndex);
+              thinking.set(event.contentIndex, "");
+              replaceContent(event.contentIndex, { type: "thinking", thinking: "" });
+              output.push({ type: "thinking_start", contentIndex: event.contentIndex, partial });
+            }
+            const content = `${thinking.get(event.contentIndex) ?? ""}${event.delta}`;
+            thinking.set(event.contentIndex, content);
+            replaceContent(event.contentIndex, { type: "thinking", thinking: content });
+            output.push({
+              type: "thinking_delta",
+              contentIndex: event.contentIndex,
+              delta: event.delta,
+              partial,
+            });
+            continue;
+          }
+          if (event.type === "thinking_end") {
+            if (!thinkingStarted.has(event.contentIndex)) {
+              replaceContent(event.contentIndex, { type: "thinking", thinking: "" });
+              output.push({ type: "thinking_start", contentIndex: event.contentIndex, partial });
+            }
+            thinkingStarted.delete(event.contentIndex);
+            thinking.set(event.contentIndex, event.content);
+            replaceContent(event.contentIndex, {
+              type: "thinking",
+              thinking: event.content,
+            });
+            output.push({
+              type: "thinking_end",
+              contentIndex: event.contentIndex,
+              content: event.content,
+              partial,
+            });
             continue;
           }
           const finalMessage = toBackendAssistantMessage(
             event.type === "done" ? event.message : event.error,
           );
           if (textStarted)
-            output.push({ type: "text_end", contentIndex: 0, content: text, partial });
+            output.push({
+              type: "text_end",
+              contentIndex: textContentIndex!,
+              content: text,
+              partial,
+            });
           if (event.type === "done") {
             output.push({
               type: "done",

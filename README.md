@@ -37,7 +37,10 @@ Each Agent package exports an `agentBlueprint`; the CLI loads
 require another CLI branch.
 Agent sessions are isolated under `~/.omni-agent/sessions/<agent-id>/`; switching
 Agent IDs never restores another Agent's conversation history. Starting the same
-Agent restores its most recently active persisted Session.
+Agent restores its most recently active persisted Session. The TUI renders the latest
+ten complete conversation turns in the normal message flow, keeps historical Thinking
+and Tool Calls folded, and can progressively load earlier turns without changing the
+active Session.
 Each Session JSONL file is a strict stream of current `message` and `environment` records;
 the Repository projects all conversation messages plus only the latest complete Environment.
 There is no reader or fallback for the former message-only format, so old development Session

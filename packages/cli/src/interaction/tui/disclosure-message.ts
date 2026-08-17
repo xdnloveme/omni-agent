@@ -24,9 +24,11 @@ export class DisclosureMessage implements Component {
 
   update(viewModel: DisclosureViewModel): void {
     if (this.viewModel === viewModel) return;
+    const completed = this.viewModel.state === "running" && viewModel.state === "completed";
     this.viewModel = viewModel;
     this.cachedDetails = undefined;
-    if (viewModel.initiallyExpanded) this.expanded = true;
+    if (completed && viewModel.collapseOnComplete) this.expanded = false;
+    else if (viewModel.initiallyExpanded) this.expanded = true;
     this.syncChildren(viewModel.children ?? []);
   }
 

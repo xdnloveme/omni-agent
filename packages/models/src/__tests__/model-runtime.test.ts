@@ -2,7 +2,7 @@ import { mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { fauxAssistantMessage, fauxProvider } from "@earendil-works/pi-ai";
+import { fauxAssistantMessage, fauxProvider, fauxText, fauxThinking } from "@earendil-works/pi-ai";
 import { ModelRuntime } from "../runtime/model-runtime";
 import { VendorRegistry } from "../vendors/registry";
 import { createProviderContribution } from "../vendors/provider-contribution";
@@ -49,7 +49,7 @@ describe("ModelRuntime", () => {
         seenMaxTokens = options?.maxTokens;
         seenCacheRetention = options?.cacheRetention;
         seenSessionId = options?.sessionId;
-        return fauxAssistantMessage("hello");
+        return fauxAssistantMessage([fauxThinking("checking"), fauxText("hello")]);
       },
     ]);
     const runtime = new ModelRuntime({ credentials: memoryCredentials() });
@@ -90,6 +90,9 @@ describe("ModelRuntime", () => {
       events.push(event);
 
     expect(events.some((event) => event.type === "text_delta")).toBe(true);
+    expect(events.map((event) => event.type)).toEqual(
+      expect.arrayContaining(["thinking_start", "thinking_delta", "thinking_end"]),
+    );
     expect(events.at(-1)).toEqual(expect.objectContaining({ type: "done" }));
     expect(seenMaxTokens).toBe(512);
     expect(seenCacheRetention).toBe("short");
@@ -171,6 +174,9 @@ describe("ModelRuntime", () => {
                   request.messages[0]?.role ?? "missing",
                   options.apiKey ?? "missing",
                 );
+                yield { type: "thinking_start", contentIndex: 0 };
+                yield { type: "thinking_delta", contentIndex: 0, delta: "checking" };
+                yield { type: "thinking_end", contentIndex: 0, content: "checking" };
                 yield { type: "text_delta", delta: "custom" };
                 yield {
                   type: "done",
@@ -216,6 +222,9 @@ describe("ModelRuntime", () => {
 
     expect(seen).toEqual(["custom-model", "512", "user", "request-key"]);
     expect(events).toEqual([
+      { type: "thinking_start", contentIndex: 0 },
+      { type: "thinking_delta", contentIndex: 0, delta: "checking" },
+      { type: "thinking_end", contentIndex: 0, content: "checking" },
       { type: "text_delta", delta: "custom" },
       expect.objectContaining({ type: "done" }),
     ]);

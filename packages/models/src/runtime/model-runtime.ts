@@ -171,6 +171,20 @@ export class ModelRuntime {
     });
     for await (const event of stream) {
       if (event.type === "text_delta") yield { type: "text_delta", delta: event.delta };
+      else if (event.type === "thinking_start")
+        yield { type: "thinking_start", contentIndex: event.contentIndex };
+      else if (event.type === "thinking_delta")
+        yield {
+          type: "thinking_delta",
+          contentIndex: event.contentIndex,
+          delta: event.delta,
+        };
+      else if (event.type === "thinking_end")
+        yield {
+          type: "thinking_end",
+          contentIndex: event.contentIndex,
+          content: event.content,
+        };
       else if (event.type === "done")
         yield { type: "done", message: fromBackendMessage(event.message) };
       else if (event.type === "error")

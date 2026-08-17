@@ -24,6 +24,7 @@ export class SkillStreamPresenter {
       this.tui.sink.line();
       renderSkillReadStart(this.tui.sink, skillName);
       this.tui.setStatus(`reading skill: ${skillName}...`);
+      this.tui.setActivity("Reading skill…");
       return true;
     }
     if (event.event === SkillEventName.ReadEnd) {
@@ -37,6 +38,7 @@ export class SkillStreamPresenter {
         error: getOptionalString(event.payload, "error"),
       });
       this.tui.setStatus("thinking...");
+      this.tui.setActivity("Thinking…");
       return true;
     }
     return false;

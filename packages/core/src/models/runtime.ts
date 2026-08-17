@@ -47,6 +47,9 @@ export interface ModelRequestOptions {
 
 export type ModelEvent =
   | { type: "text_delta"; delta: string }
+  | { type: "thinking_start"; contentIndex: number }
+  | { type: "thinking_delta"; contentIndex: number; delta: string }
+  | { type: "thinking_end"; contentIndex: number; content: string }
   | { type: "cache_report"; report: ModelCacheReport }
   | { type: "done"; message: AssistantTranscriptMessage }
   | { type: "error"; error: AssistantTranscriptMessage };

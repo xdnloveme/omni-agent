@@ -22,6 +22,26 @@ export interface TextDeltaEvent {
   delta: string;
 }
 
+export interface ThinkingStartedEvent {
+  type: "thinking_start";
+  modelCallId: string;
+  contentIndex: number;
+}
+
+export interface ThinkingDeltaEvent {
+  type: "thinking_delta";
+  modelCallId: string;
+  contentIndex: number;
+  delta: string;
+}
+
+export interface ThinkingCompletedEvent {
+  type: "thinking_end";
+  modelCallId: string;
+  contentIndex: number;
+  content: string;
+}
+
 /** A tool invocation has started */
 export interface ToolBatchStartedEvent {
   type: "tool_batch_started";
@@ -84,6 +104,9 @@ export interface ErrorEvent {
 /** Union of all stream events */
 export type StreamEvent =
   | TextDeltaEvent
+  | ThinkingStartedEvent
+  | ThinkingDeltaEvent
+  | ThinkingCompletedEvent
   | ModelContextPreparedEvent
   | ModelCacheReportEvent
   | ContextProgressStreamEvent
@@ -110,6 +133,9 @@ export interface ToolResultPayload {
  */
 export interface StreamCallbacks {
   onTextChunk?: (delta: string) => void;
+  onThinkingStart?: (event: ThinkingStartedEvent) => void;
+  onThinkingChunk?: (event: ThinkingDeltaEvent) => void;
+  onThinkingEnd?: (event: ThinkingCompletedEvent) => void;
   onModelContextPrepared?: (manifest: ModelContextSnapshotManifest) => void;
   onModelCacheReport?: (report: ModelCacheReport) => void;
   onContextProgress?: (event: ContextProgressEvent) => void;
@@ -127,7 +153,7 @@ export type StreamState = "idle" | "streaming" | "done" | "error";
 
 /** Accumulated message entry for replay/inspection */
 export interface AccumulatedMessage {
-  type: "text" | "tool_call" | "tool_result";
+  type: "text" | "thinking" | "tool_call" | "tool_result";
   content: string;
   timestamp: number;
   meta?: Record<string, unknown>;

@@ -133,6 +133,19 @@ export interface AgentLoopInput {
 // Events emitted by the agent loop
 export type AgentEvent =
   | { type: "text_delta"; delta: string }
+  | { type: "thinking_start"; modelCallId: string; contentIndex: number }
+  | {
+      type: "thinking_delta";
+      modelCallId: string;
+      contentIndex: number;
+      delta: string;
+    }
+  | {
+      type: "thinking_end";
+      modelCallId: string;
+      contentIndex: number;
+      content: string;
+    }
   | { type: "model_context_prepared"; manifest: ModelContextSnapshotManifest }
   | { type: "model_cache_report"; report: ModelCacheReport }
   | { type: "context_progress"; event: ContextProgressEvent }

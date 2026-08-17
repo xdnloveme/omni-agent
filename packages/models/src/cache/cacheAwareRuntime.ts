@@ -54,7 +54,12 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
     let terminalObserved = false;
     try {
       for await (const event of this.inner.stream(selection, request, executionOptions)) {
-        if (event.type === "text_delta") {
+        if (
+          event.type === "text_delta" ||
+          event.type === "thinking_start" ||
+          event.type === "thinking_delta" ||
+          event.type === "thinking_end"
+        ) {
           yield event;
           continue;
         }

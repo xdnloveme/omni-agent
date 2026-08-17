@@ -75,16 +75,35 @@ export class ToolEventPresenter {
     if (!call) return null;
     this.calls.delete(toolCallId);
     const ownedResult = structuredClone(result);
-    const path = resourcePath(ownedResult.meta?.presentation);
-    const resource = path ?? previewResource(call.preview);
+    return completedToolView(toolCallId, call, ownedResult, durationMs);
+  }
+
+  restore(
+    toolName: string,
+    toolCallId: string,
+    input: Record<string, unknown>,
+    preview: ToolInvocationPreview,
+    result?: ToolResultView,
+  ): DisclosureViewModel {
+    const call = {
+      toolName,
+      input: structuredClone(input),
+      preview: structuredClone(preview),
+    };
+    if (!result) {
+      return {
+        id: `tool:${toolCallId}`,
+        title: toolName,
+        summary: previewResource(preview),
+        state: "cancelled",
+        tone: "warning",
+        details: () => [...toolDetails(call.input), "reason: result missing"],
+        initiallyExpanded: false,
+      };
+    }
     return {
-      id: `tool:${toolCallId}`,
-      title: call.toolName,
-      summary: `${resource ? `${resource} · ` : ""}${formatDuration(durationMs)}`,
-      state: ownedResult.isError ? "failed" : "completed",
-      tone: ownedResult.isError ? "error" : "success",
-      details: () => completedToolDetails(call.input, ownedResult, durationMs),
-      initiallyExpanded: ownedResult.isError,
+      ...completedToolView(toolCallId, call, structuredClone(result)),
+      initiallyExpanded: false,
     };
   }
 
@@ -117,14 +136,43 @@ function toolDetails(input: Record<string, unknown>): readonly string[] {
 function completedToolDetails(
   input: Record<string, unknown>,
   result: ToolResultView,
-  durationMs: number,
+  durationMs?: number,
 ): readonly string[] {
-  const lines = [`duration: ${formatDuration(durationMs)}`, ...metadataLines(result.meta)];
+  const lines = [
+    ...(durationMs === undefined ? [] : [`duration: ${formatDuration(durationMs)}`]),
+    ...metadataLines(result.meta),
+  ];
   lines.push(...inputDetailLines(input));
   const output = collectOutput(result);
   lines.push(output ? "output:" : "(no text output)");
   if (output) lines.push(...output.split("\n").map((line) => `  ${line}`));
   return lines;
+}
+
+function completedToolView(
+  toolCallId: string,
+  call: {
+    readonly toolName: string;
+    readonly input: Record<string, unknown>;
+    readonly preview: ToolInvocationPreview;
+  },
+  result: ToolResultView,
+  durationMs?: number,
+): DisclosureViewModel {
+  const path = resourcePath(result.meta?.presentation);
+  const resource = path ?? previewResource(call.preview);
+  const summary = [resource, durationMs === undefined ? undefined : formatDuration(durationMs)]
+    .filter(Boolean)
+    .join(" · ");
+  return {
+    id: `tool:${toolCallId}`,
+    title: call.toolName,
+    ...(summary ? { summary } : {}),
+    state: result.isError ? "failed" : "completed",
+    tone: result.isError ? "error" : "success",
+    details: () => completedToolDetails(call.input, result, durationMs),
+    initiallyExpanded: result.isError,
+  };
 }
 
 function inputDetailLines(input: Record<string, unknown>): string[] {

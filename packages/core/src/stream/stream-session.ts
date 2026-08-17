@@ -36,6 +36,15 @@ export class StreamSession {
       case "text_delta":
         this.handleTextDelta(event.delta);
         break;
+      case "thinking_start":
+        this.handleThinkingStart(event);
+        break;
+      case "thinking_delta":
+        this.handleThinkingDelta(event);
+        break;
+      case "thinking_end":
+        this.handleThinkingEnd(event);
+        break;
       case "model_context_prepared":
         this.notify(() => this._callbacks.onModelContextPrepared?.(cloneData(event.manifest)));
         break;
@@ -104,6 +113,27 @@ export class StreamSession {
       timestamp: Date.now(),
     });
     this.notify(() => this._callbacks.onTextChunk?.(delta));
+  }
+
+  private handleThinkingStart(event: import("./types").ThinkingStartedEvent): void {
+    this.transitionTo("streaming");
+    this.notify(() => this._callbacks.onThinkingStart?.(cloneData(event)));
+  }
+
+  private handleThinkingDelta(event: import("./types").ThinkingDeltaEvent): void {
+    this.transitionTo("streaming");
+    this._messages.push({
+      type: "thinking",
+      content: event.delta,
+      timestamp: Date.now(),
+      meta: { modelCallId: event.modelCallId, contentIndex: event.contentIndex },
+    });
+    this.notify(() => this._callbacks.onThinkingChunk?.(cloneData(event)));
+  }
+
+  private handleThinkingEnd(event: import("./types").ThinkingCompletedEvent): void {
+    this.transitionTo("streaming");
+    this.notify(() => this._callbacks.onThinkingEnd?.(cloneData(event)));
   }
 
   private handleToolStart(event: import("./types").ToolUseStartEvent): void {

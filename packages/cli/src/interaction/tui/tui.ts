@@ -3,6 +3,7 @@ import {
   CombinedAutocompleteProvider,
   Container,
   Editor,
+  Loader,
   ProcessTerminal,
   ScrollView,
   Spacer,
@@ -14,6 +15,7 @@ import {
   wrapTextWithAnsi,
   truncateToWidth,
   visibleWidth,
+  hyperlink,
   type EditorTheme,
   type MarkdownTheme,
   type SelectListTheme,
@@ -27,7 +29,11 @@ import {
 import { InlineSelect } from "./inline-select";
 import { MarkdownMessage } from "./markdown-message";
 import { DisclosureMessage, disclosureUrl } from "./disclosure-message";
-import type { DisclosureViewModel, RunMetricsViewModel } from "../../presentation/view-models";
+import type {
+  DisclosureViewModel,
+  RunMetricsViewModel,
+  SessionHistoryViewModel,
+} from "../../presentation/view-models";
 
 const selectListTheme: SelectListTheme = {
   selectedPrefix: (text) => chalk.bold(chalk.blue(`> ${text}`)),
@@ -81,7 +87,15 @@ export interface OmniTui {
   start(): Promise<void>;
   sink: TuiSink;
   appendUserMessage(text: string): void;
+  setSessionHistory(
+    viewModel: SessionHistoryViewModel,
+    onLoadEarlier?: () => void | Promise<void>,
+  ): void;
+  clearSessionHistory(): void;
   setStatus(text: string): void;
+  startActivity(text: string): void;
+  setActivity(text: string): void;
+  stopActivity(): void;
   setCommands(commands: SlashCommand[]): void;
   onSubmit: (input: string) => void | Promise<void>;
   onInterrupt: (() => boolean) | null;
@@ -107,7 +121,10 @@ export function createOmniTui(): OmniTui {
       internalLinks.get(url)?.();
     },
   });
-  const messageContainer = new Container();
+  const historyBody = new Container();
+  const messageBody = new Container();
+  const activityContainer = new VStack();
+  const messageContainer = new VStack([historyBody, messageBody, activityContainer]);
   const statusLine = new Text("", 0, 0);
   const editor = new Editor(ui, editorTheme);
   const transcript = new ScrollView(messageContainer, {
@@ -143,6 +160,9 @@ export function createOmniTui(): OmniTui {
   const disclosureMessages = new Map<string, DisclosureMessage>();
   const runningDisclosures = new Set<string>();
   let disclosureTimer: NodeJS.Timeout | null = null;
+  let activityLoader: Loader | null = null;
+  const historyDisclosureIds = new Set<string>();
+  const historyLoadUrl = "omni-agent://history/load-earlier";
 
   // Exit confirmation
   let exitPending = false;
@@ -206,7 +226,7 @@ export function createOmniTui(): OmniTui {
     write(text: string) {
       if (!activeText) {
         activeText = new Text("", 0, 0);
-        messageContainer.addChild(activeText);
+        messageBody.addChild(activeText);
       }
       textBuffer += text;
       activeText.setText(hardWrap(textBuffer));
@@ -215,7 +235,7 @@ export function createOmniTui(): OmniTui {
     writeMarkdown(text: string) {
       if (!activeMarkdown) {
         activeMarkdown = new MarkdownMessage("", markdownTheme);
-        messageContainer.addChild(activeMarkdown);
+        messageBody.addChild(activeMarkdown);
       }
       markdownBuffer += text;
       scheduleMarkdownRender();
@@ -240,13 +260,13 @@ export function createOmniTui(): OmniTui {
       // Standalone line
       const wrappedLines = hardWrap(text ?? "").split("\n");
       for (const wrappedLine of wrappedLines) {
-        messageContainer.addChild(new Text(wrappedLine, 0, 0));
+        messageBody.addChild(new Text(wrappedLine, 0, 0));
       }
       ui.requestRender();
     },
     spacer() {
       if (activeMarkdown) flushMarkdown();
-      messageContainer.addChild(new Spacer(1));
+      messageBody.addChild(new Spacer(1));
       activeText = null;
       textBuffer = "";
       activeMarkdown = null;
@@ -268,7 +288,7 @@ export function createOmniTui(): OmniTui {
       const linkUrl = disclosureUrl(viewModel.id);
       const message = new DisclosureMessage(viewModel, linkUrl);
       disclosureMessages.set(viewModel.id, message);
-      messageContainer.addChild(message);
+      messageBody.addChild(message);
       ui.requestRender();
     },
     metrics(viewModel: RunMetricsViewModel) {
@@ -353,18 +373,127 @@ export function createOmniTui(): OmniTui {
     }
   };
 
-  function appendUserMessage(text: string) {
-    messageContainer.addChild(new Spacer(1));
+  function appendUserMessageTo(target: Container, text: string) {
+    target.addChild(new Spacer(1));
     const frame = new Box(1, 1, (segment) => chalk.white.bgAnsi256(237)(segment));
     frame.addChild(new Text(text, 0, 0));
-    messageContainer.addChild(frame);
-    messageContainer.addChild(new Spacer(1));
+    target.addChild(frame);
+    target.addChild(new Spacer(1));
+  }
+
+  function appendUserMessage(text: string) {
+    appendUserMessageTo(messageBody, text);
     ui.requestRender();
+  }
+
+  function setSessionHistory(
+    viewModel: SessionHistoryViewModel,
+    onLoadEarlier?: () => void | Promise<void>,
+  ) {
+    const width = transcript.getContentWidth(ui.terminal.columns || 80);
+    const previousHeight = historyBody.render(width).length;
+    const previousScrollTop = transcript.scrollTop;
+    const wasFollowingEnd = transcript.isFollowingEnd;
+    const previousDisclosureIds = new Set(historyDisclosureIds);
+    historyDisclosureIds.clear();
+    historyBody.clear();
+    internalLinks.delete(historyLoadUrl);
+
+    if (viewModel.header) {
+      historyBody.addChild(new Text(chalk.bold(viewModel.header.title), 0, 0));
+      historyBody.addChild(new Text(chalk.dim(viewModel.header.subtitle), 0, 0));
+      historyBody.addChild(new Spacer(1));
+    }
+
+    if (viewModel.loadEarlierLabel && onLoadEarlier) {
+      historyBody.addChild(
+        new Text(hyperlink(chalk.dim(viewModel.loadEarlierLabel), historyLoadUrl), 0, 0),
+      );
+      historyBody.addChild(new Spacer(1));
+      internalLinks.set(historyLoadUrl, () => {
+        void Promise.resolve(onLoadEarlier()).catch((error: unknown) => {
+          sink.line(
+            chalk.red(
+              `Unable to load earlier history: ${error instanceof Error ? error.message : String(error)}`,
+            ),
+          );
+          sink.spacer();
+        });
+      });
+    }
+
+    for (const entry of viewModel.entries) {
+      if (entry.type === "user") {
+        appendUserMessageTo(historyBody, entry.text);
+        continue;
+      }
+      if (entry.type === "assistant") {
+        historyBody.addChild(new MarkdownMessage(entry.markdown, markdownTheme));
+        historyBody.addChild(new Spacer(1));
+        continue;
+      }
+      const id = entry.disclosure.id;
+      let message = disclosureMessages.get(id);
+      if (message) message.update(entry.disclosure);
+      else {
+        message = new DisclosureMessage(entry.disclosure, disclosureUrl(id));
+        disclosureMessages.set(id, message);
+      }
+      historyDisclosureIds.add(id);
+      previousDisclosureIds.delete(id);
+      historyBody.addChild(message);
+      historyBody.addChild(new Spacer(1));
+    }
+
+    for (const id of previousDisclosureIds) disclosureMessages.delete(id);
+    historyBody.addChild(new Text(chalk.dim(viewModel.resumedDivider), 0, 0));
+    historyBody.addChild(new Spacer(1));
+
+    const addedHeight = historyBody.render(width).length - previousHeight;
+    if (!wasFollowingEnd && previousHeight > 0 && addedHeight !== 0) {
+      ui.renderNow(true);
+      transcript.scrollTo(previousScrollTop + addedHeight);
+    }
+    ui.requestRender(true);
+  }
+
+  function clearSessionHistory() {
+    internalLinks.delete(historyLoadUrl);
+    for (const id of historyDisclosureIds) disclosureMessages.delete(id);
+    historyDisclosureIds.clear();
+    historyBody.clear();
+    ui.requestRender(true);
   }
 
   function setStatus(text: string) {
     statusLine.setText(text);
     ui.requestRender();
+  }
+
+  function startActivity(text: string) {
+    if (activityLoader) {
+      activityLoader.setMessage(text);
+      ui.requestRender();
+      return;
+    }
+    activityLoader = new Loader(ui, chalk.cyan, chalk.dim, text);
+    activityContainer.addChild(activityLoader);
+    activityLoader.start();
+    ui.requestRender(true);
+  }
+
+  function setActivity(text: string) {
+    if (!activityLoader) return;
+    activityLoader.setMessage(text);
+    ui.requestRender();
+  }
+
+  function stopActivity() {
+    if (!activityLoader) return;
+    activityLoader.stop();
+    activityContainer.removeChild(activityLoader);
+    activityLoader = null;
+    ui.requestRender(true);
   }
 
   function shutdown() {
@@ -373,6 +502,7 @@ export function createOmniTui(): OmniTui {
     if (exitTimer) clearTimeout(exitTimer);
     if (markdownTimer) clearTimeout(markdownTimer);
     if (disclosureTimer) clearInterval(disclosureTimer);
+    stopActivity();
     internalLinks.clear();
     disclosureMessages.clear();
     runningDisclosures.clear();
@@ -419,8 +549,8 @@ export function createOmniTui(): OmniTui {
       const linkForValue = (value: string) =>
         `omni-agent://select/${selectionId}/${encodeURIComponent(value)}`;
       const selection = new InlineSelect(options, linkForValue);
-      messageContainer.addChild(selection);
-      messageContainer.addChild(new Spacer(1));
+      messageBody.addChild(selection);
+      messageBody.addChild(new Spacer(1));
       let settled = false;
       const onAbort = () => finish({ kind: "abort", error: createAbortError(signal) });
       const finish = (result: CommandSelectionResult) => {
@@ -456,7 +586,12 @@ export function createOmniTui(): OmniTui {
     start,
     sink,
     appendUserMessage,
+    setSessionHistory,
+    clearSessionHistory,
     setStatus,
+    startActivity,
+    setActivity,
+    stopActivity,
     setCommands,
     select,
     set onSubmit(handler: (input: string) => void | Promise<void>) {

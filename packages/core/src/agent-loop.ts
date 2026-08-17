@@ -174,6 +174,35 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         session?.handle({ type: "text_delta", delta: event.delta });
         yield agentEvent;
       }
+      if (event.type === "thinking_start") {
+        const thinkingEvent: AgentEvent = {
+          type: "thinking_start",
+          modelCallId: preparedContext.manifest.modelCallId,
+          contentIndex: event.contentIndex,
+        };
+        session?.handle(thinkingEvent);
+        yield thinkingEvent;
+      }
+      if (event.type === "thinking_delta") {
+        const thinkingEvent: AgentEvent = {
+          type: "thinking_delta",
+          modelCallId: preparedContext.manifest.modelCallId,
+          contentIndex: event.contentIndex,
+          delta: event.delta,
+        };
+        session?.handle(thinkingEvent);
+        yield thinkingEvent;
+      }
+      if (event.type === "thinking_end") {
+        const thinkingEvent: AgentEvent = {
+          type: "thinking_end",
+          modelCallId: preparedContext.manifest.modelCallId,
+          contentIndex: event.contentIndex,
+          content: event.content,
+        };
+        session?.handle(thinkingEvent);
+        yield thinkingEvent;
+      }
       if (event.type === "cache_report") {
         const cacheEvent: AgentEvent = {
           type: "model_cache_report",
