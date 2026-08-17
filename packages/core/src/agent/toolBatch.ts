@@ -19,3 +19,12 @@ export function createToolBatchDescriptor(
     })),
   };
 }
+
+export function firstTurnBarrierIndex(
+  calls: readonly ToolCallContent[],
+  tools: readonly RegisteredAgentTool[],
+): number | undefined {
+  const policies = new Map(tools.map((tool) => [tool.name, tool.scheduling?.batch ?? "normal"]));
+  const index = calls.findIndex((call) => policies.get(call.name) === "turn_barrier");
+  return index < 0 ? undefined : index;
+}

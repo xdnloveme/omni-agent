@@ -44,8 +44,30 @@ export class ToolDefinitionValidator {
     validateAuthorization(tool);
     validateExecution(tool);
     validateInvocationPresentation(tool);
+    validateScheduling(tool);
+    validateContextPolicy(tool);
     if (typeof tool.execute !== "function")
       throw new Error(`Tool execute is required: ${tool.name}`);
+  }
+}
+
+function validateScheduling(tool: AgentToolDefinition): void {
+  if (
+    tool.scheduling !== undefined &&
+    (!tool.scheduling ||
+      (tool.scheduling.batch !== "normal" && tool.scheduling.batch !== "turn_barrier"))
+  ) {
+    throw new Error(`Invalid tool scheduling policy: ${tool.name}`);
+  }
+}
+
+function validateContextPolicy(tool: AgentToolDefinition): void {
+  if (
+    tool.context !== undefined &&
+    (!tool.context ||
+      (tool.context.retention !== "default" && tool.context.retention !== "conversation"))
+  ) {
+    throw new Error(`Invalid tool context policy: ${tool.name}`);
   }
 }
 

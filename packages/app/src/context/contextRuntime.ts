@@ -5,7 +5,6 @@ import {
   ContextPolicyPipeline,
   DefaultContextEngine,
   HeavyCheckpointGateStage,
-  SKILL_TOOL_NAME,
   StableMicroCompressionStage,
   ThinkingProjectionStrategy,
   type AgentConfig,
@@ -39,13 +38,11 @@ export function createContextRuntime(input: {
   const projections = new ContextProjectionRepository(layout, input.onDiagnostic);
   const estimator = new ApproximateContextTokenEstimator();
   const skillStrategies = input.skillStrategies ?? [];
-  const hasSkillProjection = skillStrategies.some((strategy) => strategy.key === "skill");
+  const conversationToolNames = input.agentConfig.tools
+    .filter((tool) => tool.context?.retention === "conversation")
+    .map((tool) => tool.name);
   const microStrategies: MicroProjectionStrategyPort[] = [
-    new ArtifactProjectionStrategy(
-      projections,
-      input.artifactRecovery,
-      hasSkillProjection ? [SKILL_TOOL_NAME] : [],
-    ),
+    new ArtifactProjectionStrategy(projections, input.artifactRecovery, conversationToolNames),
     ...skillStrategies,
     new ThinkingProjectionStrategy(
       () => input.agentConfig.model.thinkingHistoryPolicy ?? "preserve_all",

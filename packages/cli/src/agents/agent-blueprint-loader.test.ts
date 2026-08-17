@@ -2,12 +2,16 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
+import { RejectingInteractionSurface } from "@omni-agent/core";
 import { loadAgentBlueprint } from "./agent-blueprint-loader";
 
 describe("loadAgentBlueprint", () => {
   it("loads an installed Agent Blueprint without an allowlist", async () => {
     const blueprint = await loadAgentBlueprint("financial-analysis");
-    const module = await blueprint.build({ cwd: process.cwd() });
+    const module = await blueprint.build({
+      cwd: process.cwd(),
+      interaction: new RejectingInteractionSurface(),
+    });
 
     expect(blueprint.id).toBe("financial-analysis");
     expect(module.id).toBe("financial-analysis");

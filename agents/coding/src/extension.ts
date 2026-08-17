@@ -5,7 +5,9 @@ import {
   defaultContributors,
   type SkillRuntime,
   type SystemPromptContributor,
+  type InteractionSurfacePort,
 } from "@omni-agent/core";
+import { createRequestUserInputTool } from "@omni-agent/tools/user-input";
 import { localCodingToolset, webResearchToolset } from "@omni-agent/tools/toolsets";
 import { createCodingAgent } from "./agent";
 import { CODING_SYSTEM_PROMPT } from "./prompt";
@@ -17,6 +19,7 @@ export interface CodingExtensionBundle {
 
 export function createCodingExtension(
   skillRuntime: SkillRuntime,
+  interaction: InteractionSurfacePort,
   cwd = process.cwd(),
 ): CodingExtensionBundle {
   const contributors: SystemPromptContributor[] = [
@@ -27,7 +30,12 @@ export function createCodingExtension(
     const dynamic = await Promise.all(contributors.map((contributor) => contributor(cwd)));
     return composeStableSystemPrompt(CODING_SYSTEM_PROMPT, dynamic);
   };
-  const tools = [...localCodingToolset, ...webResearchToolset, skillRuntime.tool()];
+  const tools = [
+    ...localCodingToolset,
+    ...webResearchToolset,
+    createRequestUserInputTool(interaction),
+    skillRuntime.tool(),
+  ];
   return {
     buildSystemPrompt,
     extension: {

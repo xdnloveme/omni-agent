@@ -191,6 +191,41 @@ current project's `omni.extensions.mjs`. They merge by extension manifest ID,
 with the project definition replacing the matching global definition. Local
 extension code is trusted local code and is not sandboxed.
 
+## Host interaction surface
+
+Core defines `InteractionSurfacePort` as the sole structured foreground-interaction
+contract. It accepts serializable single-select, multi-select, text, and explicit-action
+fields and returns a structurally validated response. It does not understand approval,
+commands, clarification, focus, terminal layout, or persistence.
+
+Request-level `title`, `detail`, `message`, `tone`, `dismissLabel`, `status`, and
+`completionStatus` are presentation hints. A Host may render them using native UI, but
+must not interpret them as policy or alter stable field, option, and action IDs.
+
+```text
+PermissionGate -> ApprovalBroker ------------┐
+Command -> TuiCommandInteractionAdapter ------+-> InteractionSurfacePort
+request_user_input -> clarification adapter --┘             |
+                                                        CLI TUI Surface
+```
+
+`AgentFactory` lends one host-owned Surface to each Blueprint. The factory and Blueprint
+do not own or dispose it, and non-interactive hosts receive `RejectingInteractionSurface`,
+which fails with `interaction_unavailable` instead of guessing an answer or waiting
+forever. The CLI owns `TuiInteractionSurface`, its single foreground slot, focus and input
+handoff, abort listeners, and disposal. Nested requests fail with `interaction_busy`.
+
+Permission, Command, and clarification retain independent adapters and validation:
+the Surface never grants permission, maps command values, or decides whether a question
+is required. Escape is a neutral `dismissed` response; each adapter maps it to deny,
+escape, or skipped respectively. Interaction presentation is process-local. Session
+history persists the ordinary tool call/result pair, not an editable widget or pending
+Promise. Cross-process pending-interaction recovery is intentionally unsupported.
+
+Tests that consume the Surface reuse `ScriptedInteractionSurface` from the test-only
+`@omni-agent/core/testing` subpath. It records validated requests and returns queued,
+validated responses without adding a second production interaction implementation.
+
 ## Layered configuration
 
 Global configuration under `~/.omni-agent` is the baseline. Files in the

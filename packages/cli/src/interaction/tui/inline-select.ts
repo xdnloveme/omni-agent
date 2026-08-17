@@ -156,8 +156,9 @@ export class InlineSelect implements Component, Focusable {
       );
     }
 
+    const dismissLabel = this.options.dismissLabel ?? "cancel";
     const hint = this.focused
-      ? "click or ↑/↓ to select · Enter to confirm · Esc to cancel"
+      ? `click or ↑/↓ to select · Enter to confirm · Esc to ${dismissLabel}`
       : "click to select";
     lines.push(`${accent("┗━")} ${chalk.dim(hint)}`);
     return lines.map((line) =>

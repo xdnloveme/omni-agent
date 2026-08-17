@@ -14,7 +14,7 @@ import { cloneTranscriptMessage } from "./messages";
 import { createContextPreparationRequest } from "./agent/contextInput";
 import { WorkingConversation } from "./agent/workingConversation";
 import { createContextPreparationStream } from "./agent/contextPreparationStream";
-import { createToolBatchDescriptor } from "./agent/toolBatch";
+import { createToolBatchDescriptor, firstTurnBarrierIndex } from "./agent/toolBatch";
 import { EnvironmentContextError } from "./environment";
 
 export interface AgentLoopOptions {
@@ -290,61 +290,55 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
     session?.handle({ type: "tool_batch_started", batch: cloneData(batch) });
     yield batchStartedEvent;
 
+    // Scheduling is resolved before any member reaches authorization.
+    const turnBarrierIndex = firstTurnBarrierIndex(toolCalls, config.tools);
+
     for (const [index, call] of toolCalls.entries()) {
       throwIfAborted(signal);
       const position = { batchId: batch.batchId, index, total: toolCalls.length };
       const preview = batch.members[index]!.preview;
 
       let result: import("./tool-calls").ValidatedToolResult | undefined;
-      for await (const event of toolCallCoordinator.run(
-        config.tools,
-        { toolName: call.name, toolCallId: call.id, input: call.arguments, signal },
-        {
-          agentId: input.agentId,
-          cwd: environment.snapshot.workspace.cwd,
-          middleware: config.middleware ?? [],
-          lifecycleAdapters: config.toolLifecycleAdapters ?? [],
-        },
-      )) {
-        if (event.type === "tool_start") {
-          const toolStartEvent: AgentEvent = {
-            type: "tool_start",
-            toolName: event.toolName,
-            toolCallId: event.toolCallId,
-            input: cloneData(event.input),
-            preview: cloneData(preview),
-            batch: { ...position },
-          };
-          session?.handle({
-            type: "tool_use_start",
-            toolName: event.toolName,
-            toolCallId: event.toolCallId,
-            input: cloneData(event.input),
-            preview: cloneData(preview),
-            batch: { ...position },
-          });
-          yield toolStartEvent;
-        } else if (event.type === "tool_end") {
-          result = event.result;
-          const toolEndEvent: AgentEvent = {
-            ...event,
-            result: cloneData(event.result),
-            batch: { ...position },
-          };
-          session?.handle({
-            type: "tool_use_end",
-            toolName: event.toolName,
-            toolCallId: event.toolCallId,
-            result: cloneData(event.result),
-            durationMs: event.durationMs,
-            batch: { ...position },
-          });
-          yield toolEndEvent;
-        } else {
-          session?.handle(event);
-          yield event;
+      if (turnBarrierIndex !== undefined && index !== turnBarrierIndex) {
+        result = deferredToolResult();
+        yield publishToolStart(session, call.name, call.id, call.arguments, preview, position);
+        yield publishToolEnd(session, call.name, call.id, result, 0, position);
+      } else
+        for await (const event of toolCallCoordinator.run(
+          config.tools,
+          { toolName: call.name, toolCallId: call.id, input: call.arguments, signal },
+          {
+            agentId: input.agentId,
+            cwd: environment.snapshot.workspace.cwd,
+            middleware: config.middleware ?? [],
+            lifecycleAdapters: config.toolLifecycleAdapters ?? [],
+          },
+        )) {
+          if (event.type === "tool_start") {
+            yield publishToolStart(
+              session,
+              event.toolName,
+              event.toolCallId,
+              event.input,
+              preview,
+              position,
+            );
+          } else if (event.type === "tool_end") {
+            result = event.result;
+            yield publishToolEnd(
+              session,
+              event.toolName,
+              event.toolCallId,
+              event.result,
+              event.durationMs,
+              position,
+              event.metrics,
+            );
+          } else {
+            session?.handle(event);
+            yield event;
+          }
         }
-      }
       throwIfAborted(signal);
       if (!result) throw new Error(`Tool call completed without a result: ${call.name}`);
       loopProtection.observeToolResult({
@@ -412,4 +406,63 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       maxTurns,
     };
   }
+}
+
+function deferredToolResult(): import("./tool-calls").ValidatedToolResult {
+  const details = { code: "tool_batch_deferred", retryable: true } as const;
+  return {
+    isError: true,
+    content: [
+      {
+        type: "text",
+        text: "This call was not executed because the batch contained a turn barrier. Reissue it if it is still needed.",
+      },
+    ],
+    meta: details,
+    transcriptDetails: details,
+  };
+}
+
+function publishToolStart(
+  session: StreamSession | undefined,
+  toolName: string,
+  toolCallId: string,
+  input: Record<string, unknown>,
+  preview: import("./types").ToolInvocationPreview,
+  batch: import("./types").ToolBatchPosition,
+): Extract<AgentEvent, { type: "tool_start" }> {
+  const event = {
+    type: "tool_start" as const,
+    toolName,
+    toolCallId,
+    input: cloneData(input),
+    preview: cloneData(preview),
+    batch: { ...batch },
+  };
+  const { type: _type, ...streamEvent } = cloneData(event);
+  session?.handle({ type: "tool_use_start", ...streamEvent });
+  return event;
+}
+
+function publishToolEnd(
+  session: StreamSession | undefined,
+  toolName: string,
+  toolCallId: string,
+  result: import("./tool-calls").ValidatedToolResult,
+  durationMs: number,
+  batch: import("./types").ToolBatchPosition,
+  metrics?: import("./tool-calls").ToolCallMetrics,
+): Extract<AgentEvent, { type: "tool_end" }> {
+  const event = {
+    type: "tool_end" as const,
+    toolName,
+    toolCallId,
+    result: cloneData(result),
+    durationMs,
+    batch: { ...batch },
+    ...(metrics ? { metrics: cloneData(metrics) } : {}),
+  };
+  const { type: _type, ...streamEvent } = cloneData(event);
+  session?.handle({ type: "tool_use_end", ...streamEvent });
+  return event;
 }

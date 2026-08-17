@@ -3,17 +3,18 @@ import {
   type ApprovalBroker,
   type ApprovalRequest,
   type ApprovalResponse,
+  type InteractionSurfacePort,
 } from "@omni-agent/core";
-import type { OmniTui } from "../interaction/tui/tui";
 
 export class TuiApprovalBroker implements ApprovalBroker {
-  constructor(private readonly tui: OmniTui) {}
+  constructor(private readonly surface: InteractionSurfacePort) {}
 
   async request(request: ApprovalRequest, signal?: AbortSignal): Promise<ApprovalResponse> {
-    this.tui.setStatus(`awaiting permission: ${request.toolName}`);
     const persistentOption = createPersistentApprovalOption(request);
-    const selection = await this.tui.select(
+    const fieldId = "approval";
+    const selection = await this.surface.request(
       {
+        requestId: crypto.randomUUID(),
         title: "Permission required",
         tone:
           request.risk === "destructive" ||
@@ -23,29 +24,39 @@ export class TuiApprovalBroker implements ApprovalBroker {
             : "warning",
         detail: `${request.presentation.title}${request.presentation.detail ? `\n${request.presentation.detail}` : ""}`,
         message: `Risk: ${request.risk}\nReason: ${request.presentation.reason}`,
-        items: [
-          ...(persistentOption ? [persistentOption] : []),
+        status: `awaiting permission: ${request.toolName}`,
+        completionStatus: `running: ${request.toolName}...`,
+        fields: [
           {
-            value: "allow_once",
-            label: "Allow once",
-            description: "Approve only this call",
-            tone: "positive",
-          },
-          {
-            value: "deny",
-            label: "Deny",
-            description: "Return a permission error to the Agent",
-            tone: "negative",
+            type: "single",
+            id: fieldId,
+            label: "Permission decision",
+            options: [
+              ...(persistentOption ? [persistentOption] : []),
+              {
+                id: "allow_once",
+                label: "Allow once",
+                description: "Approve only this call",
+                tone: "positive",
+              },
+              {
+                id: "deny",
+                label: "Deny",
+                description: "Return a permission error to the Agent",
+                tone: "negative",
+              },
+            ],
           },
         ],
+        completion: { type: "on_select", fieldId },
       },
       signal,
     );
-    if (selection.kind === "abort" || selection.kind === "shutdown") throw selection.error;
-    this.tui.setStatus(`running: ${request.toolName}...`);
-    if (selection.kind === "escape") return "deny";
-    return selection.value === "allow_once" || selection.value === "allow_always"
-      ? selection.value
+    if (selection.kind === "dismissed") return "deny";
+    const value = selection.values[fieldId];
+    return value?.type === "single" &&
+      (value.optionId === "allow_once" || value.optionId === "allow_always")
+      ? value.optionId
       : "deny";
   }
 }
@@ -55,7 +66,7 @@ function createPersistentApprovalOption(request: ApprovalRequest) {
   if (!scopes?.length) return undefined;
   const allExecutables = scopes.every((scope) => scope.kind === "bash_executable");
   return {
-    value: "allow_always",
+    id: "allow_always",
     label:
       scopes.length === 1
         ? scopes[0]!.label

@@ -24,7 +24,17 @@ export interface AgentToolDefinition {
   authorization: ToolAuthorizationDescriptor;
   execution: ToolExecutionStrategy;
   invocation?: ToolInvocationPresentation;
+  scheduling?: ToolSchedulingPolicy;
+  context?: ToolContextPolicy;
   execute: (params: Record<string, unknown>, context: ToolExecutionContext) => Promise<ToolResult>;
+}
+
+export interface ToolSchedulingPolicy {
+  readonly batch: "normal" | "turn_barrier";
+}
+
+export interface ToolContextPolicy {
+  readonly retention: "default" | "conversation";
 }
 
 export type ToolInvocationAction =

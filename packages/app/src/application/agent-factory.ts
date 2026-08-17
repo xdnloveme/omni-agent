@@ -8,6 +8,7 @@ import {
   ToolInvocationRunner,
   ToolInputValidator,
   EnvironmentContextController,
+  RejectingInteractionSurface,
   type AgentConfig,
   type ContextCapability,
   type ApprovalBroker,
@@ -16,6 +17,7 @@ import {
   type SandboxRunnerPort,
   type SkillRuntime,
   type RuntimeEnvironmentProviderPort,
+  type InteractionSurfacePort,
 } from "@omni-agent/core";
 import { AgentApplication } from "./agent-application";
 import type { ConfigService } from "../config/config-service";
@@ -40,6 +42,7 @@ export interface AgentCapabilities {
 
 export interface AgentBlueprintContext {
   readonly cwd: string;
+  readonly interaction: InteractionSurfacePort;
 }
 
 export interface AgentModule {
@@ -69,6 +72,7 @@ export interface AgentFactoryOptions {
   readonly modelService: ModelService;
   readonly loadExtensions?: boolean;
   readonly approvalBroker?: ApprovalBroker;
+  readonly interactionSurface?: InteractionSurfacePort;
   readonly permissionObserver?: PermissionObserver;
   readonly sandboxRunner?: SandboxRunnerPort;
   readonly onLateToolSettlement?: (event: LateToolSettlementEvent) => void | Promise<void>;
@@ -92,7 +96,8 @@ export class AgentFactory {
       throw new Error(`Provider is not configured: ${resolvedModel.providerId}`);
     }
 
-    const module = await blueprint.build({ cwd: this.cwd });
+    const interaction = this.options.interactionSurface ?? new RejectingInteractionSurface();
+    const module = await blueprint.build({ cwd: this.cwd, interaction });
     validateModule(blueprint.id, module);
     const toolInputValidator = new ToolInputValidator();
     const manager = new ExtensionManager({

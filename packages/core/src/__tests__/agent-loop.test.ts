@@ -87,6 +87,7 @@ function executeLoop(
   signal?: AbortSignal,
   contextMiddleware: readonly ContextMiddlewarePort[] = [],
   contextEngine: ContextEnginePort = createContextEngine(),
+  coordinator: ToolCallCoordinator = createCoordinator(),
 ) {
   return runAgentLoop({
     config,
@@ -105,7 +106,7 @@ function executeLoop(
         return { changed: false as const };
       },
     },
-    toolCallCoordinator: createCoordinator(),
+    toolCallCoordinator: coordinator,
     signal,
   });
 }
@@ -488,6 +489,64 @@ describe("runAgentLoop", () => {
         "assistant",
       ]);
     }
+  });
+
+  it("executes only the first turn barrier and defers every sibling before authorization", async () => {
+    const before = makeTool("before");
+    const barrier = { ...makeTool("clarify"), scheduling: { batch: "turn_barrier" as const } };
+    const secondBarrier = {
+      ...makeTool("clarify_again"),
+      scheduling: { batch: "turn_barrier" as const },
+    };
+    const coordinator = createCoordinator();
+    const run = vi.spyOn(coordinator, "run");
+    streamModel.mockReturnValueOnce(
+      fakeStream([
+        {
+          type: "done",
+          message: {
+            content: [
+              { type: "toolCall", id: "call-before", name: "before", arguments: {} },
+              { type: "toolCall", id: "call-barrier", name: "clarify", arguments: {} },
+              { type: "toolCall", id: "call-second", name: "clarify_again", arguments: {} },
+            ],
+            stopReason: "toolUse",
+          },
+        },
+      ]) as never,
+    );
+    streamModel.mockReturnValueOnce(
+      fakeStream([
+        { type: "done", message: { content: [{ type: "text", text: "done" }] } },
+      ]) as never,
+    );
+
+    const events = await collectEvents(
+      executeLoop(
+        makeConfig({ tools: [before, barrier, secondBarrier] }),
+        makeMessages("run"),
+        undefined,
+        [],
+        createContextEngine(),
+        coordinator,
+      ),
+    );
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[1].toolName).toBe("clarify");
+    expect(before.execute).not.toHaveBeenCalled();
+    expect(secondBarrier.execute).not.toHaveBeenCalled();
+    const ends = events.filter((event) => event.type === "tool_end");
+    expect(ends.map((event) => (event.type === "tool_end" ? event.toolCallId : ""))).toEqual([
+      "call-before",
+      "call-barrier",
+      "call-second",
+    ]);
+    expect(
+      ends.filter(
+        (event) => event.type === "tool_end" && event.result.meta?.code === "tool_batch_deferred",
+      ),
+    ).toHaveLength(2);
   });
 
   it("injects a complete environment replacement between model calls and binds tool cwd", async () => {

@@ -69,6 +69,8 @@ interface AgentToolDefinition {
   timeout: ToolTimeoutPolicy;
   authorization: ToolAuthorizationDescriptor;
   execution: ToolExecutionStrategy;
+  scheduling?: { batch: "normal" | "turn_barrier" };
+  context?: { retention: "default" | "conversation" };
   execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolResult>;
 }
 
@@ -133,6 +135,13 @@ must be an integer whose minimum and maximum exactly match the policy. Core neve
 injects that property into an extension schema. There is no `risk`, `approval`,
 unscoped identity, missing descriptor, or timeout fallback.
 
+Scheduling and Context metadata are generic policies, never tool-name switches.
+`turn_barrier` means the result may invalidate sibling calls and requires an immediate
+model replan. `conversation` means the result carries durable conversational decisions:
+Artifact projection must not externalize it, and Heavy compression must retain its key
+choices, scope effects, skipped assumptions, and unresolved questions. `skill_read` and
+`request_user_input` are the initial conversation-retention consumers.
+
 ## Call Sequence
 
 The successful path is fixed:
@@ -166,6 +175,41 @@ prevents the next model turn.
 default executor, direct tool invocation from the loop, or another host-specific
 execution branch. Its authorizer, invocation runner, and input validator are required
 constructor dependencies and must be supplied by the composition root.
+
+### Turn barrier batches
+
+Before any batch member reaches `ToolCallCoordinator`, the Agent loop scans registered
+tool scheduling metadata. If no barrier exists, the normal sequence applies. If one or
+more barriers exist, only the first barrier in model order reaches the Coordinator.
+Every sibling receives a paired `tool_batch_deferred` result in original call order:
+
+```text
+scan complete batch
+-> choose first turn_barrier
+-> execute and await only that call
+-> do not authorize, preflight, run middleware, lifecycle adapters, or tool code for siblings
+-> append one retryable deferred result for every sibling
+-> return to the model to replan
+```
+
+Deferred results are errors only in the tool-protocol sense; they report that no action
+occurred and may be reissued if still relevant. This is stricter than an execution mutex:
+it prevents permission prompts and side effects based on assumptions that the barrier
+result may change. Core selects the policy from registered metadata and never checks a
+concrete tool name.
+
+### User clarification tool
+
+`request_user_input` is a trusted host tool with no timeout, `turn_barrier` scheduling,
+and `conversation` retention. Its JSON Schema accepts one to three single-select,
+multi-select, or text questions. Domain preflight rejects duplicate or blank IDs,
+invalid option combinations, and invalid Other usage before UI presentation. The tool
+maps the response back to a normal `ToolResult`; Submit enforces required answers, while
+Skip and Escape succeed with guidance to use the lowest-impact explicit assumptions.
+
+Direct clarification answers are authoritative refinements of the current task. They
+cannot broaden the original scope, grant permissions, or bypass `PermissionGate`.
+Answers are persisted only through the standard assistant tool-call/tool-result pair.
 
 ## Tool Loop Protection And Runtime Guidance
 
@@ -614,9 +658,9 @@ binary-integrity guarantee. Stored labels never include argv or the full command
 
 ## TUI and Application Facade
 
-CLI implements `ApprovalBroker` through one modal at a time. The modal owns focus,
-keyboard listeners, overlay cleanup, status restoration, and Promise completion in a
-`finally` path. Permission choices are:
+CLI implements `ApprovalBroker` through the shared `InteractionSurfacePort`, one foreground
+interaction at a time. The TUI control runner owns focus, keyboard listeners, cleanup,
+status transitions, and exactly-once Promise settlement. Permission choices are:
 
 - Persist the current eligible scope, when policy permits it. This option is shown first
   and may represent routine tool operations, one literal Bash executable, an external read

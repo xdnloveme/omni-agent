@@ -11,6 +11,7 @@ export interface CommandSelectionOptions {
   detail?: string;
   message?: string;
   tone?: "default" | "warning" | "danger";
+  dismissLabel?: string;
   items: Array<{
     value: string;
     label: string;

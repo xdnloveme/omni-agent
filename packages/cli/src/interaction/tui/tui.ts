@@ -27,6 +27,7 @@ import {
   type CommandSelectionResult,
 } from "@omni-agent/core";
 import { InlineSelect } from "./inline-select";
+import { InlineMultiSelect, type MultiSelectOptions } from "./inline-multi-select";
 import { MarkdownMessage } from "./markdown-message";
 import { DisclosureMessage, disclosureUrl } from "./disclosure-message";
 import type {
@@ -105,10 +106,33 @@ export interface OmniTui {
   onSubmit: (input: string) => void | Promise<void>;
   onInterrupt: (() => boolean) | null;
   select(options: CommandSelectionOptions, signal?: AbortSignal): Promise<CommandSelectionResult>;
+  multiSelect(options: MultiSelectOptions, signal?: AbortSignal): Promise<TuiMultiSelectResult>;
+  textInput(options: TuiTextInputOptions, signal?: AbortSignal): Promise<TuiTextInputResult>;
   pause(): void;
   resume(): void;
   shutdown(): void;
 }
+
+export type TuiMultiSelectResult =
+  | { readonly kind: "selected"; readonly values: readonly string[] }
+  | { readonly kind: "escape" }
+  | { readonly kind: "abort"; readonly error: Error }
+  | { readonly kind: "shutdown"; readonly error: Error };
+
+export interface TuiTextInputOptions {
+  readonly title: string;
+  readonly detail?: string;
+  readonly message?: string;
+  readonly tone?: "default" | "warning" | "danger";
+  readonly placeholder?: string;
+  readonly dismissLabel?: string;
+}
+
+export type TuiTextInputResult =
+  | { readonly kind: "submitted"; readonly text: string }
+  | { readonly kind: "escape" }
+  | { readonly kind: "abort"; readonly error: Error }
+  | { readonly kind: "shutdown"; readonly error: Error };
 
 export interface TuiOptions {
   readonly workspaceRoot: string;
@@ -155,9 +179,12 @@ export function createOmniTui(options: TuiOptions): OmniTui {
   let resolveDone: ((termination: TuiTermination) => void) | null = null;
   let sigtermListener: (() => void) | null = null;
   let onSubmitCallback: ((input: string) => void | Promise<void>) | null = null;
+  let acceptsEmptySubmit = false;
   let onInterruptCallback: (() => boolean) | null = null;
-  let activeSelection: {
-    finish(result: CommandSelectionResult): void;
+  let activeControl: {
+    abort(error: Error): void;
+    shutdown(error: Error): void;
+    escape(): void;
   } | null = null;
 
   // Markdown streaming state
@@ -331,11 +358,17 @@ export function createOmniTui(options: TuiOptions): OmniTui {
   // Global input handler
   ui.addInputListener((data: string) => {
     const isCtrlC = matchesKey(data, Key.ctrl("c"));
-    if (!isCtrlC) return undefined;
+    if (!isCtrlC) {
+      if (activeControl && matchesKey(data, Key.escape)) {
+        activeControl.escape();
+        return { consume: true };
+      }
+      return undefined;
+    }
 
-    if (activeSelection) {
+    if (activeControl) {
       if (onInterruptCallback?.()) return { consume: true };
-      activeSelection.finish({ kind: "abort", error: createAbortError() });
+      activeControl.abort(createAbortError());
       return { consume: true };
     }
 
@@ -370,7 +403,7 @@ export function createOmniTui(options: TuiOptions): OmniTui {
 
   editor.onSubmit = (raw: string) => {
     const input = raw.trim();
-    if (!input) return;
+    if (!input && !acceptsEmptySubmit) return;
     if (onSubmitCallback) {
       void Promise.resolve(onSubmitCallback(input)).catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
@@ -520,7 +553,7 @@ export function createOmniTui(options: TuiOptions): OmniTui {
       sigtermListener = null;
     }
     onInterruptCallback?.();
-    activeSelection?.finish({ kind: "shutdown", error: createAbortError() });
+    activeControl?.shutdown(createAbortError());
     ui.stop();
     resolveDone?.(termination);
   }
@@ -550,46 +583,154 @@ export function createOmniTui(options: TuiOptions): OmniTui {
     options: CommandSelectionOptions,
     signal?: AbortSignal,
   ): Promise<CommandSelectionResult> {
-    if (activeSelection) return Promise.reject(new Error("A selection is already active"));
+    if (activeControl) return Promise.reject(new Error("A selection is already active"));
     if (signal?.aborted) {
       return Promise.resolve({ kind: "abort", error: createAbortError(signal) });
     }
-    return new Promise<CommandSelectionResult>((resolve) => {
-      sink.line();
-      const selectionId = crypto.randomUUID();
-      const linkForValue = (value: string) =>
-        `omni-agent://select/${selectionId}/${encodeURIComponent(value)}`;
-      const selection = new InlineSelect(options, linkForValue);
-      messageBody.addChild(selection);
-      messageBody.addChild(new Spacer(1));
-      let settled = false;
-      const onAbort = () => finish({ kind: "abort", error: createAbortError(signal) });
-      const finish = (result: CommandSelectionResult) => {
-        if (settled) return;
-        settled = true;
-        signal?.removeEventListener("abort", onAbort);
+    sink.line();
+    const selectionId = crypto.randomUUID();
+    const linkForValue = (value: string) =>
+      `omni-agent://select/${selectionId}/${encodeURIComponent(value)}`;
+    const selection = new InlineSelect(options, linkForValue);
+    messageBody.addChild(selection);
+    messageBody.addChild(new Spacer(1));
+    return runActiveControl<CommandSelectionResult>({
+      signal,
+      abort: (error) => ({ kind: "abort", error }),
+      shutdown: (error) => ({ kind: "shutdown", error }),
+      escape: () => ({ kind: "escape" }),
+      start(finish) {
+        selection.onSelect = (value) => finish({ kind: "selected", value });
+        selection.onCancel = () => finish({ kind: "escape" });
+        for (const item of options.items) {
+          internalLinks.set(linkForValue(item.value), () =>
+            finish({ kind: "selected", value: item.value }),
+          );
+        }
+        ui.setFocus(selection);
+        ui.requestRender(true);
+      },
+      cleanup(result) {
         selection.resolve(result.kind === "selected" ? result.value : undefined);
-        activeSelection = null;
         for (const item of options.items) internalLinks.delete(linkForValue(item.value));
+        restoreEditorFocus();
+      },
+    });
+  }
+
+  function multiSelect(
+    options: MultiSelectOptions,
+    signal?: AbortSignal,
+  ): Promise<TuiMultiSelectResult> {
+    if (activeControl) return Promise.reject(new Error("A selection is already active"));
+    if (signal?.aborted) return Promise.resolve({ kind: "abort", error: createAbortError(signal) });
+    sink.line();
+    const selection = new InlineMultiSelect(options);
+    messageBody.addChild(selection);
+    messageBody.addChild(new Spacer(1));
+    return runActiveControl<TuiMultiSelectResult>({
+      signal,
+      abort: (error) => ({ kind: "abort", error }),
+      shutdown: (error) => ({ kind: "shutdown", error }),
+      escape: () => ({ kind: "escape" }),
+      start(finish) {
+        selection.onSubmit = (values) => finish({ kind: "selected", values });
+        selection.onCancel = () => finish({ kind: "escape" });
+        ui.setFocus(selection);
+        ui.requestRender(true);
+      },
+      cleanup(result) {
+        selection.complete(result.kind === "selected" ? result.values : undefined);
+        restoreEditorFocus();
+      },
+    });
+  }
+
+  function textInput(
+    options: TuiTextInputOptions,
+    signal?: AbortSignal,
+  ): Promise<TuiTextInputResult> {
+    if (activeControl) return Promise.reject(new Error("An interaction is already active"));
+    if (signal?.aborted) return Promise.resolve({ kind: "abort", error: createAbortError(signal) });
+    if (options.tone === "danger") sink.line(chalk.bold.red("⛔ HIGH-RISK ACTION REQUIRED"));
+    else if (options.tone === "warning") sink.line(chalk.bold.yellow("⚠ ACTION REQUIRED"));
+    const titleStyle =
+      options.tone === "danger"
+        ? chalk.red
+        : options.tone === "warning"
+          ? chalk.yellow
+          : (value: string) => value;
+    sink.line(titleStyle(chalk.bold(options.title)));
+    if (options.detail) sink.line(chalk.dim(options.detail));
+    if (options.message) sink.line(options.message);
+    if (options.placeholder) sink.line(chalk.dim(`Hint: ${options.placeholder}`));
+    sink.line(chalk.dim(`Esc to ${options.dismissLabel ?? "cancel"}`));
+    const previousSubmit = onSubmitCallback;
+    const previousAcceptsEmpty = acceptsEmptySubmit;
+    return runActiveControl<TuiTextInputResult>({
+      signal,
+      abort: (error) => ({ kind: "abort", error }),
+      shutdown: (error) => ({ kind: "shutdown", error }),
+      escape: () => ({ kind: "escape" }),
+      start(finish) {
+        onSubmitCallback = (text) => finish({ kind: "submitted", text });
+        acceptsEmptySubmit = true;
         ui.setFocus(editor);
         ui.requestRender(true);
-        resolve(result);
+      },
+      cleanup() {
+        onSubmitCallback = previousSubmit;
+        acceptsEmptySubmit = previousAcceptsEmpty;
+        editor.setText("");
+        restoreEditorFocus();
+      },
+    });
+  }
+
+  function restoreEditorFocus(): void {
+    ui.setFocus(editor);
+    ui.requestRender(true);
+  }
+
+  function runActiveControl<TResult>(options: {
+    readonly signal?: AbortSignal;
+    readonly abort: (error: Error) => TResult;
+    readonly shutdown: (error: Error) => TResult;
+    readonly escape: () => TResult;
+    readonly start: (finish: (result: TResult) => void) => void;
+    readonly cleanup: (result: TResult) => void;
+  }): Promise<TResult> {
+    return new Promise<TResult>((resolve, reject) => {
+      let settled = false;
+      const onAbort = () => finish(options.abort(createAbortError(options.signal)));
+      const finish = (result: TResult) => {
+        if (settled) return;
+        settled = true;
+        options.signal?.removeEventListener("abort", onAbort);
+        activeControl = null;
+        try {
+          options.cleanup(result);
+          resolve(result);
+        } catch (error) {
+          reject(error);
+        }
       };
-      selection.onSelect = (value) => finish({ kind: "selected", value });
-      selection.onCancel = () => finish({ kind: "escape" });
-      activeSelection = { finish };
-      for (const item of options.items) {
-        internalLinks.set(linkForValue(item.value), () =>
-          finish({ kind: "selected", value: item.value }),
-        );
-      }
-      signal?.addEventListener("abort", onAbort, { once: true });
-      if (signal?.aborted) {
-        onAbort();
+      activeControl = {
+        abort: (error) => finish(options.abort(error)),
+        shutdown: (error) => finish(options.shutdown(error)),
+        escape: () => finish(options.escape()),
+      };
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+      try {
+        options.start(finish);
+      } catch (error) {
+        options.signal?.removeEventListener("abort", onAbort);
+        activeControl = null;
+        settled = true;
+        reject(error);
         return;
       }
-      ui.setFocus(selection);
-      ui.requestRender(true);
+      if (options.signal?.aborted) onAbort();
     });
   }
 
@@ -605,6 +746,8 @@ export function createOmniTui(options: TuiOptions): OmniTui {
     stopActivity,
     setCommands,
     select,
+    multiSelect,
+    textInput,
     set onSubmit(handler: (input: string) => void | Promise<void>) {
       onSubmitCallback = handler;
     },

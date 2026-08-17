@@ -2,7 +2,11 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { PromptContributionBudgetError, SkillRuntime } from "@omni-agent/core";
+import {
+  PromptContributionBudgetError,
+  RejectingInteractionSurface,
+  SkillRuntime,
+} from "@omni-agent/core";
 import { createCodingExtension } from "../extension";
 import { CODING_SYSTEM_PROMPT } from "../prompt";
 
@@ -13,7 +17,7 @@ describe("coding extension", () => {
     const skills = new SkillRuntime({ cwd });
     await skills.initialize();
 
-    const bundle = createCodingExtension(skills, cwd);
+    const bundle = createCodingExtension(skills, new RejectingInteractionSurface(), cwd);
     const tools = bundle.extension.contributions.tools ?? [];
     const codingAgent = bundle.extension.contributions.agents?.[0];
 
@@ -26,6 +30,7 @@ describe("coding extension", () => {
       "grep",
       "web_fetch",
       "web_search",
+      "request_user_input",
       "skill_read",
     ]);
     const prompt = await bundle.buildSystemPrompt();
@@ -42,8 +47,8 @@ describe("coding extension", () => {
     const skills = new SkillRuntime({ cwd });
     await skills.initialize();
 
-    await expect(createCodingExtension(skills, cwd).buildSystemPrompt()).rejects.toBeInstanceOf(
-      PromptContributionBudgetError,
-    );
+    await expect(
+      createCodingExtension(skills, new RejectingInteractionSurface(), cwd).buildSystemPrompt(),
+    ).rejects.toBeInstanceOf(PromptContributionBudgetError);
   });
 });

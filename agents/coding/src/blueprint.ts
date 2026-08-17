@@ -7,7 +7,7 @@ export const agentBlueprint = {
   async build(context) {
     const runtime = new SkillRuntime({ cwd: context.cwd });
     await runtime.initialize();
-    const coding = createCodingExtension(runtime, context.cwd);
+    const coding = createCodingExtension(runtime, context.interaction, context.cwd);
     return {
       id: "coding",
       extension: coding.extension,

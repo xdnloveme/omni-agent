@@ -1,6 +1,5 @@
 import chalk from "chalk";
 
-import type { CommandInteractionPort } from "@omni-agent/core";
 import {
   AgentFactory,
   ConfigService,
@@ -9,10 +8,12 @@ import {
 } from "@omni-agent/app";
 import { loadAgentBlueprint } from "../agents/agent-blueprint-loader";
 import { createOmniTui } from "../interaction/tui/tui";
+import { TuiInteractionSurface } from "../interaction/surface/tui-interaction-surface";
+import { TuiCommandInteractionAdapter } from "../interaction/command-interaction-adapter";
 import { persistOnboardingSelection, runOnboarding } from "../onboarding";
 import { createCommandRegistry } from "../commands/index";
 import { SkillCliController } from "../skills";
-import { TuiApprovalBroker } from "../permissions/tui-approval-broker";
+import { TuiApprovalBroker } from "../interaction/permissions/tui-approval-broker";
 import { SkillStreamPresenter } from "../presentation/skill-stream-presenter";
 import { StreamPresentationRouter } from "../presentation/stream-presentation-router";
 import { TranscriptHistoryPresenter } from "../presentation/transcript-history-presenter";
@@ -51,11 +52,13 @@ export async function runAgentMode(agentId: string): Promise<TuiTermination> {
     }
 
     const tui = createOmniTui({ workspaceRoot: workspace.root });
+    const interaction = new TuiInteractionSurface(tui);
     const instance = await new AgentFactory({
       workspace,
       configService,
       modelService,
-      approvalBroker: new TuiApprovalBroker(tui),
+      interactionSurface: interaction,
+      approvalBroker: new TuiApprovalBroker(interaction),
     }).create(blueprint);
     const app = instance.application;
     const skillCapability = instance.capabilities.skills;
@@ -86,13 +89,7 @@ export async function runAgentMode(agentId: string): Promise<TuiTermination> {
       );
     };
 
-    const commandInteraction: CommandInteractionPort = {
-      pause: () => tui.pause(),
-      resume: () => tui.resume(),
-      select: (options, signal) => tui.select(options, signal),
-      line: (text) => tui.sink.line(text),
-      spacer: () => tui.sink.spacer(),
-    };
+    const commandInteraction = new TuiCommandInteractionAdapter(tui, interaction);
 
     // Register /new command
     registry.register({
@@ -145,9 +142,7 @@ export async function runAgentMode(agentId: string): Promise<TuiTermination> {
       activeAbort.abort();
       tui.sink.line(chalk.yellow("(aborted)"));
       tui.sink.spacer();
-      running = false;
-      activeAbort = null;
-      tui.setStatus(chalk.dim("omni-agent | Ctrl+C to exit"));
+      tui.setStatus(chalk.dim("aborting..."));
       return true;
     };
 
@@ -251,6 +246,7 @@ export async function runAgentMode(agentId: string): Promise<TuiTermination> {
     try {
       return await tui.start();
     } finally {
+      interaction.dispose();
       await instance.dispose();
     }
   } finally {

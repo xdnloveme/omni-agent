@@ -1,4 +1,28 @@
 export { runAgentLoop } from "./agent-loop";
+export {
+  InteractionError,
+  InteractionAbortError,
+  RejectingInteractionSurface,
+  validateInteractionRequest,
+  validateInteractionResponse,
+} from "./interaction/index";
+export type {
+  InteractionAction,
+  InteractionCompletion,
+  InteractionErrorCode,
+  InteractionTermination,
+  InteractionField,
+  InteractionItemTone,
+  InteractionMultiSelectField,
+  InteractionOption,
+  InteractionRequest,
+  InteractionResponse,
+  InteractionSingleSelectField,
+  InteractionSurfacePort,
+  InteractionTextField,
+  InteractionTone,
+  InteractionValue,
+} from "./interaction/index";
 export type { AgentLoopOptions } from "./agent-loop";
 export { createLoopProtection } from "./loop-protection/index";
 export type { LoopProtection, ToolLoopDiagnostic } from "./loop-protection/index";
@@ -177,6 +201,8 @@ export type {
   ToolInvocationPresentation,
   ToolInvocationPreview,
   ToolInvocationResourceKind,
+  ToolContextPolicy,
+  ToolSchedulingPolicy,
   ToolResult,
   ToolResourceReference,
   ToolResultMetadata,

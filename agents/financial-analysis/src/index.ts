@@ -1,4 +1,4 @@
-export { financialAnalysisExtension } from "./extension";
+export { createFinancialAnalysisExtension } from "./extension";
 export { agentBlueprint } from "./blueprint";
 export { financialAnalysisAgent } from "./agents/financial-analysis-agent";
 export { computeTechnicalIndicatorsTool } from "./tools/compute-indicators";

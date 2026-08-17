@@ -1,12 +1,12 @@
 import type { AgentBlueprint } from "@omni-agent/app";
-import { financialAnalysisExtension } from "./extension";
+import { createFinancialAnalysisExtension } from "./extension";
 
 export const agentBlueprint = {
   id: "financial-analysis",
-  build() {
+  build(context) {
     return {
       id: "financial-analysis",
-      extension: financialAnalysisExtension,
+      extension: createFinancialAnalysisExtension(context.interaction),
       capabilities: {},
     };
   },

@@ -54,6 +54,9 @@ importers:
       '@omni-agent/core':
         specifier: workspace:*
         version: link:../../packages/core
+      '@omni-agent/tools':
+        specifier: workspace:*
+        version: link:../../packages/tools
     devDependencies:
       '@types/node':
         specifier: ^22.10.5

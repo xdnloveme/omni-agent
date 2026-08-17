@@ -48,6 +48,9 @@ FAITHFULNESS:
   needed to understand later follow-up references.
 - Preserve accepted decisions, their rationale, alternatives rejected, and
   important trade-offs.
+- Preserve direct user clarification supplied through interaction tool results,
+  including the choices that affect behavior or scope, assumptions adopted after
+  a skipped clarification, and any clarification question that remains unresolved.
 - Preserve completed work only when supported by historical evidence.
 - Never describe work as verified unless the history contains verification
   evidence.

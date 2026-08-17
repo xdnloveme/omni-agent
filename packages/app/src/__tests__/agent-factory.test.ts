@@ -2,7 +2,12 @@ import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { defineAgent, type ContextPolicyStagePort, type ModelRuntimePort } from "@omni-agent/core";
+import {
+  defineAgent,
+  type ContextPolicyStagePort,
+  type InteractionSurfacePort,
+  type ModelRuntimePort,
+} from "@omni-agent/core";
 import {
   AgentFactory,
   type AgentBlueprint,
@@ -48,7 +53,13 @@ function blueprint(
   };
 }
 
-async function factory(options: { workspaceRoot?: string; globalDirectory?: string } = {}) {
+async function factory(
+  options: {
+    workspaceRoot?: string;
+    globalDirectory?: string;
+    interactionSurface?: InteractionSurfacePort;
+  } = {},
+) {
   const workspaceRoot =
     options.workspaceRoot ?? (await mkdtemp(join(tmpdir(), "omni-agent-factory-workspace-")));
   const globalDirectory =
@@ -78,10 +89,29 @@ async function factory(options: { workspaceRoot?: string; globalDirectory?: stri
     modelService,
     configService,
     loadExtensions: false,
+    interactionSurface: options.interactionSurface,
   });
 }
 
 describe("AgentFactory", () => {
+  it("lends the configured interaction surface to the blueprint", async () => {
+    const interaction: InteractionSurfacePort = {
+      async request(request) {
+        return { requestId: request.requestId, kind: "dismissed", values: {} };
+      },
+    };
+    let received: InteractionSurfacePort | undefined;
+    const target = blueprint();
+    const build = target.build;
+    target.build = async (context) => {
+      received = context.interaction;
+      return build(context);
+    };
+    const instance = await (await factory({ interactionSurface: interaction })).create(target);
+    expect(received).toBe(interaction);
+    await instance.dispose();
+  });
+
   it("creates a complete Agent instance and reuses its persisted Session", async () => {
     const assemblyFactory = await factory();
     const first = await assemblyFactory.create(blueprint());
