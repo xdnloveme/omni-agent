@@ -144,14 +144,17 @@ classification is deterministic: incompatible request semantics, known expiry, s
 rebase, append-only history, last-message replacement, whole-history rebase, then other prefix
 rewrites.
 
-Primary model calls request short retention by default. Auxiliary calls are cache-disabled
-unless they explicitly request a supported retention. Unknown custom transports are
-cache-disabled; a custom transport may declare a capability explicitly. Cache reports are
-read-only stream events correlated by model-call and Context snapshot IDs. Context and
-Session modules do not import cache runtime implementations.
+Primary model calls prefer confirmed long retention and fall back to short when unsupported.
+Native Provider contributions own model-specific capability declarations. Compatible endpoints
+must explicitly declare long-retention support. Auxiliary calls are cache-disabled unless they
+explicitly request a supported retention. Unknown custom transports are cache-disabled; a custom
+transport may declare a capability explicitly. Cache reports are read-only stream events
+correlated by model-call and Context snapshot IDs. Context and Session modules do not import cache
+runtime implementations.
 
-Capability resolution uses the catalog model's API, base URL, and validated pi-ai
-compatibility flags, not its Vendor name. Stable scope support is declared per retention.
+Native capability resolution is owned by Provider contributions and may consume catalog model
+metadata. Compatible transports use the catalog model's API and validated pi-ai compatibility
+flags; endpoint URLs are not capability signals. Stable scope support is declared per retention.
 Capability validation and copying have one Models-layer owner.
 Fingerprints, bounded state, and transport execution contracts are internal implementation
 details rather than Models package exports.
@@ -662,9 +665,24 @@ Tool / Context / Model Cache
 Core owns event facts and never terminal wording. The CLI presenters own correlation,
 labels, sanitization, bounded formatting, and responsive metrics. `DisclosureMessage`
 only renders `DisclosureViewModel`; it does not import Agent packages, App services,
-Context decisions, tool names, or compression kinds. AgentLoop only bridges Context
-progress through an asynchronous queue while `prepare()` is pending. It neither
-classifies compression nor calculates cache metrics.
+Context decisions, tool names, or compression kinds. AgentLoop bridges Context progress
+through an asynchronous queue while `prepare()` is pending. It neither classifies
+compression nor calculates cache metrics.
+
+AgentLoop also bridges model-runtime facts into Core events. `packages/models` normalizes
+provider streams so text present in a completed response has already been emitted as
+`text_delta`; Core does not reconstruct transport events from the completed message. Model text
+deltas carry the opaque `modelCallId` of their originating call and a `textSegmentId` that stays
+stable only across contiguous text deltas. Thinking lifecycle events end the active text segment,
+so presentation consumers preserve content order without interpreting provider payloads. When a
+successfully completed assistant response containing text will end the Agent loop rather than enter
+tool execution, AgentLoop emits
+`final_response(modelCallId)` before `done`. Presentation consumers use that identity to
+mark the matching text node as final; they must not infer final content from event order,
+`done`, or the last rendered component. The CLI run presentation model owns stable
+nodes and projects process, final, and metrics regions. TUI components render that
+projection and retain only local interaction state such as whether the process region is
+expanded.
 
 File tools publish a generic canonical resource reference in transient tool-result
 presentation metadata. The ToolCall boundary removes that presentation field before

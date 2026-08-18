@@ -34,6 +34,10 @@ const preview = {
   resource: { kind: "command" as const, value: "ls" },
 };
 
+function textDelta(delta: string): Extract<StreamEvent, { type: "text_delta" }> {
+  return { type: "text_delta", modelCallId: "model", textSegmentId: "model:text:0", delta };
+}
+
 describe("StreamSession", () => {
   let callbacks: Required<StreamCallbacks>;
   let session: StreamSession;
@@ -41,6 +45,7 @@ describe("StreamSession", () => {
   beforeEach(() => {
     callbacks = {
       onTextChunk: vi.fn(),
+      onFinalResponse: vi.fn(),
       onThinkingStart: vi.fn(),
       onThinkingChunk: vi.fn(),
       onThinkingEnd: vi.fn(),
@@ -74,27 +79,45 @@ describe("StreamSession", () => {
 
   describe("text_delta events", () => {
     it("transitions to streaming on first text_delta", () => {
-      session.handle({ type: "text_delta", delta: "Hello" });
+      session.handle(textDelta("Hello"));
       expect(session.state).toBe("streaming");
     });
 
     it("calls onTextChunk callback", () => {
-      session.handle({ type: "text_delta", delta: "Hello" });
-      expect(callbacks.onTextChunk).toHaveBeenCalledWith("Hello");
+      session.handle(textDelta("Hello"));
+      expect(callbacks.onTextChunk).toHaveBeenCalledWith({
+        type: "text_delta",
+        modelCallId: "model",
+        textSegmentId: "model:text:0",
+        delta: "Hello",
+      });
     });
 
     it("accumulates text across multiple deltas", () => {
-      session.handle({ type: "text_delta", delta: "Hello " });
-      session.handle({ type: "text_delta", delta: "world" });
+      session.handle(textDelta("Hello "));
+      session.handle(textDelta("world"));
       expect(session.getAccumulatedText()).toBe("Hello world");
     });
 
     it("records each delta as an accumulated message", () => {
-      session.handle({ type: "text_delta", delta: "Hi" });
+      session.handle(textDelta("Hi"));
       const msgs = session.getAccumulatedMessages();
       expect(msgs).toHaveLength(1);
       expect(msgs[0].type).toBe("text");
       expect(msgs[0].content).toBe("Hi");
+    });
+  });
+
+  describe("final_response event", () => {
+    it("notifies consumers without completing the session", () => {
+      session.handle(textDelta("Done"));
+      session.handle({ type: "final_response", modelCallId: "model" });
+
+      expect(callbacks.onFinalResponse).toHaveBeenCalledWith({
+        type: "final_response",
+        modelCallId: "model",
+      });
+      expect(session.state).toBe("streaming");
     });
   });
 
@@ -323,7 +346,7 @@ describe("StreamSession", () => {
 
   describe("done event", () => {
     it("transitions to done state", () => {
-      session.handle({ type: "text_delta", delta: "Hi" });
+      session.handle(textDelta("Hi"));
       session.handle({ type: "done" });
       expect(session.state).toBe("done");
     });
@@ -371,20 +394,20 @@ describe("StreamSession", () => {
 
   describe("reset", () => {
     it("resets state to idle", () => {
-      session.handle({ type: "text_delta", delta: "Hi" });
+      session.handle(textDelta("Hi"));
       session.handle({ type: "done" });
       session.reset();
       expect(session.state).toBe("idle");
     });
 
     it("clears accumulated messages", () => {
-      session.handle({ type: "text_delta", delta: "Hi" });
+      session.handle(textDelta("Hi"));
       session.reset();
       expect(session.getAccumulatedMessages()).toEqual([]);
     });
 
     it("clears accumulated text", () => {
-      session.handle({ type: "text_delta", delta: "Hi" });
+      session.handle(textDelta("Hi"));
       session.reset();
       expect(session.getAccumulatedText()).toBe("");
     });
@@ -392,8 +415,8 @@ describe("StreamSession", () => {
 
   describe("full lifecycle", () => {
     it("handles a complete text-only session", () => {
-      session.handle({ type: "text_delta", delta: "Hello " });
-      session.handle({ type: "text_delta", delta: "world!" });
+      session.handle(textDelta("Hello "));
+      session.handle(textDelta("world!"));
       session.handle({ type: "done" });
 
       expect(session.state).toBe("done");
@@ -419,7 +442,7 @@ describe("StreamSession", () => {
         durationMs: 50,
         batch,
       });
-      session.handle({ type: "text_delta", delta: "Found file.txt" });
+      session.handle(textDelta("Found file.txt"));
       session.handle({ type: "done" });
 
       expect(session.state).toBe("done");
@@ -443,15 +466,20 @@ describe("createStreamSession", () => {
   it("creates a session with callbacks", () => {
     const onTextChunk = vi.fn();
     const session = createStreamSession({ onTextChunk });
-    session.handle({ type: "text_delta", delta: "test" });
-    expect(onTextChunk).toHaveBeenCalledWith("test");
+    session.handle(textDelta("test"));
+    expect(onTextChunk).toHaveBeenCalledWith({
+      type: "text_delta",
+      modelCallId: "model",
+      textSegmentId: "model:text:0",
+      delta: "test",
+    });
   });
 
   it("works with partial callbacks (only some provided)", () => {
     const onDone = vi.fn();
     const session = createStreamSession({ onDone });
     // Should not throw when other events fire without callbacks
-    session.handle({ type: "text_delta", delta: "test" });
+    session.handle(textDelta("test"));
     session.handle({ type: "done" });
     expect(onDone).toHaveBeenCalled();
   });

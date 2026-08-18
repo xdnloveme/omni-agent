@@ -19,7 +19,14 @@ import type { ModelCacheReport } from "../models/cache";
 /** Text chunk streamed from the LLM */
 export interface TextDeltaEvent {
   type: "text_delta";
+  modelCallId: string;
+  textSegmentId: string;
   delta: string;
+}
+
+export interface FinalResponseEvent {
+  type: "final_response";
+  modelCallId: string;
 }
 
 export interface ThinkingStartedEvent {
@@ -104,6 +111,7 @@ export interface ErrorEvent {
 /** Union of all stream events */
 export type StreamEvent =
   | TextDeltaEvent
+  | FinalResponseEvent
   | ThinkingStartedEvent
   | ThinkingDeltaEvent
   | ThinkingCompletedEvent
@@ -132,7 +140,8 @@ export interface ToolResultPayload {
  * All callbacks are optional — consumers only subscribe to what they need.
  */
 export interface StreamCallbacks {
-  onTextChunk?: (delta: string) => void;
+  onTextChunk?: (event: TextDeltaEvent) => void;
+  onFinalResponse?: (event: FinalResponseEvent) => void;
   onThinkingStart?: (event: ThinkingStartedEvent) => void;
   onThinkingChunk?: (event: ThinkingDeltaEvent) => void;
   onThinkingEnd?: (event: ThinkingCompletedEvent) => void;

@@ -9,6 +9,8 @@ import type {
 import { CacheAwareModelRuntime } from "../cache/cacheAwareRuntime";
 import { ModelCacheCoordinator } from "../cache/coordinator";
 import { normalizeModelCacheCapability, resolveModelCacheCapability } from "../cache/capability";
+import { googleCacheCapability } from "../providers/google";
+import { openAiCacheCapability } from "../providers/openai";
 import type {
   ModelTransportEvent,
   ModelTransportExecutionOptions,
@@ -46,7 +48,11 @@ describe("model cache infrastructure", () => {
     const runtime = new CacheAwareModelRuntime(
       successfulTransport(seen),
       new DefaultModelCachePolicy(),
-      () => capability("anthropic-messages", { sendSessionAffinityHeaders: true }),
+      () =>
+        capability("anthropic-messages", {
+          sendSessionAffinityHeaders: true,
+          supportsLongCacheRetention: true,
+        }),
     );
 
     const first = await collect(runtime.stream(selection, request, primaryOptions("call-1")));
@@ -66,7 +72,7 @@ describe("model cache infrastructure", () => {
     expect(firstReport?.report.lifecycle).toBe("cold");
     expect(secondReport?.report.lifecycle).toBe("append_only");
     expect(secondReport?.report.scopeId).toBe(firstReport?.report.scopeId);
-    expect(seen[0]?.providerCache).toMatchObject({ cacheRetention: "short" });
+    expect(seen[0]?.providerCache).toMatchObject({ cacheRetention: "long" });
     expect(seen[0]?.maxOutputTokens).toBe(selection.requestedOutputTokens);
     expect(seen[0]?.providerCache.sessionId).toBe(firstReport?.report.scopeId);
     expect(first.map((event) => event.type)).toEqual(["text_delta", "cache_report", "done"]);
@@ -83,7 +89,7 @@ describe("model cache infrastructure", () => {
         },
       },
       new DefaultModelCachePolicy(),
-      () => capability("anthropic-messages"),
+      () => capability("anthropic-messages", { supportsLongCacheRetention: true }),
     );
 
     const events = await collect(runtime.stream(selection, request, primaryOptions("thinking")));
@@ -100,7 +106,7 @@ describe("model cache infrastructure", () => {
     const runtime = new CacheAwareModelRuntime(
       successfulTransport([]),
       new DefaultModelCachePolicy(),
-      () => capability("anthropic-messages"),
+      () => capability("anthropic-messages", { supportsLongCacheRetention: false }),
     );
     expect(
       runtime.leaseAdvisor.inspect(selection, primaryOptions("before").identity, {
@@ -117,7 +123,7 @@ describe("model cache infrastructure", () => {
     const unknownTtlRuntime = new CacheAwareModelRuntime(
       successfulTransport([]),
       new DefaultModelCachePolicy(),
-      () => capability("openai-responses"),
+      () => capability("google-generative-ai"),
     );
     await collect(unknownTtlRuntime.stream(selection, request, primaryOptions("unknown-1")));
     expect(
@@ -164,7 +170,7 @@ describe("model cache infrastructure", () => {
     let now = 1_000;
     const coordinator = new ModelCacheCoordinator(
       new DefaultModelCachePolicy(),
-      () => capability("anthropic-messages"),
+      () => capability("anthropic-messages", { supportsLongCacheRetention: true }),
       undefined,
       undefined,
       () => now,
@@ -174,11 +180,11 @@ describe("model cache infrastructure", () => {
     });
     coordinator.recordSuccess({
       scopeId: prepared.decision.directive.scopeId,
-      retention: prepared.decision.directive.retention as "short",
+      retention: prepared.decision.directive.retention,
       capability: prepared.capability,
       fingerprint: prepared.fingerprint,
     });
-    now += 300_000;
+    now += 3_600_000;
 
     expect(
       coordinator.inspect(selection, primaryOptions("inspect").identity, {
@@ -298,7 +304,6 @@ describe("model cache infrastructure", () => {
     const policy = new DefaultModelCachePolicy();
     const capability = resolveModelCacheCapability({
       api: "google-generative-ai",
-      baseUrl: "https://google.test",
     });
     const first = policy.resolve({
       identity: primaryOptions("call-1").identity,
@@ -356,9 +361,7 @@ describe("model cache infrastructure", () => {
   });
 
   it("treats unknown custom transports as cache-disabled unless explicitly declared", () => {
-    expect(
-      resolveModelCacheCapability({ api: "omni-custom", baseUrl: "https://custom.test" }),
-    ).toEqual({
+    expect(resolveModelCacheCapability({ api: "omni-custom" })).toEqual({
       mode: "none",
       retentions: ["none"],
       stableScopeRetentions: [],
@@ -366,7 +369,6 @@ describe("model cache infrastructure", () => {
     expect(
       resolveModelCacheCapability({
         api: "omni-custom",
-        baseUrl: "https://custom.test",
         explicit: {
           mode: "automatic_prefix",
           retentions: ["none", "short"],
@@ -376,8 +378,14 @@ describe("model cache infrastructure", () => {
     ).toMatchObject({ mode: "automatic_prefix", stableScopeRetentions: ["short"] });
   });
 
-  it("derives capability from protocol, base URL, and compat flags", () => {
-    expect(capability("anthropic-messages")).toMatchObject({
+  it("derives compatible-provider capability from protocol and explicit compat flags", () => {
+    expect(capability("anthropic-messages")).toEqual({
+      mode: "explicit_breakpoint",
+      retentions: ["none", "short"],
+      stableScopeRetentions: [],
+      shortTtlMs: 300_000,
+    });
+    expect(capability("anthropic-messages", { supportsLongCacheRetention: true })).toMatchObject({
       retentions: ["none", "short", "long"],
       stableScopeRetentions: [],
       shortTtlMs: 300_000,
@@ -390,12 +398,22 @@ describe("model cache infrastructure", () => {
       shortTtlMs: 300_000,
     });
     expect(
+      resolveModelCacheCapability({
+        api: "anthropic-messages",
+      }),
+    ).toMatchObject({ retentions: ["none", "short"] });
+    expect(
       capability("anthropic-messages", {
         supportsLongCacheRetention: false,
         sendSessionAffinityHeaders: true,
       }),
     ).toMatchObject({ retentions: ["none", "short"], stableScopeRetentions: ["short"] });
-    expect(capability("openai-responses")).toMatchObject({
+    expect(capability("openai-responses")).toEqual({
+      mode: "automatic_prefix",
+      retentions: ["none", "short"],
+      stableScopeRetentions: ["short"],
+    });
+    expect(capability("openai-responses", { supportsLongCacheRetention: true })).toMatchObject({
       retentions: ["none", "short", "long"],
       stableScopeRetentions: ["short", "long"],
       longTtlMs: 86_400_000,
@@ -405,11 +423,27 @@ describe("model cache infrastructure", () => {
       retentions: ["none", "short"],
       stableScopeRetentions: ["short"],
     });
-    expect(capability("openai-completions")).toMatchObject({
+    expect(
+      resolveModelCacheCapability({
+        api: "openai-responses",
+      }),
+    ).toMatchObject({ retentions: ["none", "short"] });
+    expect(capability("openai-completions")).toEqual({
+      mode: "automatic_prefix",
+      retentions: ["none", "short"],
+      stableScopeRetentions: [],
+    });
+    expect(capability("openai-completions", { supportsLongCacheRetention: true })).toMatchObject({
       retentions: ["none", "short", "long"],
       stableScopeRetentions: ["long"],
       longTtlMs: 86_400_000,
     });
+    expect(
+      capability("openai-completions", {
+        supportsLongCacheRetention: true,
+        cacheControlFormat: "anthropic",
+      }),
+    ).toMatchObject({ longTtlMs: 3_600_000 });
     expect(capability("openai-completions", { supportsLongCacheRetention: false })).toEqual({
       mode: "automatic_prefix",
       retentions: ["none", "short"],
@@ -424,10 +458,24 @@ describe("model cache infrastructure", () => {
     expect(
       resolveModelCacheCapability({
         api: "openai-completions",
-        baseUrl: "https://api.openai.com/v1",
         compat: { supportsLongCacheRetention: false },
       }),
-    ).toMatchObject({ stableScopeRetentions: ["short"] });
+    ).toMatchObject({ stableScopeRetentions: [] });
+    expect(
+      resolveModelCacheCapability({
+        api: "openai-completions",
+      }),
+    ).toMatchObject({ retentions: ["none", "short"] });
+    expect(
+      resolveModelCacheCapability({
+        api: "openai-completions",
+      }),
+    ).toMatchObject({ retentions: ["none", "short"] });
+    expect(
+      resolveModelCacheCapability({
+        api: "openai-completions",
+      }),
+    ).toMatchObject({ retentions: ["none", "short"], stableScopeRetentions: [] });
     expect(capability("google-generative-ai")).toMatchObject({
       mode: "automatic_prefix",
       stableScopeRetentions: [],
@@ -436,6 +484,31 @@ describe("model cache infrastructure", () => {
       mode: "automatic_prefix",
       stableScopeRetentions: ["short"],
     });
+  });
+
+  it("uses documented provider and model capabilities instead of endpoint inference", () => {
+    expect(
+      openAiCacheCapability({
+        id: "current-model",
+        compat: { supportsExplicitPromptCacheMode: true },
+      }),
+    ).toMatchObject({
+      retentions: ["none", "short"],
+      shortTtlMs: 1_800_000,
+    });
+    expect(openAiCacheCapability({ id: "future-model" })).toMatchObject({
+      retentions: ["none", "short"],
+    });
+    expect(
+      openAiCacheCapability({
+        id: "catalog-declared-model",
+        compat: { supportsLongCacheRetention: true },
+      }),
+    ).toMatchObject({ retentions: ["none", "short", "long"], longTtlMs: 86_400_000 });
+    expect(googleCacheCapability({ id: "gemini-2.5-pro" })).toMatchObject({
+      mode: "automatic_prefix",
+    });
+    expect(googleCacheCapability({ id: "gemini-2.0-flash" })).toMatchObject({ mode: "none" });
   });
 
   it("rejects inconsistent capabilities and suppresses scope when cache is disabled", () => {
@@ -515,7 +588,7 @@ function cacheEntry(fingerprint: RuntimeModelCacheEntry["fingerprint"]): Runtime
 }
 
 function capability(api: string, compat?: Record<string, unknown>) {
-  return resolveModelCacheCapability({ api, baseUrl: "https://provider.test", compat });
+  return resolveModelCacheCapability({ api, compat });
 }
 
 async function collect(events: AsyncIterable<ModelEvent>): Promise<ModelEvent[]> {

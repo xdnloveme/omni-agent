@@ -22,24 +22,32 @@ changes the Session JSONL schema or attempts to persist Provider cache content.
 
 ## Policy and scope
 
-Primary calls request short retention by default. Auxiliary calls default to no cache;
-the Context checkpoint summary call explicitly requests none. Long retention requires an
-explicit request and is never silently downgraded to short.
+Primary calls prefer long retention by default and fall back to short when the Provider does
+not support long retention. Native Provider contributions declare model-specific cache
+capabilities. Compatible endpoints may enable long retention only through an explicit
+compatibility declaration. Auxiliary calls default to no cache; the Context checkpoint summary
+call explicitly requests none. An explicitly requested long retention is never silently
+downgraded to short.
 
 The stable scope hashes Agent, Session, Provider, catalog model, request model, and cache
 semantics version. A new Session or model selection therefore creates a new scope, while
 ReAct calls in one Session reuse it. Raw identity values are not exposed as Provider keys.
 
-Known protocols resolve their capability centrally from the catalog model's API, base URL,
-and compatibility flags:
+Native Providers own their model-specific capability rules. Compatible protocols use validated
+compatibility flags and never infer long-retention support from an endpoint URL:
 
-| API protocol                 | Mode                | Retention and scope facts                                                                      |
-| ---------------------------- | ------------------- | ---------------------------------------------------------------------------------------------- |
-| Anthropic Messages           | explicit breakpoint | 5-minute short; optional 1-hour long; affinity scope only when compat enables it               |
-| OpenAI Responses/Completions | automatic prefix    | short; optional 24-hour long according to compat; stable key according to concrete API mapping |
-| Google Generative AI         | automatic prefix    | short, no stable Provider scope, unknown TTL                                                   |
-| Mistral Conversations        | automatic prefix    | short with stable prompt-cache key, unknown TTL                                                |
-| Custom/unknown               | none by default     | an explicit, validated capability may opt in                                                   |
+| Capability source    | Mode                | Retention and scope facts                                           |
+| -------------------- | ------------------- | ------------------------------------------------------------------- |
+| Native Provider      | Provider-owned      | Model-specific and normalized before use                            |
+| Compatible Anthropic | explicit breakpoint | 5-minute short; long only with `supportsLongCacheRetention`         |
+| Compatible OpenAI    | automatic prefix    | Provider-managed short; long only with `supportsLongCacheRetention` |
+| Compatible Google    | automatic prefix    | Provider-managed short; no stable Provider scope; unknown TTL       |
+| Compatible Mistral   | automatic prefix    | Provider-managed short with stable prompt-cache key; unknown TTL    |
+| Custom/unknown       | none by default     | An explicit, validated capability may opt in                        |
+
+The native OpenAI contribution consumes catalog compatibility metadata such as
+`supportsExplicitPromptCacheMode` and `supportsLongCacheRetention`; it does not maintain a
+model-name allowlist or classify endpoints by URL.
 
 Capability normalization, cross-field validation, and copying have one owner. Disabled
 capabilities can declare only `none`; a TTL is legal only when its retention is supported.

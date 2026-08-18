@@ -12,20 +12,22 @@ describe("TranscriptHistoryPresenter", () => {
     expect(view.resumedDivider).toBe("──────── Session resumed ────────");
     expect(view.entries[0]).toEqual({ type: "user", text: "run checks" });
 
-    const thinking = view.entries.find(
-      (entry) => entry.type === "disclosure" && entry.disclosure.title === "Thinking",
+    const run = view.entries.find((entry) => entry.type === "run");
+    if (run?.type !== "run") throw new Error("run missing");
+    const thinking = run.run.processNodes.find(
+      (node) => node.kind === "disclosure" && node.disclosure.title === "Thinking",
     );
     expect(thinking).toMatchObject({
       disclosure: { state: "completed", initiallyExpanded: false, tone: "neutral" },
     });
 
-    const toolBatch = view.entries.find(
-      (entry) => entry.type === "disclosure" && entry.disclosure.title === "Tool Calls",
+    const toolBatch = run.run.processNodes.find(
+      (node) => node.kind === "disclosure" && node.disclosure.title === "Tool Calls",
     );
     expect(toolBatch).toMatchObject({
       disclosure: { state: "completed", summary: "2/2 completed" },
     });
-    if (toolBatch?.type !== "disclosure") throw new Error("tool batch missing");
+    if (toolBatch?.kind !== "disclosure") throw new Error("tool batch missing");
     expect(toolBatch.disclosure.summary).not.toContain("ms");
     expect(toolBatch.disclosure.children?.map((child) => child.title)).toEqual([
       "bash",
@@ -34,7 +36,12 @@ describe("TranscriptHistoryPresenter", () => {
     expect(toolBatch.disclosure.children?.[0]?.details()).toContain("output:");
 
     expect(view.entries.at(-2)).toEqual({ type: "user", text: "summarize" });
-    expect(view.entries.at(-1)).toEqual({ type: "assistant", markdown: "All checks passed." });
+    expect(view.entries.at(-1)).toMatchObject({
+      type: "run",
+      run: {
+        finalNode: { markdown: "All checks passed." },
+      },
+    });
   });
 
   it("loads earlier history by complete user turns", () => {
@@ -44,7 +51,12 @@ describe("TranscriptHistoryPresenter", () => {
     expect(view.hiddenTurnCount).toBe(0);
     expect(view.loadEarlierLabel).toBeUndefined();
     expect(view.entries[0]).toEqual({ type: "user", text: "first question" });
-    expect(view.entries.some((entry) => entry.type === "disclosure")).toBe(true);
+    expect(
+      view.entries.some(
+        (entry) =>
+          entry.type === "run" && entry.run.processNodes.some((node) => node.kind === "disclosure"),
+      ),
+    ).toBe(true);
   });
 
   it("keeps failed historical tool calls folded", () => {
@@ -68,7 +80,11 @@ describe("TranscriptHistoryPresenter", () => {
       ],
       10,
     );
-    const disclosure = view.entries.find((entry) => entry.type === "disclosure");
+    const run = view.entries.find((entry) => entry.type === "run");
+    const disclosure =
+      run?.type === "run"
+        ? run.run.processNodes.find((node) => node.kind === "disclosure")
+        : undefined;
 
     expect(disclosure).toMatchObject({
       disclosure: { state: "failed", initiallyExpanded: false },

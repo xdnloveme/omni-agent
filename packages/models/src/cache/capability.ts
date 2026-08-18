@@ -11,7 +11,6 @@ const NONE: ModelCacheCapability = {
 
 export interface ModelCacheCapabilitySource {
   readonly api: string;
-  readonly baseUrl: string;
   readonly compat?: unknown;
   readonly explicit?: ModelCacheCapability;
 }
@@ -23,11 +22,11 @@ export function resolveModelCacheCapability(
 
   // Capability follows the concrete API and compat flags; Vendor names are not protocol facts.
   if (source.api === "anthropic-messages") {
-    const supportsLong = compatBoolean(source.compat, "supportsLongCacheRetention") !== false;
+    const supportsLong = resolveLongRetentionSupport(source);
     const retentions: ModelCacheRetention[] = supportsLong
       ? ["none", "short", "long"]
       : ["none", "short"];
-    const sendsAffinity = compatBoolean(source.compat, "sendSessionAffinityHeaders") === true;
+    const sendsAffinity = readCompatBoolean(source.compat, "sendSessionAffinityHeaders") === true;
     return normalizeModelCacheCapability({
       mode: "explicit_breakpoint",
       retentions,
@@ -37,7 +36,7 @@ export function resolveModelCacheCapability(
     });
   }
   if (source.api === "openai-responses") {
-    const supportsLong = compatBoolean(source.compat, "supportsLongCacheRetention") !== false;
+    const supportsLong = resolveLongRetentionSupport(source);
     const retentions: ModelCacheRetention[] = supportsLong
       ? ["none", "short", "long"]
       : ["none", "short"];
@@ -49,9 +48,10 @@ export function resolveModelCacheCapability(
     });
   }
   if (source.api === "openai-completions") {
-    const supportsLong = compatBoolean(source.compat, "supportsLongCacheRetention") !== false;
-    const nativeOpenAi = source.baseUrl.includes("api.openai.com");
-    const sendsAffinity = compatBoolean(source.compat, "sendSessionAffinityHeaders") === true;
+    const supportsLong = resolveLongRetentionSupport(source);
+    const sendsAffinity = readCompatBoolean(source.compat, "sendSessionAffinityHeaders") === true;
+    const usesAnthropicCacheControl =
+      compatString(source.compat, "cacheControlFormat") === "anthropic";
     const retentions: ModelCacheRetention[] = supportsLong
       ? ["none", "short", "long"]
       : ["none", "short"];
@@ -62,9 +62,9 @@ export function resolveModelCacheCapability(
       // every active retention, compatible APIs emit it for long retention, and affinity
       // headers consume it for every active retention when explicitly enabled.
       stableScopeRetentions: activeRetentions(retentions).filter(
-        (retention) => nativeOpenAi || sendsAffinity || retention === "long",
+        (retention) => sendsAffinity || retention === "long",
       ),
-      ...(supportsLong ? { longTtlMs: 24 * 60 * 60 * 1000 } : {}),
+      ...(supportsLong ? { longTtlMs: (usesAnthropicCacheControl ? 1 : 24) * 60 * 60 * 1000 } : {}),
     });
   }
   if (source.api === "google-generative-ai") {
@@ -154,8 +154,18 @@ function validateTtl(
   }
 }
 
-function compatBoolean(compat: unknown, key: string): boolean | undefined {
+export function readCompatBoolean(compat: unknown, key: string): boolean | undefined {
   if (!compat || typeof compat !== "object") return undefined;
   const value = (compat as Record<string, unknown>)[key];
   return typeof value === "boolean" ? value : undefined;
+}
+
+function compatString(compat: unknown, key: string): string | undefined {
+  if (!compat || typeof compat !== "object") return undefined;
+  const value = (compat as Record<string, unknown>)[key];
+  return typeof value === "string" ? value : undefined;
+}
+
+function resolveLongRetentionSupport(source: ModelCacheCapabilitySource): boolean {
+  return readCompatBoolean(source.compat, "supportsLongCacheRetention") === true;
 }

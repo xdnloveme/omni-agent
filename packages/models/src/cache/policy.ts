@@ -28,7 +28,9 @@ export class DefaultModelCachePolicy implements ModelCachePolicyPort {
 
 function resolveRequestedRetention(input: ModelCachePolicyInput): ModelCacheRetention {
   if (input.intent.retention !== "default") return input.intent.retention;
-  return input.identity.purpose === "primary" ? "short" : "none";
+  if (input.identity.purpose !== "primary") return "none";
+  if (input.capability.retentions.includes("long")) return "long";
+  return input.capability.retentions.includes("short") ? "short" : "none";
 }
 
 function supports(capability: ModelCacheCapability, retention: ModelCacheRetention): boolean {

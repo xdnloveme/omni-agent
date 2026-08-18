@@ -34,7 +34,10 @@ export class StreamSession {
   handle(event: StreamEvent): void {
     switch (event.type) {
       case "text_delta":
-        this.handleTextDelta(event.delta);
+        this.handleTextDelta(event);
+        break;
+      case "final_response":
+        this.notify(() => this._callbacks.onFinalResponse?.(cloneData(event)));
         break;
       case "thinking_start":
         this.handleThinkingStart(event);
@@ -104,15 +107,16 @@ export class StreamSession {
 
   // --- Private handlers ---
 
-  private handleTextDelta(delta: string): void {
+  private handleTextDelta(event: import("./types").TextDeltaEvent): void {
     this.transitionTo("streaming");
-    this._textBuffer += delta;
+    this._textBuffer += event.delta;
     this._messages.push({
       type: "text",
-      content: delta,
+      content: event.delta,
       timestamp: Date.now(),
+      meta: { modelCallId: event.modelCallId, textSegmentId: event.textSegmentId },
     });
-    this.notify(() => this._callbacks.onTextChunk?.(delta));
+    this.notify(() => this._callbacks.onTextChunk?.(cloneData(event)));
   }
 
   private handleThinkingStart(event: import("./types").ThinkingStartedEvent): void {

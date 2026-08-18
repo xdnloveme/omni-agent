@@ -1,4 +1,5 @@
 import { mistralProvider } from "@earendil-works/pi-ai/providers/mistral";
+import { stableAutomaticShortCache } from "../../cache/profiles";
 import { defineVendor } from "../../vendors/define-vendor";
 import { nativeConnection } from "../factories/native";
 
@@ -11,6 +12,7 @@ export function mistralVendorPlugin() {
       nativeConnection(
         { id: "default", displayName: "Mistral API", providerId: "mistral" },
         mistralProvider,
+        { cacheCapability: stableAutomaticShortCache },
       ),
     ],
   });

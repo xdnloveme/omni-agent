@@ -6,7 +6,7 @@
       "displayName": "Volcengine Agent Plan",
       "connections": [
         {
-          "id": "medium",
+          "id": "default",
           "displayName": "Agent Plan Medium",
           "providerId": "volcengine-agent-plan",
           "baseUrl": "https://ark.cn-beijing.volces.com/api/plan/v3",

@@ -3,6 +3,7 @@ export { createStreamSession } from "./factory";
 export type {
   StreamEvent,
   TextDeltaEvent,
+  FinalResponseEvent,
   ThinkingStartedEvent,
   ThinkingDeltaEvent,
   ThinkingCompletedEvent,

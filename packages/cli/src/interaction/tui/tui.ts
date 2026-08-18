@@ -30,11 +30,10 @@ import { InlineSelect } from "./inline-select";
 import { InlineMultiSelect, type MultiSelectOptions } from "./inline-multi-select";
 import { InlineTextInput, type InlineTextInputOptions } from "./inline-text-input";
 import { createClipboardCopy } from "./clipboard";
-import { MarkdownMessage } from "./markdown-message";
-import { DisclosureMessage, disclosureUrl } from "./disclosure-message";
+import { disclosureUrl } from "./disclosure-message";
+import { RunMessage } from "./run-message";
 import type {
-  DisclosureViewModel,
-  RunMetricsViewModel,
+  RunPresentationViewModel,
   SessionHistoryViewModel,
 } from "../../presentation/view-models";
 
@@ -69,16 +68,12 @@ const markdownTheme: MarkdownTheme = {
   codeBlockIndent: "  ",
 };
 
-const MARKDOWN_THROTTLE_MS = 50;
 const DISCLOSURE_TICK_MS = 1_000;
 export interface TuiSink {
+  renderRun(viewModel: RunPresentationViewModel): void;
   write(text: string): void;
-  writeMarkdown(text: string): void;
   line(text?: string): void;
   spacer(): void;
-  flush(): void;
-  disclosure(viewModel: DisclosureViewModel): void;
-  metrics(viewModel: RunMetricsViewModel): void;
 }
 
 export interface SlashCommand {
@@ -141,7 +136,7 @@ export function createOmniTui(options: TuiOptions): OmniTui {
     openUrl(url) {
       if (url.startsWith("omni-agent://disclosure/")) {
         const targetId = decodeURIComponent(url.slice("omni-agent://disclosure/".length));
-        for (const message of disclosureMessages.values()) {
+        for (const message of runMessages.values()) {
           if (!message.toggle(targetId)) continue;
           ui.requestRender(true);
           return;
@@ -182,17 +177,14 @@ export function createOmniTui(options: TuiOptions): OmniTui {
     escape(): void;
   } | null = null;
 
-  // Markdown streaming state
-  let activeMarkdown: MarkdownMessage | null = null;
-  let markdownBuffer = "";
-  let markdownTimer: NodeJS.Timeout | null = null;
   let activeText: Text | null = null;
   let textBuffer = "";
-  const disclosureMessages = new Map<string, DisclosureMessage>();
+  const runMessages = new Map<string, RunMessage>();
   const runningDisclosures = new Set<string>();
+  const runDisclosureIds = new Map<string, Set<string>>();
   let disclosureTimer: NodeJS.Timeout | null = null;
   let activityLoader: Loader | null = null;
-  const historyDisclosureIds = new Set<string>();
+  const historyRunIds = new Set<string>();
   const historyLoadUrl = "omni-agent://history/load-earlier";
 
   // Exit confirmation
@@ -233,27 +225,21 @@ export function createOmniTui(options: TuiOptions): OmniTui {
     return wrappedLines.join("\n");
   }
 
-  function flushMarkdown() {
-    if (!activeMarkdown) return;
-    if (markdownTimer) {
-      clearTimeout(markdownTimer);
-      markdownTimer = null;
-    }
-    activeMarkdown.setText(markdownBuffer);
-    ui.requestRender();
-  }
-
-  function scheduleMarkdownRender() {
-    if (!activeMarkdown || markdownTimer) return;
-    markdownTimer = setTimeout(() => {
-      markdownTimer = null;
-      if (!activeMarkdown) return;
-      activeMarkdown.setText(markdownBuffer);
-      ui.requestRender();
-    }, MARKDOWN_THROTTLE_MS);
-  }
-
   const sink: TuiSink = {
+    renderRun(viewModel) {
+      syncRunDisclosureTicker(viewModel);
+      const existing = runMessages.get(viewModel.id);
+      if (existing) {
+        existing.update(viewModel);
+        ui.requestRender(true);
+        return;
+      }
+      sink.line();
+      const message = new RunMessage(viewModel, markdownTheme, disclosureUrl(viewModel.id));
+      runMessages.set(viewModel.id, message);
+      messageBody.addChild(message);
+      ui.requestRender(true);
+    },
     write(text: string) {
       if (!activeText) {
         activeText = new Text("", 0, 0);
@@ -263,23 +249,7 @@ export function createOmniTui(options: TuiOptions): OmniTui {
       activeText.setText(hardWrap(textBuffer));
       ui.requestRender();
     },
-    writeMarkdown(text: string) {
-      if (!activeMarkdown) {
-        activeMarkdown = new MarkdownMessage("", markdownTheme);
-        messageBody.addChild(activeMarkdown);
-      }
-      markdownBuffer += text;
-      scheduleMarkdownRender();
-    },
     line(text?: string) {
-      if (activeMarkdown) {
-        if (text) markdownBuffer += text;
-        flushMarkdown();
-        activeMarkdown = null;
-        markdownBuffer = "";
-        ui.requestRender();
-        return;
-      }
       if (activeText) {
         if (text) textBuffer += text;
         activeText.setText(hardWrap(textBuffer));
@@ -296,50 +266,27 @@ export function createOmniTui(options: TuiOptions): OmniTui {
       ui.requestRender();
     },
     spacer() {
-      if (activeMarkdown) flushMarkdown();
       messageBody.addChild(new Spacer(1));
       activeText = null;
       textBuffer = "";
-      activeMarkdown = null;
-      markdownBuffer = "";
       ui.requestRender();
-    },
-    flush() {
-      flushMarkdown();
-    },
-    disclosure(viewModel: DisclosureViewModel) {
-      updateDisclosureTicker(viewModel);
-      const existing = disclosureMessages.get(viewModel.id);
-      if (existing) {
-        existing.update(viewModel);
-        ui.requestRender(true);
-        return;
-      }
-      sink.line();
-      const linkUrl = disclosureUrl(viewModel.id);
-      const message = new DisclosureMessage(viewModel, linkUrl);
-      disclosureMessages.set(viewModel.id, message);
-      messageBody.addChild(message);
-      ui.requestRender();
-    },
-    metrics(viewModel: RunMetricsViewModel) {
-      const width = ui.terminal.columns || 80;
-      const text =
-        width >= 90 ? viewModel.full : width >= 55 ? viewModel.compact : viewModel.minimal;
-      sink.line(
-        viewModel.usagePercent > 80
-          ? chalk.red(text)
-          : viewModel.usagePercent >= 50
-            ? chalk.yellow(text)
-            : chalk.dim(text),
-      );
     },
   };
 
-  function updateDisclosureTicker(viewModel: DisclosureViewModel): void {
-    if (viewModel.state === "running") runningDisclosures.add(viewModel.id);
-    else runningDisclosures.delete(viewModel.id);
+  function syncRunDisclosureTicker(viewModel: RunPresentationViewModel): void {
+    const previousIds = runDisclosureIds.get(viewModel.id) ?? new Set<string>();
+    for (const id of previousIds) runningDisclosures.delete(id);
+    const currentIds = new Set<string>();
+    for (const node of viewModel.processNodes) {
+      if (node.kind !== "disclosure" || node.disclosure.state !== "running") continue;
+      currentIds.add(node.disclosure.id);
+      runningDisclosures.add(node.disclosure.id);
+    }
+    runDisclosureIds.set(viewModel.id, currentIds);
+    syncDisclosureTimer();
+  }
 
+  function syncDisclosureTimer(): void {
     if (runningDisclosures.size > 0 && !disclosureTimer) {
       disclosureTimer = setInterval(() => ui.requestRender(true), DISCLOSURE_TICK_MS);
       return;
@@ -430,8 +377,8 @@ export function createOmniTui(options: TuiOptions): OmniTui {
     const previousHeight = historyBody.render(width).length;
     const previousScrollTop = transcript.scrollTop;
     const wasFollowingEnd = transcript.isFollowingEnd;
-    const previousDisclosureIds = new Set(historyDisclosureIds);
-    historyDisclosureIds.clear();
+    const previousRunIds = new Set(historyRunIds);
+    historyRunIds.clear();
     historyBody.clear();
     internalLinks.delete(historyLoadUrl);
 
@@ -463,25 +410,20 @@ export function createOmniTui(options: TuiOptions): OmniTui {
         appendUserMessageTo(historyBody, entry.text);
         continue;
       }
-      if (entry.type === "assistant") {
-        historyBody.addChild(new MarkdownMessage(entry.markdown, markdownTheme));
-        historyBody.addChild(new Spacer(1));
-        continue;
-      }
-      const id = entry.disclosure.id;
-      let message = disclosureMessages.get(id);
-      if (message) message.update(entry.disclosure);
+      const id = entry.run.id;
+      let message = runMessages.get(id);
+      if (message) message.update(entry.run);
       else {
-        message = new DisclosureMessage(entry.disclosure, disclosureUrl(id));
-        disclosureMessages.set(id, message);
+        message = new RunMessage(entry.run, markdownTheme, disclosureUrl(id));
+        runMessages.set(id, message);
       }
-      historyDisclosureIds.add(id);
-      previousDisclosureIds.delete(id);
+      historyRunIds.add(id);
+      previousRunIds.delete(id);
       historyBody.addChild(message);
       historyBody.addChild(new Spacer(1));
     }
 
-    for (const id of previousDisclosureIds) disclosureMessages.delete(id);
+    for (const id of previousRunIds) runMessages.delete(id);
     historyBody.addChild(new Text(chalk.dim(viewModel.resumedDivider), 0, 0));
     historyBody.addChild(new Spacer(1));
 
@@ -495,8 +437,8 @@ export function createOmniTui(options: TuiOptions): OmniTui {
 
   function clearSessionHistory() {
     internalLinks.delete(historyLoadUrl);
-    for (const id of historyDisclosureIds) disclosureMessages.delete(id);
-    historyDisclosureIds.clear();
+    for (const id of historyRunIds) runMessages.delete(id);
+    historyRunIds.clear();
     historyBody.clear();
     ui.requestRender(true);
   }
@@ -536,11 +478,11 @@ export function createOmniTui(options: TuiOptions): OmniTui {
     if (closed) return;
     closed = true;
     if (exitTimer) clearTimeout(exitTimer);
-    if (markdownTimer) clearTimeout(markdownTimer);
     if (disclosureTimer) clearInterval(disclosureTimer);
     stopActivity();
     internalLinks.clear();
-    disclosureMessages.clear();
+    runMessages.clear();
+    runDisclosureIds.clear();
     runningDisclosures.clear();
     if (sigtermListener) {
       process.removeListener("SIGTERM", sigtermListener);

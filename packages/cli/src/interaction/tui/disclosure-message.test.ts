@@ -91,6 +91,24 @@ describe("DisclosureMessage", () => {
     expect(message.render(80).join("\n")).not.toContain("reasoning");
   });
 
+  it("preserves a user's collapsed state across streaming updates", () => {
+    const running = {
+      id: "thinking:1",
+      title: "Thinking",
+      state: "running" as const,
+      tone: "neutral" as const,
+      details: () => ["reasoning"],
+      initiallyExpanded: true,
+      collapseOnComplete: true,
+    };
+    const message = new DisclosureMessage(running, "omni-agent://disclosure/thinking%3A1");
+
+    message.toggle();
+    message.update({ ...running, details: () => ["updated reasoning"] });
+
+    expect(message.render(80).join("\n")).not.toContain("updated reasoning");
+  });
+
   it("renders nested disclosures and toggles a child independently", () => {
     const message = new DisclosureMessage(
       {

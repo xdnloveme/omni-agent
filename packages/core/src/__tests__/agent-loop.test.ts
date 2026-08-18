@@ -211,7 +211,7 @@ describe("runAgentLoop", () => {
           message: {
             role: "assistant",
             content: [{ type: "text", text: "Hello world" }],
-            stopReason: "endTurn",
+            stopReason: "stop",
             timestamp: Date.now(),
           },
         },
@@ -223,28 +223,69 @@ describe("runAgentLoop", () => {
 
     expect(events).toEqual([
       expect.objectContaining({ type: "model_context_prepared" }),
-      { type: "text_delta", delta: "Hello " },
-      { type: "text_delta", delta: "world" },
+      {
+        type: "text_delta",
+        modelCallId: expect.any(String),
+        textSegmentId: expect.any(String),
+        delta: "Hello ",
+      },
+      {
+        type: "text_delta",
+        modelCallId: expect.any(String),
+        textSegmentId: expect.any(String),
+        delta: "world",
+      },
+      { type: "final_response", modelCallId: expect.any(String) },
       expect.objectContaining({ type: "done" }),
     ]);
+    const textEvents = events.filter((event) => event.type === "text_delta");
+    expect(textEvents[0]?.textSegmentId).toBe(textEvents[1]?.textSegmentId);
     expect(streamModel.mock.calls[0]?.[2].maxOutputTokens).toBe(config.model.requestedOutputTokens);
   });
 
-  it("forwards thinking lifecycle events with the prepared model call identity", async () => {
+  it("does not mark a truncated text response as final", async () => {
     streamModel.mockReturnValue(
       fakeStream([
+        { type: "text_delta", delta: "partial" },
+        {
+          type: "done",
+          message: {
+            content: [{ type: "text", text: "partial" }],
+            stopReason: "length",
+          },
+        },
+      ]) as never,
+    );
+
+    const events = await collectEvents(
+      executeLoop(makeConfig({ tools: [] }), makeMessages("Respond")),
+    );
+
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "text_delta", delta: "partial" }),
+    );
+    expect(events.some((event) => event.type === "final_response")).toBe(false);
+    expect(events.at(-1)).toEqual(expect.objectContaining({ type: "done" }));
+  });
+
+  it("forwards thinking identity and starts a new text segment across thinking", async () => {
+    streamModel.mockReturnValue(
+      fakeStream([
+        { type: "text_delta", delta: "before" },
         { type: "thinking_start", contentIndex: 0 },
         { type: "thinking_delta", contentIndex: 0, delta: "checking" },
         { type: "thinking_end", contentIndex: 0, content: "checking" },
+        { type: "text_delta", delta: "done" },
         {
           type: "done",
           message: {
             role: "assistant",
             content: [
+              { type: "text", text: "before" },
               { type: "thinking", thinking: "checking" },
               { type: "text", text: "done" },
             ],
-            stopReason: "endTurn",
+            stopReason: "stop",
             timestamp: Date.now(),
           },
         },
@@ -254,6 +295,7 @@ describe("runAgentLoop", () => {
     const events = await collectEvents(executeLoop(makeConfig({ tools: [] }), makeMessages("Hi")));
     const context = events.find((event) => event.type === "model_context_prepared");
     const thinking = events.filter((event) => event.type.startsWith("thinking_"));
+    const text = events.filter((event) => event.type === "text_delta");
 
     expect(thinking.map((event) => event.type)).toEqual([
       "thinking_start",
@@ -268,6 +310,7 @@ describe("runAgentLoop", () => {
         }),
       ]),
     );
+    expect(text[0]?.textSegmentId).not.toBe(text[1]?.textSegmentId);
   });
 
   it("forwards cache reports without adding them to the conversation", async () => {
@@ -359,7 +402,7 @@ describe("runAgentLoop", () => {
     const assistantMsg = {
       role: "assistant",
       content: [{ type: "text", text: "Hello world" }],
-      stopReason: "endTurn",
+      stopReason: "stop",
       timestamp: Date.now(),
     };
 
@@ -417,7 +460,7 @@ describe("runAgentLoop", () => {
           message: {
             role: "assistant",
             content: [{ type: "text", text: "Done!" }],
-            stopReason: "endTurn",
+            stopReason: "stop",
             timestamp: Date.now(),
           },
         },
@@ -470,6 +513,13 @@ describe("runAgentLoop", () => {
       toolCallId: "call_1",
       batch: { index: 0, total: 1 },
       result: { content: [{ type: "text", text: "tool result" }], isError: false },
+    });
+    const textEvents = events.filter((event) => event.type === "text_delta");
+    const finalEvents = events.filter((event) => event.type === "final_response");
+    expect(finalEvents).toHaveLength(1);
+    expect(finalEvents[0]).toMatchObject({
+      type: "final_response",
+      modelCallId: textEvents.at(-1)?.modelCallId,
     });
 
     // Verify the loop continued and yielded text + done
@@ -568,7 +618,7 @@ describe("runAgentLoop", () => {
         fakeStream([
           {
             type: "done",
-            message: { content: [{ type: "text", text: "done" }], stopReason: "endTurn" },
+            message: { content: [{ type: "text", text: "done" }], stopReason: "stop" },
           },
         ]) as never,
       );
@@ -822,7 +872,7 @@ describe("runAgentLoop", () => {
           message: {
             role: "assistant",
             content: [{ type: "text", text: "ok" }],
-            stopReason: "endTurn",
+            stopReason: "stop",
             timestamp: Date.now(),
           },
         },
@@ -905,7 +955,7 @@ describe("runAgentLoop", () => {
           message: {
             role: "assistant",
             content: [{ type: "text", text: "done" }],
-            stopReason: "endTurn",
+            stopReason: "stop",
             timestamp: Date.now(),
           },
         },
@@ -1245,7 +1295,7 @@ describe("runAgentLoop", () => {
           message: {
             role: "assistant",
             content: [{ type: "text", text: "ok" }],
-            stopReason: "endTurn",
+            stopReason: "stop",
             timestamp: Date.now(),
           },
         },
@@ -1272,7 +1322,7 @@ describe("runAgentLoop", () => {
           message: {
             role: "assistant",
             content: [{ type: "text", text: "Hi" }],
-            stopReason: "endTurn",
+            stopReason: "stop",
             timestamp: Date.now(),
           },
         },

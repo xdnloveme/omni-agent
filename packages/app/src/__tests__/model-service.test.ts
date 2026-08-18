@@ -105,8 +105,9 @@ describe("ModelService", () => {
 
   it("serializes registrations that share a provider repository", async () => {
     const cwd = mkdtempSync(join(tmpdir(), "omni-model-registration-queue-"));
-    directories.push(cwd);
-    const providers = new ProviderRepository({ cwd });
+    const globalDirectory = mkdtempSync(join(tmpdir(), "omni-model-global-"));
+    directories.push(cwd, globalDirectory);
+    const providers = new ProviderRepository({ cwd, globalDirectory });
     let releaseFirstCommit!: () => void;
     const firstCommitReleased = new Promise<void>((resolve) => {
       releaseFirstCommit = resolve;

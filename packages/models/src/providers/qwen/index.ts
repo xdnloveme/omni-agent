@@ -1,4 +1,5 @@
 import { defineVendor } from "../../vendors/define-vendor";
+import { automaticShortCache } from "../../cache/profiles";
 import { compatibleConnection } from "../factories/compatible";
 import type { CompatibleModelDefinition } from "../custom/types";
 
@@ -27,6 +28,7 @@ export function qwenVendorPlugin() {
         baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
         envVars: ["DASHSCOPE_API_KEY", "QWEN_API_KEY"],
         protocol: "openai-completions",
+        cacheCapability: automaticShortCache,
         models,
       }),
     ],

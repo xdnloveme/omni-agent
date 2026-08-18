@@ -144,11 +144,13 @@ export class ModelRuntime {
     const model = this.models.getModel(selection.providerId, selection.modelId);
     if (!model)
       throw new Error(`Model is not registered: ${selection.providerId}/${selection.modelId}`);
+    const declared = this.providers
+      .get(selection.providerId)
+      ?.resolveCacheCapability?.({ id: model.id, compat: model.compat });
     return resolveModelCacheCapability({
       api: model.api,
-      baseUrl: model.baseUrl,
       compat: model.compat,
-      explicit: this.providers.get(selection.providerId)?.cacheCapability,
+      explicit: declared,
     });
   }
 
@@ -174,9 +176,12 @@ export class ModelRuntime {
       maxTokens: Math.min(options.maxOutputTokens, catalogModel.maxTokens),
       onPayload: this.onPayload,
     });
+    let streamedText = "";
     for await (const event of stream) {
-      if (event.type === "text_delta") yield { type: "text_delta", delta: event.delta };
-      else if (event.type === "thinking_start")
+      if (event.type === "text_delta") {
+        streamedText += event.delta;
+        yield { type: "text_delta", delta: event.delta };
+      } else if (event.type === "thinking_start")
         yield { type: "thinking_start", contentIndex: event.contentIndex };
       else if (event.type === "thinking_delta")
         yield {
@@ -190,9 +195,19 @@ export class ModelRuntime {
           contentIndex: event.contentIndex,
           content: event.content,
         };
-      else if (event.type === "done")
-        yield { type: "done", message: fromBackendMessage(event.message) };
-      else if (event.type === "error")
+      else if (event.type === "done") {
+        const message = fromBackendMessage(event.message);
+        const completeText = message.content
+          .filter((content) => content.type === "text")
+          .map((content) => content.text)
+          .join("");
+        if (!completeText.startsWith(streamedText)) {
+          throw new Error("Model text stream does not match the completed response");
+        }
+        const remainingText = completeText.slice(streamedText.length);
+        if (remainingText) yield { type: "text_delta", delta: remainingText };
+        yield { type: "done", message };
+      } else if (event.type === "error")
         yield { type: "error", error: fromBackendMessage(event.error) };
     }
   }

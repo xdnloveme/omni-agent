@@ -8,7 +8,11 @@ import {
   type SkillSource,
 } from "@omni-agent/core";
 import type { OmniTui } from "../interaction/tui/tui";
-import { renderSkillReadEnd, renderSkillReadStart } from "../skills/skill-renderer";
+import {
+  renderSkillReadEnd,
+  renderSkillReadStart,
+  type SkillRenderSink,
+} from "../skills/skill-renderer";
 
 export class SkillStreamPresenter {
   constructor(private readonly tui: OmniTui) {}
@@ -17,18 +21,18 @@ export class SkillStreamPresenter {
     return toolName === SKILL_TOOL_NAME;
   }
 
-  present(event: ExtensionEvent): boolean {
+  present(event: ExtensionEvent, sink: SkillRenderSink): boolean {
     if (event.namespace !== SkillEventNamespace.Skill) return false;
     if (event.event === SkillEventName.ReadStart) {
       const skillName = getString(event.payload, "skillName");
-      this.tui.sink.line();
-      renderSkillReadStart(this.tui.sink, skillName);
+      sink.line();
+      renderSkillReadStart(sink, skillName);
       this.tui.setStatus(`reading skill: ${skillName}...`);
       this.tui.setActivity("Reading skill…");
       return true;
     }
     if (event.event === SkillEventName.ReadEnd) {
-      renderSkillReadEnd(this.tui.sink, {
+      renderSkillReadEnd(sink, {
         skillName: getString(event.payload, "skillName"),
         status: getSkillReadStatus(event.payload),
         source: getSkillSource(event.payload.source),

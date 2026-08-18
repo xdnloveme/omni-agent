@@ -2,30 +2,44 @@ import type { MutableModels, Provider } from "@earendil-works/pi-ai";
 import type { ModelCacheCapability } from "@omni-agent/core";
 import type { ModelAuthMethod } from "../credentials/types";
 import { normalizeModelCacheCapability } from "../cache/capability";
-import { providerContributionBrand, type ProviderContribution } from "./provider-contribution-type";
+import {
+  providerContributionBrand,
+  type ProviderCacheCapabilityDeclaration,
+  type ProviderCacheModel,
+  type ProviderContribution,
+} from "./provider-contribution-type";
 
 const providers = new WeakMap<ProviderContribution, Provider>();
 
 export function createProviderContribution(
   provider: Provider,
   credentialAliases: readonly string[] = [],
-  cacheCapability?: ModelCacheCapability,
+  cacheCapability?: ProviderCacheCapabilityDeclaration,
 ): ProviderContribution {
   if (!provider.id.trim()) throw new Error("Provider id is required");
   if (!provider.auth.apiKey && !provider.auth.oauth) {
     throw new Error(`Provider has no auth: ${provider.id}`);
   }
-  const normalizedCacheCapability = cacheCapability
-    ? normalizeModelCacheCapability(cacheCapability)
-    : undefined;
+  const resolveCacheCapability = createCacheCapabilityResolver(cacheCapability);
   const contribution = {
     id: provider.id,
     credentialAliases: [...new Set(credentialAliases)],
-    ...(normalizedCacheCapability ? { cacheCapability: normalizedCacheCapability } : {}),
+    ...(resolveCacheCapability ? { resolveCacheCapability } : {}),
     [providerContributionBrand]: true as const,
   };
   providers.set(contribution, provider);
   return contribution;
+}
+
+function createCacheCapabilityResolver(
+  declaration: ProviderCacheCapabilityDeclaration | undefined,
+): ((model: ProviderCacheModel) => ModelCacheCapability) | undefined {
+  if (!declaration) return undefined;
+  if (typeof declaration === "function") {
+    return (model) => normalizeModelCacheCapability(declaration(model));
+  }
+  const capability = normalizeModelCacheCapability(declaration);
+  return () => capability;
 }
 
 function providerOf(contribution: ProviderContribution): Provider {

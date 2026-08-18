@@ -11,6 +11,7 @@ import { mistralConversationsApi } from "@earendil-works/pi-ai/api/mistral-conve
 import { openAICompletionsApi } from "@earendil-works/pi-ai/api/openai-completions.lazy";
 import { openAIResponsesApi } from "@earendil-works/pi-ai/api/openai-responses.lazy";
 import { createProviderContribution } from "../../vendors/provider-contribution";
+import type { ProviderCacheCapabilityDeclaration } from "../../vendors/provider-contribution-type";
 import type { VendorSettingsSchema } from "../../vendors/types";
 import type {
   CompatibleModelDefinition,
@@ -37,6 +38,7 @@ export interface CompatibleConnectionConfig {
   readonly protocol: CompatibleProtocol;
   readonly compat?: CompatibleProviderCompat;
   readonly credentialAliases?: readonly string[];
+  readonly cacheCapability?: ProviderCacheCapabilityDeclaration;
   readonly models: readonly CompatibleModelDefinition[];
   readonly fetchModels?: (
     context: ModelCatalogRefreshContext,
@@ -81,6 +83,7 @@ export const compatibleProviderFactory: ConnectionProviderFactory<CompatibleConn
           api: protocolImplementations[config.protocol](),
         }),
         config.credentialAliases,
+        config.cacheCapability,
       ),
     ];
   },

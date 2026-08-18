@@ -4,6 +4,7 @@ import {
   type TranscriptMessage,
 } from "@omni-agent/core";
 import { ThinkingPresenter } from "./thinking-presenter";
+import { RunPresentationModel } from "./run-presentation-model";
 import { ToolBatchPresenter, type RestoredToolInvocation } from "./tool-batch-presenter";
 import type { SessionHistoryViewModel } from "./view-models";
 
@@ -25,7 +26,7 @@ export class TranscriptHistoryPresenter {
     const indexed = messages.map((message, index) => ({ index, message }));
     const turns = groupConversationTurns(indexed);
     const effectiveVisibleTurnCount = Math.max(1, visibleTurnCount);
-    const visible = turns.slice(-effectiveVisibleTurnCount).flat();
+    const visible = turns.slice(-effectiveVisibleTurnCount);
     const hiddenTurnCount = Math.max(0, turns.length - effectiveVisibleTurnCount);
     const results = new Map(
       messages
@@ -34,37 +35,14 @@ export class TranscriptHistoryPresenter {
     );
     const entries: SessionHistoryViewModel["entries"][number][] = [];
 
-    for (const { index, message } of visible) {
-      if (message.role === "user") {
-        const text = userMessageText(message.content);
+    for (const turn of visible) {
+      const userEntry = turn.find(({ message }) => message.role === "user");
+      if (userEntry?.message.role === "user") {
+        const text = userMessageText(userEntry.message.content);
         if (text) entries.push({ type: "user", text });
-        continue;
       }
-      if (message.role === "toolResult") continue;
-
-      const calls = message.content.filter(
-        (block): block is ToolCallContent => block.type === "toolCall",
-      );
-      let toolBatchPresented = false;
-      for (const [contentIndex, block] of message.content.entries()) {
-        if (block.type === "text") {
-          if (block.text) entries.push({ type: "assistant", markdown: block.text });
-          continue;
-        }
-        if (block.type === "thinking") {
-          if (block.redacted) continue;
-          const disclosure = this.thinking.restore(
-            `history:thinking:${index}:${contentIndex}`,
-            block.thinking,
-          );
-          if (disclosure) entries.push({ type: "disclosure", disclosure });
-          continue;
-        }
-        if (toolBatchPresented) continue;
-        toolBatchPresented = true;
-        const disclosure = this.restoreToolBatch(index, calls, results);
-        if (disclosure) entries.push({ type: "disclosure", disclosure });
-      }
+      const run = this.restoreRun(turn, results);
+      if (run) entries.push({ type: "run", run });
     }
 
     return {
@@ -77,6 +55,65 @@ export class TranscriptHistoryPresenter {
         : {}),
       resumedDivider: "──────── Session resumed ────────",
     };
+  }
+
+  private restoreRun(
+    turn: readonly IndexedMessage[],
+    results: ReadonlyMap<string, ToolResultTranscriptMessage>,
+  ) {
+    const assistantEntries = turn.filter(
+      (
+        entry,
+      ): entry is IndexedMessage & {
+        readonly message: Extract<TranscriptMessage, { role: "assistant" }>;
+      } => entry.message.role === "assistant",
+    );
+    if (assistantEntries.length === 0) return undefined;
+    const startedAt = assistantEntries[0]!.message.timestamp;
+    const completedAt = Math.max(...turn.map(({ message }) => message.timestamp));
+    const run = new RunPresentationModel(`history:run:${turn[0]!.index}`, startedAt);
+
+    for (const { index, message } of assistantEntries) {
+      const modelCallId = `history:model:${index}`;
+      const calls = message.content.filter(
+        (block): block is ToolCallContent => block.type === "toolCall",
+      );
+      let toolBatchPresented = false;
+      for (const [contentIndex, block] of message.content.entries()) {
+        if (block.type === "text") {
+          if (block.text) {
+            run.appendText({
+              type: "text_delta",
+              modelCallId,
+              textSegmentId: `${modelCallId}:text:${contentIndex}`,
+              delta: block.text,
+            });
+          }
+          continue;
+        }
+        if (block.type === "thinking") {
+          if (block.redacted) continue;
+          const disclosure = this.thinking.restore(
+            `history:thinking:${index}:${contentIndex}`,
+            block.thinking,
+          );
+          if (disclosure) run.upsertDisclosure(disclosure);
+          continue;
+        }
+        if (toolBatchPresented) continue;
+        toolBatchPresented = true;
+        const disclosure = this.restoreToolBatch(index, calls, results);
+        if (disclosure) run.upsertDisclosure(disclosure);
+      }
+      if (
+        message.stopReason === "stop" &&
+        message.content.some((block) => block.type === "text" && block.text.length > 0)
+      ) {
+        run.markFinal(modelCallId);
+      }
+    }
+    run.complete(completedAt);
+    return run.project();
   }
 
   private restoreToolBatch(

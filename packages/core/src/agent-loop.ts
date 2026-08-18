@@ -162,6 +162,8 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       signal,
     });
     let promptDispatchObserved = false;
+    let textSegmentSequence = 0;
+    let activeTextSegmentId: string | undefined;
 
     for await (const event of eventStream) {
       if (!promptDispatchObserved) {
@@ -170,11 +172,18 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       }
       throwIfAborted(signal);
       if (event.type === "text_delta") {
-        const agentEvent: AgentEvent = { type: "text_delta", delta: event.delta };
-        session?.handle({ type: "text_delta", delta: event.delta });
+        activeTextSegmentId ??= `${preparedContext.manifest.modelCallId}:text:${textSegmentSequence++}`;
+        const agentEvent: AgentEvent = {
+          type: "text_delta",
+          modelCallId: preparedContext.manifest.modelCallId,
+          textSegmentId: activeTextSegmentId,
+          delta: event.delta,
+        };
+        session?.handle(agentEvent);
         yield agentEvent;
       }
       if (event.type === "thinking_start") {
+        activeTextSegmentId = undefined;
         const thinkingEvent: AgentEvent = {
           type: "thinking_start",
           modelCallId: preparedContext.manifest.modelCallId,
@@ -184,6 +193,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         yield thinkingEvent;
       }
       if (event.type === "thinking_delta") {
+        activeTextSegmentId = undefined;
         const thinkingEvent: AgentEvent = {
           type: "thinking_delta",
           modelCallId: preparedContext.manifest.modelCallId,
@@ -194,6 +204,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
         yield thinkingEvent;
       }
       if (event.type === "thinking_end") {
+        activeTextSegmentId = undefined;
         const thinkingEvent: AgentEvent = {
           type: "thinking_end",
           modelCallId: preparedContext.manifest.modelCallId,
@@ -266,6 +277,14 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
 
     // Check stop reason
     if (assistantMessage.stopReason !== "toolUse") {
+      if (isFinalTextResponse(assistantMessage)) {
+        const finalResponseEvent: AgentEvent = {
+          type: "final_response",
+          modelCallId: preparedContext.manifest.modelCallId,
+        };
+        session?.handle(finalResponseEvent);
+        yield finalResponseEvent;
+      }
       session?.handle({ type: "done", usage: lastUsage });
       yield { type: "done", produced: conversation.produced(), usage: lastUsage };
       return;
@@ -406,6 +425,13 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       maxTurns,
     };
   }
+}
+
+function isFinalTextResponse(message: AssistantTranscriptMessage): boolean {
+  return (
+    message.stopReason === "stop" &&
+    message.content.some((content) => content.type === "text" && content.text.length > 0)
+  );
 }
 
 function deferredToolResult(): import("./tool-calls").ValidatedToolResult {

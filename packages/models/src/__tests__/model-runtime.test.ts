@@ -11,6 +11,7 @@ import { compatibleConnection } from "../providers/factories/compatible";
 import { transportConnection } from "../providers/factories/transport";
 import type { CredentialStore, StoredCredential } from "../credentials/types";
 import type { ModelTransportExecutionOptions } from "../cache/contracts";
+import type { RuntimeModelSelection } from "@omni-agent/core";
 
 function executionOptions(
   overrides: Partial<ModelTransportExecutionOptions> = {},
@@ -19,6 +20,24 @@ function executionOptions(
     providerCache: { cacheRetention: "none" },
     maxOutputTokens: 4_096,
     ...overrides,
+  };
+}
+
+function modelSelection(
+  vendorId: string,
+  providerId: string,
+  modelId: string,
+  contextWindow = 32_000,
+  maxOutputTokens = 4_096,
+): RuntimeModelSelection {
+  return {
+    vendorId,
+    connectionId: "default",
+    providerId,
+    modelId,
+    contextWindow,
+    modelMaxOutputTokens: maxOutputTokens,
+    requestedOutputTokens: maxOutputTokens,
   };
 }
 
@@ -85,15 +104,7 @@ describe("ModelRuntime", () => {
     ]);
     const events = [];
     for await (const event of runtime.stream(
-      {
-        vendorId: "test",
-        connectionId: "default",
-        providerId: "test-vendor",
-        modelId: "test-model",
-        contextWindow: 128_000,
-        modelMaxOutputTokens: 4_096,
-        requestedOutputTokens: 4_096,
-      },
+      modelSelection("test", "test-vendor", "test-model", 128_000),
       {
         systemPrompt: "test",
         messages: [{ role: "user", content: "hi" }],
@@ -143,15 +154,7 @@ describe("ModelRuntime", () => {
     });
     const events = [];
     for await (const event of runtime.stream(
-      {
-        vendorId: "deferred",
-        connectionId: "default",
-        providerId: "deferred-vendor",
-        modelId: "deferred-model",
-        contextWindow: 128_000,
-        modelMaxOutputTokens: 4_096,
-        requestedOutputTokens: 4_096,
-      },
+      modelSelection("deferred", "deferred-vendor", "deferred-model", 128_000),
       { systemPrompt: "test", messages: [], tools: [] },
       executionOptions(),
     ))
@@ -217,15 +220,7 @@ describe("ModelRuntime", () => {
 
     const events = [];
     for await (const event of runtime.stream(
-      {
-        vendorId: "custom-protocol",
-        connectionId: "default",
-        providerId: "custom-protocol",
-        modelId: "custom-model",
-        contextWindow: 32_000,
-        modelMaxOutputTokens: 4_096,
-        requestedOutputTokens: 4_096,
-      },
+      modelSelection("custom-protocol", "custom-protocol", "custom-model"),
       {
         systemPrompt: "test",
         messages: [{ role: "user", content: "hi" }],
@@ -243,6 +238,60 @@ describe("ModelRuntime", () => {
       { type: "thinking_delta", contentIndex: 0, delta: "checking" },
       { type: "thinking_end", contentIndex: 0, content: "checking" },
       { type: "text_delta", delta: "custom" },
+      expect.objectContaining({ type: "done" }),
+    ]);
+    await manager.dispose();
+  });
+
+  it("normalizes completed text that a transport did not stream", async () => {
+    const runtime = new ModelRuntime({ credentials: memoryCredentials() });
+    const manager = runtime.createPluginManager(new VendorRegistry());
+    await manager.register(
+      defineVendor({
+        id: "terminal-text",
+        displayName: "Terminal Text",
+        connections: [
+          transportConnection({
+            id: "default",
+            displayName: "Terminal Text",
+            providerId: "terminal-text",
+            providerName: "Terminal Text",
+            baseUrl: "https://models.example.com",
+            envVars: ["TERMINAL_TEXT_API_KEY"],
+            models: [{ id: "terminal-model", contextWindow: 32_000, maxTokens: 4_096 }],
+            transport: {
+              async *stream(model) {
+                yield {
+                  type: "done",
+                  message: {
+                    role: "assistant",
+                    content: [{ type: "text", text: "complete response" }],
+                    api: "terminal-text",
+                    provider: model.providerId,
+                    model: model.id,
+                    stopReason: "stop",
+                    usage: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 },
+                    timestamp: Date.now(),
+                  },
+                };
+              },
+            },
+          }),
+        ],
+      }),
+    );
+
+    const events = [];
+    for await (const event of runtime.stream(
+      modelSelection("terminal-text", "terminal-text", "terminal-model"),
+      { systemPrompt: "test", messages: [] },
+      executionOptions(),
+    )) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "text_delta", delta: "complete response" },
       expect.objectContaining({ type: "done" }),
     ]);
     await manager.dispose();
@@ -280,15 +329,7 @@ describe("ModelRuntime", () => {
         ],
       }),
     );
-    const selection = {
-      vendorId: "wire",
-      connectionId: "default",
-      providerId: "wire",
-      modelId: "wire-model",
-      contextWindow: 32_000,
-      modelMaxOutputTokens: 1_024,
-      requestedOutputTokens: 1_024,
-    };
+    const selection = modelSelection("wire", "wire", "wire-model", 32_000, 1_024);
     const firstMessage = { role: "user" as const, content: "hello" };
     const options = executionOptions({
       providerCache: { cacheRetention: "long", sessionId: "stable-scope" },

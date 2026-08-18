@@ -1,6 +1,7 @@
 import { kimiCodingProvider } from "@earendil-works/pi-ai/providers/kimi-coding";
 import { moonshotaiProvider } from "@earendil-works/pi-ai/providers/moonshotai";
 import { moonshotaiCnProvider } from "@earendil-works/pi-ai/providers/moonshotai-cn";
+import { automaticShortCache } from "../../cache/profiles";
 import { defineVendor } from "../../vendors/define-vendor";
 import { nativeConnection } from "../factories/native";
 
@@ -13,14 +14,17 @@ export function moonshotVendorPlugin() {
       nativeConnection(
         { id: "global", displayName: "Global", providerId: "moonshotai" },
         moonshotaiProvider,
+        { cacheCapability: automaticShortCache },
       ),
       nativeConnection(
         { id: "cn", displayName: "China", providerId: "moonshotai-cn" },
         moonshotaiCnProvider,
+        { cacheCapability: automaticShortCache },
       ),
       nativeConnection(
         { id: "kimi-coding", displayName: "Kimi For Coding", providerId: "kimi-coding" },
         kimiCodingProvider,
+        { cacheCapability: automaticShortCache },
       ),
     ],
   });

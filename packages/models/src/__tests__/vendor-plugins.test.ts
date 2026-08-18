@@ -79,6 +79,15 @@ describe("VendorPluginManager", () => {
   it("resolves models from the provider-owned catalog", async () => {
     const { runtime, manager } = createManager();
     for (const item of builtinVendorPlugins()) await manager.register(item);
+    const openAiSelection = await manager.resolve({
+      vendorId: "openai",
+      connectionId: "default",
+      modelId: "gpt-5.6-sol",
+    });
+    expect(runtime.getCacheCapability(openAiSelection)).toMatchObject({
+      retentions: ["none", "short"],
+      shortTtlMs: 1_800_000,
+    });
     const [model] = runtime.listModels("deepseek");
     const resolved = await manager.resolve({
       vendorId: "deepseek",

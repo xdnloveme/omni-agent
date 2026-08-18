@@ -290,6 +290,8 @@ export { InterprocessFileLock } from "./persistence/index";
 export type { InterprocessFileLockOptions } from "./persistence/index";
 export type {
   StreamEvent,
+  TextDeltaEvent,
+  FinalResponseEvent,
   ModelContextPreparedEvent,
   StreamCallbacks,
   StreamState,

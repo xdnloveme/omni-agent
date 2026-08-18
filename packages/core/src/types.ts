@@ -142,7 +142,8 @@ export interface AgentLoopInput {
 
 // Events emitted by the agent loop
 export type AgentEvent =
-  | { type: "text_delta"; delta: string }
+  | { type: "text_delta"; modelCallId: string; textSegmentId: string; delta: string }
+  | { type: "final_response"; modelCallId: string }
   | { type: "thinking_start"; modelCallId: string; contentIndex: number }
   | {
       type: "thinking_delta";

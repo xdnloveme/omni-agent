@@ -6,6 +6,7 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
+import { formatElapsedTime } from "../../presentation/format";
 import type { DisclosureViewModel } from "../../presentation/view-models";
 
 export class DisclosureMessage implements Component {
@@ -28,7 +29,6 @@ export class DisclosureMessage implements Component {
     this.viewModel = viewModel;
     this.cachedDetails = undefined;
     if (completed && viewModel.collapseOnComplete) this.expanded = false;
-    else if (viewModel.initiallyExpanded) this.expanded = true;
     this.syncChildren(viewModel.children ?? []);
   }
 
@@ -97,7 +97,7 @@ function renderState(viewModel: DisclosureViewModel, now: number): string {
     case "running": {
       const elapsed =
         viewModel.startedAt === undefined ? 0 : Math.max(0, now - viewModel.startedAt);
-      const suffix = elapsed < 1_000 ? "" : ` ${formatElapsed(elapsed)}`;
+      const suffix = elapsed < 1_000 ? "" : ` ${formatElapsedTime(elapsed)}`;
       return chalk.cyan(`running…${suffix}`);
     }
     case "completed":
@@ -111,14 +111,6 @@ function renderState(viewModel: DisclosureViewModel, now: number): string {
 
 export function disclosureUrl(id: string): string {
   return `omni-agent://disclosure/${encodeURIComponent(id)}`;
-}
-
-function formatElapsed(durationMs: number): string {
-  const totalSeconds = Math.floor(durationMs / 1_000);
-  if (totalSeconds < 60) return `${totalSeconds}s`;
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}m ${seconds}s`;
 }
 
 function renderResponsiveSummary(
