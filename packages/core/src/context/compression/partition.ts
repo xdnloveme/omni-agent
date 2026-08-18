@@ -1,5 +1,6 @@
 import type { ContextEntry } from "../contracts/types";
 import type { ContextTokenEstimatorPort } from "../contracts/ports";
+import { createContextToolCycleView } from "./toolCycle";
 
 export interface ContextPartition {
   readonly coveredMessageCount: number;
@@ -57,10 +58,18 @@ export function partitionContextEntries(
 function groupEntries(
   entries: readonly Exclude<ContextEntry, { kind: "checkpoint" }>[],
 ): Exclude<ContextEntry, { kind: "checkpoint" }>[][] {
+  const cycles = createContextToolCycleView(entries);
+  const protectedSpans = cycles.cycles.map((cycle) => cycle.span);
   const groups: Exclude<ContextEntry, { kind: "checkpoint" }>[][] = [];
   for (const entry of entries) {
     const isUser = entry.kind === "transcript" && entry.message.role === "user";
-    if (isUser || groups.length === 0) groups.push([]);
+    // A user boundary cannot split a tool call from its result. Malformed
+    // cross-turn cycles stay together so the Heavy checkpoint remains safe.
+    const crossesToolCycle = protectedSpans.some(
+      ({ startSourceIndex, endSourceIndex }) =>
+        startSourceIndex < entry.sourceIndex && entry.sourceIndex <= endSourceIndex,
+    );
+    if ((isUser && !crossesToolCycle) || groups.length === 0) groups.push([]);
     groups[groups.length - 1].push(entry);
   }
   return groups;

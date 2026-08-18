@@ -45,6 +45,7 @@ export interface ContextPolicyStageOptions {
   readonly modelCallId: string;
   readonly estimate: ContextTokenEstimate;
   readonly estimateHistory: (history: DeepReadonly<ContextHistoryFrame>) => ContextTokenEstimate;
+  readonly estimateEntry: (entry: DeepReadonly<ContextEntry>) => number;
   readonly compression: ContextCompressionReporterPort;
   readonly signal?: AbortSignal;
 }

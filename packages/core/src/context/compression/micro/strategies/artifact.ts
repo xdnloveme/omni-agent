@@ -8,30 +8,38 @@ import type {
   ContextHistoryFrame,
 } from "../../../contracts/types";
 import type {
+  ContextToolCycleView,
   ContextProjectionStorePort,
+  MicroProjectionAssessment,
+  MicroProjectionCandidate,
   MicroProjectionOptions,
   MicroProjectionRecord,
+  MicroProjectionReplayOptions,
   MicroProjectionResult,
   MicroProjectionStrategyPort,
   MicroStrategyProjectionState,
   PendingContextArtifact,
 } from "../contracts";
+import { createMicroProjectionCandidate, MINIMUM_MICRO_REDUCTION_RATIO } from "../selector";
 import {
   createStrategyState,
+  createMicroProjectionAssessment,
   indexProjectionRecords,
   projectionRecordKey,
+  projectionReplayDetails,
+  projectionSourceKey,
+  toolResultProjectionSourceId,
   unchangedProjection,
   validStrategyRecords,
 } from "../strategyState";
 
-const MINIMUM_TEXT_LENGTH = 500;
 const PRESERVED_RECENT_RESULTS = 3;
 
 export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
   readonly key = "artifact" as const;
   readonly name = "artifact_projection";
   readonly compressionKind = "artifact_projection" as const;
-  readonly version = 1;
+  readonly version = 2;
   private readonly configurationDigest: string;
 
   constructor(
@@ -42,7 +50,7 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
     this.configurationDigest = digestContextValue({
       recovery,
       excludedToolNames: [...excludedToolNames].sort(),
-      minimumTextLength: MINIMUM_TEXT_LENGTH,
+      minimumReductionRatio: MINIMUM_MICRO_REDUCTION_RATIO,
       preservedRecentResults: PRESERVED_RECENT_RESULTS,
     });
   }
@@ -51,21 +59,52 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
     return createStrategyState(this, this.configurationDigest);
   }
 
-  canAdvance(
+  assess(
     frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
-  ): boolean {
-    if (!this.recovery) return false;
+    options: Readonly<MicroProjectionOptions>,
+  ): MicroProjectionAssessment {
+    if (!this.recovery) return createMicroProjectionAssessment(this, [], "recovery_unavailable");
     const existing = new Set(validStrategyRecords(state, this).map((record) => record.sourceId));
-    return this.selectedCandidates(frame).some(
-      (entry) => !existing.has(sourceId(entry.message as ToolResultTranscriptMessage)),
+    const eligible = this.eligibleEntries(frame, options.toolCycles);
+    const candidates: MicroProjectionCandidate[] = [];
+    let lowSavingsCount = 0;
+    for (const entry of eligible.slice(0, -PRESERVED_RECENT_RESULTS)) {
+      const message = entry.message as ToolResultTranscriptMessage;
+      if (existing.has(toolResultProjectionSourceId(message.toolCallId))) continue;
+      const projection = createArtifactProjection(
+        entry,
+        options.sessionId,
+        this.projections,
+        this.recovery.instruction,
+      );
+      const candidate = createMicroProjectionCandidate({
+        strategyKey: this.key,
+        sourceId: toolResultProjectionSourceId(message.toolCallId),
+        original: entry,
+        projected: projection.entry,
+        lossClass: "recoverable",
+        options,
+      });
+      if (candidate) candidates.push(candidate);
+      else lowSavingsCount++;
+    }
+    return createMicroProjectionAssessment(
+      this,
+      candidates,
+      candidates.length ? "candidates_available" : "no_safe_candidates",
+      {
+        eligibleCount: eligible.length,
+        recentProtectedCount: Math.min(eligible.length, PRESERVED_RECENT_RESULTS),
+        lowSavingsCount,
+      },
     );
   }
 
   async replay(
     frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
-    options: Readonly<MicroProjectionOptions>,
+    options: Readonly<MicroProjectionReplayOptions>,
   ): Promise<MicroProjectionResult> {
     const records = validStrategyRecords(state, this);
     if (!this.recovery || records.length === 0)
@@ -83,7 +122,9 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
       }
       const record = recordIndex.get(
         projectionRecordKey({
-          sourceId: sourceId(entry.message as ToolResultTranscriptMessage),
+          sourceId: toolResultProjectionSourceId(
+            (entry.message as ToolResultTranscriptMessage).toolCallId,
+          ),
           sourceIndex: entry.sourceIndex,
           sourceDigest: digestContextValue(entry.message),
         }),
@@ -111,29 +152,25 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
       retained.push(record);
       replayed++;
     }
+    const details = projectionReplayDetails(records, retained, replayed);
     return {
       frame: { ...output, entries },
       state: { ...this.createState(), records: retained },
       changed: false,
       artifacts: [],
-      ...(replayed > 0 ? { details: { replayedCount: replayed } } : {}),
+      ...(details ? { details } : {}),
     };
   }
 
   async advance(
     frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
+    selected: readonly Readonly<MicroProjectionCandidate>[],
     options: Readonly<MicroProjectionOptions>,
   ): Promise<MicroProjectionResult> {
     if (!this.recovery) return unchangedProjection(frame, this.createState());
     const records = [...validStrategyRecords(state, this)];
-    const existing = new Set(records.map((record) => record.sourceId));
-    const selectedIds = new Set(
-      this.selectedCandidates(frame)
-        .map((entry) => entry.message as ToolResultTranscriptMessage)
-        .filter((message) => !existing.has(sourceId(message)))
-        .map(sourceId),
-    );
+    const selectedIds = new Set(selected.map(projectionSourceKey));
     if (selectedIds.size === 0)
       return unchangedProjection(
         frame,
@@ -147,37 +184,29 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
       if (
         entry.kind !== "transcript" ||
         entry.message.role !== "toolResult" ||
-        !selectedIds.has(sourceId(entry.message))
+        !selectedIds.has(
+          projectionSourceKey({
+            sourceId: toolResultProjectionSourceId(entry.message.toolCallId),
+            sourceIndex: entry.sourceIndex,
+          }),
+        )
       ) {
         entries.push(entry);
         continue;
       }
       const transcript = entry as Extract<ContextEntry, { kind: "transcript" }>;
       const message = transcript.message as ToolResultTranscriptMessage;
-      const content = textOf(message);
-      const contentDigest = digestContextValue(content);
-      const artifactId = digestContextValue({
-        sessionId: options.sessionId,
-        toolCallId: message.toolCallId,
-        contentDigest,
-      });
-      const path = this.projections.artifactPath(options.sessionId, artifactId);
-      const artifact = {
-        id: artifactId,
-        path,
-        contentDigest,
-        originalLength: content.length,
-        recoveryInstruction: this.recovery.instruction,
-      };
-      const projected: ContextEntry = {
-        kind: "toolResultArtifact",
-        sourceIndex: transcript.sourceIndex,
-        message,
-        artifact,
-      };
+      const projection = createArtifactProjection(
+        transcript,
+        options.sessionId,
+        this.projections,
+        this.recovery.instruction,
+      );
+      const { content, contentDigest, artifactId } = projection;
+      const projected = projection.entry;
       const record: MicroProjectionRecord = {
         kind: "artifact",
-        sourceId: sourceId(message),
+        sourceId: toolResultProjectionSourceId(message.toolCallId),
         sourceIndex: transcript.sourceIndex,
         sourceDigest: digestContextValue(message),
         projectionDigest: digestContextValue(projected),
@@ -204,25 +233,31 @@ export class ArtifactProjectionStrategy implements MicroProjectionStrategyPort {
     };
   }
 
-  private selectedCandidates(
+  private eligibleEntries(
     frame: Readonly<ContextHistoryFrame>,
+    cycles: ContextToolCycleView,
   ): Extract<ContextEntry, { kind: "transcript" }>[] {
-    const candidates = frame.entries.filter(
+    return frame.entries.filter(
       (entry): entry is Extract<ContextEntry, { kind: "transcript" }> =>
         entry.kind === "transcript" &&
         entry.message.role === "toolResult" &&
         !this.excludedToolNames.includes(entry.message.toolName) &&
-        isEligible(entry.message),
+        isEligible(entry, cycles),
     );
-    return candidates.slice(0, -PRESERVED_RECENT_RESULTS);
   }
 }
 
-function isEligible(message: ToolResultTranscriptMessage): boolean {
+function isEligible(
+  entry: Extract<ContextEntry, { kind: "transcript" }>,
+  cycles: ContextToolCycleView,
+): boolean {
+  const message = entry.message as ToolResultTranscriptMessage;
+  const cycle = cycles.findByResultSourceIndex(entry.sourceIndex);
   return (
+    cycle?.status === "completed" &&
+    cycle.consumed &&
     !message.isError &&
-    message.content.every((block) => block.type === "text") &&
-    textOf(message).length > MINIMUM_TEXT_LENGTH
+    message.content.every((block) => block.type === "text")
   );
 }
 
@@ -230,8 +265,42 @@ function textOf(message: ToolResultTranscriptMessage): string {
   return message.content.map((block) => (block.type === "text" ? block.text : "")).join("\n");
 }
 
-function sourceId(message: ToolResultTranscriptMessage): string {
-  return `toolResult:${message.toolCallId}`;
+function createArtifactProjection(
+  entry: Extract<ContextEntry, { kind: "transcript" }>,
+  sessionId: string,
+  projections: ContextProjectionStorePort,
+  recoveryInstruction: string,
+): {
+  readonly entry: Exclude<ContextEntry, { kind: "checkpoint" }>;
+  readonly artifactId: string;
+  readonly content: string;
+  readonly contentDigest: string;
+} {
+  const message = entry.message as ToolResultTranscriptMessage;
+  const content = textOf(message);
+  const contentDigest = digestContextValue(content);
+  const artifactId = digestContextValue({
+    sessionId,
+    toolCallId: message.toolCallId,
+    contentDigest,
+  });
+  return {
+    entry: {
+      kind: "toolResultArtifact",
+      sourceIndex: entry.sourceIndex,
+      message,
+      artifact: {
+        id: artifactId,
+        path: projections.artifactPath(sessionId, artifactId),
+        contentDigest,
+        originalLength: content.length,
+        recoveryInstruction,
+      },
+    },
+    artifactId,
+    content,
+    contentDigest,
+  };
 }
 
 function stringData(record: MicroProjectionRecord | undefined, key: string): string | undefined {

@@ -107,6 +107,18 @@ describe("context architecture", () => {
         .map(({ file }) => relative(repositoryRoot, file)),
     ).toEqual([]);
     expect(
+      sources
+        .filter(({ source }) => /\bcanAdvance\b|MINIMUM_TEXT_LENGTH|minimumTextLength/.test(source))
+        .map(({ file }) => relative(repositoryRoot, file)),
+    ).toEqual([]);
+    for (const functionName of ["createContextToolCycleView", "selectMicroProjectionCandidates"]) {
+      expect(
+        sources.filter(({ source }) =>
+          new RegExp(`function\\s+${functionName}\\s*\\(`).test(source),
+        ),
+      ).toHaveLength(1);
+    }
+    expect(
       sources.filter(({ source }) => /function\s+toContextMessages\s*\(/.test(source)),
     ).toHaveLength(1);
     expect(
@@ -219,7 +231,9 @@ describe("context architecture", () => {
     expect(compactor).not.toMatch(/tailBudget\([^)]*attempt|attempt\s*>\s*0/);
 
     const agentLoop = await readFile(join(coreRoot, "agent-loop.ts"), "utf8");
-    expect(agentLoop).not.toMatch(/ContextSummary|CheckpointCompactor|tailBudget/);
+    expect(agentLoop).not.toMatch(
+      /ContextSummary|CheckpointCompactor|tailBudget|ContextToolCycle|MicroProjectionCandidate/,
+    );
   });
 
   it("prevents workspace consumers from deep-importing Context", async () => {

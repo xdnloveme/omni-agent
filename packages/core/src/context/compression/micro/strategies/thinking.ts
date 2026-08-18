@@ -4,17 +4,24 @@ import { digestContextValue } from "../../../digest";
 import { cloneContextHistoryFrame } from "../../../policy/types";
 import type { ContextEntry, ContextHistoryFrame } from "../../../contracts/types";
 import type {
+  MicroProjectionAssessment,
+  MicroProjectionCandidate,
   MicroProjectionOptions,
   MicroProjectionRecord,
+  MicroProjectionReplayOptions,
   MicroProjectionResult,
   MicroProjectionStrategyPort,
   MicroStrategyProjectionState,
   ThinkingHistoryPolicy,
 } from "../contracts";
+import { createMicroProjectionCandidate, MINIMUM_MICRO_REDUCTION_RATIO } from "../selector";
 import {
   createStrategyState,
+  createMicroProjectionAssessment,
   indexProjectionRecords,
   projectionRecordKey,
+  projectionReplayDetails,
+  projectionSourceKey,
   unchangedProjection,
   validStrategyRecords,
 } from "../strategyState";
@@ -25,7 +32,7 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
   readonly key = "thinking" as const;
   readonly name = "thinking_projection";
   readonly compressionKind = "thinking_projection" as const;
-  readonly version = 1;
+  readonly version = 2;
   constructor(private readonly policy: () => ThinkingHistoryPolicy) {
     this.currentPolicy();
   }
@@ -41,6 +48,7 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
   private configurationDigest(): string {
     return digestContextValue({
       policy: this.currentPolicy(),
+      minimumReductionRatio: MINIMUM_MICRO_REDUCTION_RATIO,
       preservedRecentThinking: PRESERVED_RECENT_THINKING,
     });
   }
@@ -49,21 +57,49 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
     return createStrategyState(this, this.configurationDigest());
   }
 
-  canAdvance(
+  assess(
     frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
-  ): boolean {
-    if (this.currentPolicy() !== "clear_old_text") return false;
+    options: Readonly<MicroProjectionOptions>,
+  ): MicroProjectionAssessment {
+    if (this.currentPolicy() !== "clear_old_text") {
+      return createMicroProjectionAssessment(this, [], "policy_preserves_all");
+    }
     const existing = new Set(validStrategyRecords(state, this).map((record) => record.sourceId));
-    return this.selectedCandidates(frame).some(
-      (entry) => !existing.has(sourceId(entry.sourceIndex)),
+    const eligible = this.eligibleEntries(frame);
+    const candidates: MicroProjectionCandidate[] = [];
+    let lowSavingsCount = 0;
+    for (const entry of eligible.slice(0, -PRESERVED_RECENT_THINKING)) {
+      const id = sourceId(entry.sourceIndex);
+      if (existing.has(id)) continue;
+      const projected = projectThinkingEntry(entry);
+      const candidate = createMicroProjectionCandidate({
+        strategyKey: this.key,
+        sourceId: id,
+        original: entry,
+        projected,
+        lossClass: "discardable",
+        options,
+      });
+      if (candidate) candidates.push(candidate);
+      else lowSavingsCount++;
+    }
+    return createMicroProjectionAssessment(
+      this,
+      candidates,
+      candidates.length ? "candidates_available" : "no_safe_candidates",
+      {
+        eligibleCount: eligible.length,
+        recentProtectedCount: Math.min(eligible.length, PRESERVED_RECENT_THINKING),
+        lowSavingsCount,
+      },
     );
   }
 
   async replay(
     frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
-    options: Readonly<MicroProjectionOptions>,
+    options: Readonly<MicroProjectionReplayOptions>,
   ): Promise<MicroProjectionResult> {
     const records = validStrategyRecords(state, this);
     if (this.currentPolicy() !== "clear_old_text" || records.length === 0) {
@@ -90,29 +126,26 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
       retained.push(record);
       return projected;
     });
+    const details = projectionReplayDetails(records, retained, replayed);
     return {
       frame: { ...output, entries },
       state: createStrategyState(this, this.configurationDigest(), retained),
       changed: false,
       artifacts: [],
-      ...(replayed > 0 ? { details: { replayedCount: replayed } } : {}),
+      ...(details ? { details } : {}),
     };
   }
 
   async advance(
     frame: Readonly<ContextHistoryFrame>,
     state: Readonly<MicroStrategyProjectionState>,
+    selected: readonly Readonly<MicroProjectionCandidate>[],
     options: Readonly<MicroProjectionOptions>,
   ): Promise<MicroProjectionResult> {
     if (this.currentPolicy() !== "clear_old_text")
       return unchangedProjection(frame, this.createState());
     const records = [...validStrategyRecords(state, this)];
-    const existing = new Set(records.map((record) => record.sourceId));
-    const selectedIds = new Set(
-      this.selectedCandidates(frame)
-        .map((entry) => sourceId(entry.sourceIndex))
-        .filter((id) => !existing.has(id)),
-    );
+    const selectedIds = new Set(selected.map(projectionSourceKey));
     if (selectedIds.size === 0)
       return unchangedProjection(
         frame,
@@ -125,7 +158,12 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
       if (
         entry.kind !== "transcript" ||
         entry.message.role !== "assistant" ||
-        !selectedIds.has(sourceId(entry.sourceIndex))
+        !selectedIds.has(
+          projectionSourceKey({
+            sourceId: sourceId(entry.sourceIndex),
+            sourceIndex: entry.sourceIndex,
+          }),
+        )
       ) {
         return entry;
       }
@@ -152,10 +190,10 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
     };
   }
 
-  private selectedCandidates(
+  private eligibleEntries(
     frame: Readonly<ContextHistoryFrame>,
   ): Extract<ContextEntry, { kind: "transcript" }>[] {
-    const candidates = frame.entries.filter(
+    return frame.entries.filter(
       (entry): entry is Extract<ContextEntry, { kind: "transcript" }> =>
         entry.kind === "transcript" &&
         entry.message.role === "assistant" &&
@@ -163,11 +201,12 @@ export class ThinkingProjectionStrategy implements MicroProjectionStrategyPort {
           (block) => block.type === "thinking" && block.thinking.length > 0,
         ),
     );
-    return candidates.slice(0, -PRESERVED_RECENT_THINKING);
   }
 }
 
-function projectThinkingEntry(entry: Extract<ContextEntry, { kind: "transcript" }>): ContextEntry {
+function projectThinkingEntry(
+  entry: Extract<ContextEntry, { kind: "transcript" }>,
+): Extract<ContextEntry, { kind: "transcript" }> {
   const message = entry.message as AssistantTranscriptMessage;
   return {
     ...entry,

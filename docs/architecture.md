@@ -370,12 +370,36 @@ policy <- runtime
 
 Micro compression is a stable projection rather than a Session mutation. A Context
 sidecar stores only versioned projection records and content-addressed artifacts. The
-composite Micro stage replays existing records on every preparation, then advances the
-ordered strategies injected by App when the dynamic budget threshold is exceeded. Built-ins
-are Artifact, optional Skill, and capability-gated Thinking. Projection state is keyed by
-stable strategy identifiers rather than fixed slots. Runtime model capabilities and cache
-leases are resolved from the current Agent model on every preparation. The final Heavy
-checkpoint gate remains mandatory and cannot be blocked by Micro policy.
+composite Micro stage replays existing records on every preparation. Above the dynamic
+admission threshold, one read-only Tool Cycle index protects call/result integrity and every
+strategy returns independently estimated candidates. A pure selector orders candidates by
+information-loss class and net token savings, selecting only enough to reach a recovery target
+with an 8,000-token/5% headroom. If the safe candidates cannot reach that target, no rewrite
+occurs. Built-ins remain Artifact, optional Skill, and capability-gated Thinking; no central
+tool-name switch exists.
+
+```text
+ContextHistoryFrame
+  -> stable replay
+  -> pressure admission
+  -> Tool Cycle index
+  -> Strategy assessments
+  -> minimum sufficient candidate selector
+  -> ContextRewriteGuardPort
+  -> selected Strategy projections
+  -> one atomic projection commit
+  -> mandatory Heavy final gate
+```
+
+Artifact eligibility is based on the shared token estimator rather than character count. Only
+complete, successful, already-consumed, text-only Tool Cycles can be externalized, and the
+latest three eligible cycles remain inline. Pending, malformed, failed, unconsumed, image, and
+mixed-content results remain visible. Capability-approved old Thinking is lower-loss than a
+recoverable Artifact or Skill reference, so it cannot be starved by strategy registration
+order. Projection state remains keyed by stable strategy identifiers rather than fixed slots.
+Runtime model capabilities and cache leases are resolved from the current Agent model on every
+preparation. The final Heavy checkpoint gate remains mandatory and cannot be blocked by Micro
+policy.
 
 The Session Repository does not know the Context sidecar. `ContextSidecarLayout`, the
 projection/checkpoint repositories, and lifecycle cleanup are composed in App. Physical
@@ -406,7 +430,9 @@ sidecar repositories.
 Every ownership boundary copies arrays, message objects, content blocks, tool arguments,
 diagnostic data, tool-result details, and model-visible schemas. TypeScript
 `DeepReadonly` prevents accidental mutation in extension contracts, while runtime copies
-provide the actual isolation. Immutable scalar and image-data strings may be shared.
+provide the actual isolation. Micro Strategy calls also receive detached frame, state,
+candidate, and estimate values; replay changes without matching persisted projection records
+fail closed. Immutable scalar and image-data strings may be shared.
 
 Executable `RegisteredAgentTool` values remain in the tool-call path. The Agent adapter
 projects them to `ModelToolSpec`, which contains only name, description, schema, and
@@ -662,9 +688,11 @@ facts never enter Session, Working Conversation, Model Context, or Provider requ
 
 Context compression publishes a single lifecycle per Context preparation. Micro and Heavy
 stages report only domain operations to a Pipeline-owned collector; the collector emits one
-started event and one terminal completed/failed event. Stable replay, threshold skips,
-cache deferral, and no-candidate paths emit nothing. These events are observation-only and
-never enter Session, Model Context, or checkpoint storage.
+started event and one terminal completed/failed event. Micro starts only after a sufficient
+candidate selection and rewrite-guard approval, and cannot complete before its atomic state
+commit. Stable replay, threshold skips, insufficient candidates, cache deferral, and
+no-candidate paths emit nothing. These events are observation-only and never enter Session,
+Model Context, or checkpoint storage.
 
 The CLI labels `inputTokens / usableInputBudget` as Context pressure because that is the
 ratio used by Micro and Heavy. Wide rendering also shows `inputTokens / contextWindow` as

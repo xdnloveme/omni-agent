@@ -14,12 +14,20 @@ import {
   type ContextCheckpointStorePort,
   type ContextFinalGateOptions,
   type ContextFinalGatePort,
+  type ContextHistoryFrame,
   type ContextEntry,
   type ContextProjectionState,
   type ContextProjectionStorePort,
   type ContextRewriteGuardPort,
   type ContextSummaryGeneratorPort,
+  type MicroProjectionStrategyPort,
 } from "../context";
+import { createContextToolCycleView } from "../context/compression/toolCycle";
+import { selectMicroProjectionCandidates } from "../context/compression/micro/selector";
+import {
+  microCompressionHeadroom,
+  microCompressionTarget,
+} from "../context/compression/micro/threshold";
 import { createContextEnvelope } from "../context/policy/types";
 import { projectContextEntries } from "../context/assembly/entryProjection";
 import { partitionContextEntries } from "../context/compression/partition";
@@ -49,6 +57,7 @@ function gateOptions(
     precedingStages: [],
     estimate: estimator.estimate(frame),
     estimateHistory: (history) => estimator.estimate({ fixed: frame.fixed, history }),
+    estimateEntry: (entry) => estimator.estimateEntry(entry),
     compression,
   };
 }
@@ -171,6 +180,21 @@ describe("Context policy pipeline", () => {
     expect(microCompressionThreshold({ ...ordinary, usableInputBudget: 600_000 })).toBe(300_000);
   });
 
+  it("keeps a stable target below the Micro admission threshold", () => {
+    const estimate = {
+      systemPromptTokens: 0,
+      messageTokens: 140_000,
+      toolTokens: 0,
+      totalInputTokens: 140_000,
+      usableInputBudget: 184_000,
+      usageRatio: 140_000 / 184_000,
+    };
+
+    expect(microCompressionThreshold(estimate)).toBe(138_000);
+    expect(microCompressionHeadroom(estimate)).toBe(9_200);
+    expect(microCompressionTarget(estimate)).toBe(128_800);
+  });
+
   it("reserves the requested output budget instead of the model output capacity", () => {
     const estimator = new ApproximateContextTokenEstimator();
     const source = createContextEnvelope({
@@ -243,6 +267,74 @@ describe("Context policy pipeline", () => {
     ).toEqual([0, 1, 2]);
   });
 
+  it("indexes complete, live, malformed, and duplicate tool cycles without guessing", () => {
+    const assistant = (
+      content: Extract<TranscriptMessage, { role: "assistant" }>["content"],
+      timestamp: number,
+    ): Extract<TranscriptMessage, { role: "assistant" }> => ({
+      role: "assistant",
+      content,
+      api: "test",
+      provider: "test",
+      model: "test",
+      stopReason: "toolUse",
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      timestamp,
+    });
+    const result = (
+      toolCallId: string,
+      toolName: string,
+      timestamp: number,
+    ): Extract<TranscriptMessage, { role: "toolResult" }> => ({
+      role: "toolResult",
+      toolCallId,
+      toolName,
+      content: [{ type: "text", text: "result" }],
+      isError: false,
+      timestamp,
+    });
+    const source = frame([
+      assistant(
+        [
+          { type: "toolCall", id: "done", name: "grep", arguments: {} },
+          { type: "toolCall", id: "live", name: "grep", arguments: {} },
+          { type: "toolCall", id: "pending", name: "grep", arguments: {} },
+          { type: "toolCall", id: "mismatch", name: "grep", arguments: {} },
+          { type: "toolCall", id: "duplicate", name: "grep", arguments: {} },
+          { type: "toolCall", id: "duplicate", name: "grep", arguments: {} },
+        ],
+        1,
+      ),
+      result("done", "grep", 2),
+      result("mismatch", "glob", 3),
+      result("orphan", "grep", 4),
+      assistant([{ type: "text", text: "Observed earlier results." }], 5),
+      result("live", "grep", 6),
+      { role: "user", content: "continue", timestamp: 7 },
+      result("duplicate", "grep", 8),
+    ]);
+
+    const cycles = createContextToolCycleView(source.history.entries);
+    const byId = new Map(cycles.cycles.map((cycle) => [cycle.toolCallId, cycle]));
+    expect(byId.get("done")).toMatchObject({ status: "completed", consumed: true });
+    expect(byId.get("live")).toMatchObject({ status: "completed", consumed: false });
+    expect(byId.get("pending")).toMatchObject({ status: "pending" });
+    expect(byId.get("mismatch")).toMatchObject({ status: "name_mismatch" });
+    expect(byId.get("orphan")).toMatchObject({ status: "orphan_result" });
+    expect(byId.get("duplicate")).toMatchObject({
+      status: "duplicate",
+      span: { startSourceIndex: 0, endSourceIndex: 7 },
+    });
+
+    const estimator = new ApproximateContextTokenEstimator();
+    const trailingBudget = source.history.entries
+      .slice(-2)
+      .reduce((total, entry) => total + estimator.estimateEntry(entry), 0);
+    expect(
+      partitionContextEntries(source.history.entries, trailingBudget, estimator).tailEntries,
+    ).toHaveLength(0);
+  });
+
   it("runs business-independent stages serially with detached frames", async () => {
     const estimator = new ApproximateContextTokenEstimator();
     const order: string[] = [];
@@ -289,6 +381,7 @@ describe("Context policy pipeline", () => {
       "agentId",
       "compression",
       "estimate",
+      "estimateEntry",
       "estimateHistory",
       "modelCallId",
       "sessionId",
@@ -389,17 +482,209 @@ describe("Context policy pipeline", () => {
   });
 });
 
+describe("Micro candidate selector", () => {
+  const candidate = (
+    strategyKey: string,
+    sourceIndex: number,
+    savings: number,
+    lossClass: "discardable" | "recoverable",
+  ) => ({
+    strategyKey,
+    sourceId: `${strategyKey}:${sourceIndex}`,
+    sourceIndex,
+    sourceDigest: `digest-${sourceIndex}`,
+    estimatedOriginalTokens: savings * 2,
+    estimatedProjectedTokens: savings,
+    estimatedNetSavingsTokens: savings,
+    reductionRatio: 0.5,
+    lossClass,
+  });
+
+  it("prefers lower-loss candidates and then affects the fewest recoverable sources", () => {
+    const assessments = [
+      {
+        strategyName: "thinking_projection",
+        strategyVersion: 2,
+        configurationDigest: "thinking",
+        candidates: [candidate("thinking", 1, 60, "discardable")],
+        reason: "candidates_available",
+      },
+      {
+        strategyName: "artifact_projection",
+        strategyVersion: 2,
+        configurationDigest: "artifact",
+        candidates: [
+          candidate("artifact", 2, 120, "recoverable"),
+          candidate("artifact", 3, 50, "recoverable"),
+        ],
+        reason: "candidates_available",
+      },
+    ];
+
+    expect(
+      selectMicroProjectionCandidates(assessments, 100).selected.map((item) => item.sourceId),
+    ).toEqual(["thinking:1", "artifact:2"]);
+    expect(
+      selectMicroProjectionCandidates([assessments[1]!], 100).selected.map((item) => item.sourceId),
+    ).toEqual(["artifact:2"]);
+  });
+
+  it("does not return a partial rewrite when candidates cannot reach the target", () => {
+    const selection = selectMicroProjectionCandidates(
+      [
+        {
+          strategyName: "artifact_projection",
+          strategyVersion: 2,
+          configurationDigest: "artifact",
+          candidates: [candidate("artifact", 1, 40, "recoverable")],
+          reason: "candidates_available",
+        },
+      ],
+      100,
+    );
+
+    expect(selection).toMatchObject({ sufficient: false, selected: [] });
+    expect(selection.estimatedSavingsTokens).toBe(40);
+  });
+});
+
 describe("StableMicroCompressionStage", () => {
+  it("isolates Assessment input and rejects Replay changes without projection records", async () => {
+    const estimator = new ApproximateContextTokenEstimator();
+    const source = frame([{ role: "user", content: "x".repeat(240_000), timestamp: 0 }], 100_000);
+    const projections = projectionStore();
+    const state = {
+      strategyName: "boundary_test",
+      strategyVersion: 2,
+      configurationDigest: "boundary-test-v2",
+      records: [],
+    } as const;
+    const strategy: MicroProjectionStrategyPort = {
+      key: "boundary_test",
+      name: "boundary_test",
+      version: 2,
+      compressionKind: "thinking_projection",
+      createState: () => state,
+      async replay(input) {
+        return {
+          frame: structuredClone(input) as ContextHistoryFrame,
+          state,
+          changed: false,
+          artifacts: [],
+        };
+      },
+      assess(input) {
+        const mutableInput = input as unknown as ContextHistoryFrame;
+        const message = mutableInput.entries[0];
+        if (message?.kind === "transcript" && message.message.role === "user") {
+          (message.message as { content: string }).content = "mutated";
+        }
+        return {
+          strategyName: this.name,
+          strategyVersion: this.version,
+          configurationDigest: state.configurationDigest,
+          candidates: [],
+          reason: "no_candidates",
+        };
+      },
+      async advance() {
+        throw new Error("advance must not run");
+      },
+    };
+    const stage = new StableMicroCompressionStage({
+      projections,
+      rewriteGuard: { assess: () => ({ action: "allow", reason: "test" }) },
+      strategies: [strategy],
+    });
+
+    const result = await stage.apply(source.history, gateOptions(estimator, source));
+    expect(result.frame.entries).toEqual(source.history.entries);
+
+    const invalidReplay: MicroProjectionStrategyPort = {
+      ...strategy,
+      async replay(input) {
+        const changed = structuredClone(input) as ContextHistoryFrame;
+        const message = changed.entries[0];
+        if (message?.kind === "transcript" && message.message.role === "user") {
+          (message.message as { content: string }).content = "unrecorded rewrite";
+        }
+        return { frame: changed, state, changed: false, artifacts: [] };
+      },
+    };
+    const invalidStage = new StableMicroCompressionStage({
+      projections,
+      rewriteGuard: { assess: () => ({ action: "allow", reason: "test" }) },
+      strategies: [invalidReplay],
+    });
+
+    await expect(
+      invalidStage.apply(source.history, gateOptions(estimator, source)),
+    ).rejects.toThrow("without a matching projection record");
+    expect(projections.commit).not.toHaveBeenCalled();
+  });
+
+  it("does not rewrite small or unconsumed Tool Results merely because pressure is high", async () => {
+    const estimator = new ApproximateContextTokenEstimator();
+    const smallStore = projectionStore();
+    const smallSource = frame(
+      [
+        { role: "user", content: "x".repeat(240_000), timestamp: 0 },
+        ...completedToolCycles(5, () => "small".repeat(120)),
+      ],
+      100_000,
+    );
+    const smallBegin = vi.fn();
+    const smallResult = await stableMicro(smallStore).apply(smallSource.history, {
+      ...gateOptions(estimator, smallSource),
+      compression: { begin: smallBegin, record: vi.fn() },
+    });
+
+    expect(smallResult.decisions[0]).toMatchObject({ type: "stable_micro_no_change" });
+    expect(smallBegin).not.toHaveBeenCalled();
+    expect(smallStore.commit).not.toHaveBeenCalled();
+
+    const calls = Array.from({ length: 5 }, (_, index) => ({
+      type: "toolCall" as const,
+      id: `live-${index}`,
+      name: "grep",
+      arguments: {},
+    }));
+    const unconsumedSource = frame(
+      [
+        {
+          role: "assistant",
+          content: calls,
+          api: "test",
+          provider: "test",
+          model: "test",
+          stopReason: "toolUse",
+          usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+          timestamp: 1,
+        },
+        ...calls.map((call, index): TranscriptMessage => ({
+          role: "toolResult",
+          toolCallId: call.id,
+          toolName: call.name,
+          content: [{ type: "text", text: "x".repeat(60_000) }],
+          isError: false,
+          timestamp: index + 2,
+        })),
+      ],
+      100_000,
+    );
+    const liveStore = projectionStore();
+    const liveResult = await stableMicro(liveStore).apply(
+      unconsumedSource.history,
+      gateOptions(estimator, unconsumedSource),
+    );
+
+    expect(liveResult.decisions[0]).toMatchObject({ type: "stable_micro_no_change" });
+    expect(liveStore.commit).not.toHaveBeenCalled();
+  });
+
   it("projects old large text results, preserves the latest three, and commits once", async () => {
     const projections = projectionStore();
-    const messages: TranscriptMessage[] = Array.from({ length: 5 }, (_, index) => ({
-      role: "toolResult",
-      toolCallId: `call-${index}`,
-      toolName: "grep",
-      content: [{ type: "text", text: String(index).repeat(60_000) }],
-      isError: false,
-      timestamp: index,
-    }));
+    const messages = completedToolCycles(5, (index) => String(index).repeat(60_000));
     const source = frame(messages, 100_000);
     const estimator = new ApproximateContextTokenEstimator();
     const begin = vi.fn();
@@ -411,19 +696,14 @@ describe("StableMicroCompressionStage", () => {
 
     expect(projections.commit).toHaveBeenCalledOnce();
     expect(projections.artifacts).toHaveLength(2);
-    expect(begin).toHaveBeenCalledWith("artifact_projection", {
-      inputTokens: 75_047,
-      usableInputBudget: 99_900,
-      thresholdTokens: 59_900,
-    });
+    expect(begin).toHaveBeenCalledWith(
+      "artifact_projection",
+      expect.objectContaining({ usableInputBudget: 99_900 }),
+    );
     expect(record).toHaveBeenCalledWith({ kind: "artifact_projection", affectedCount: 2 });
-    expect(result.frame.entries.map((entry) => entry.kind)).toEqual([
-      "toolResultArtifact",
-      "toolResultArtifact",
-      "transcript",
-      "transcript",
-      "transcript",
-    ]);
+    expect(
+      result.frame.entries.filter((entry) => entry.kind === "toolResultArtifact"),
+    ).toHaveLength(2);
     const replayed = await stableMicro(projections).apply(
       source.history,
       gateOptions(estimator, source),
@@ -437,21 +717,14 @@ describe("StableMicroCompressionStage", () => {
       gateOptions(estimator, source),
     );
     expect(
-      rebuilt.frame.entries.slice(0, 2).every((entry) => entry.kind === "toolResultArtifact"),
-    ).toBe(true);
+      rebuilt.frame.entries.filter((entry) => entry.kind === "toolResultArtifact"),
+    ).toHaveLength(2);
     expect(projections.commit).toHaveBeenCalledTimes(2);
   });
 
   it("does not commit when an active rewrite guard defers projection", async () => {
     const projections = projectionStore();
-    const messages: TranscriptMessage[] = Array.from({ length: 5 }, (_, index) => ({
-      role: "toolResult",
-      toolCallId: `call-${index}`,
-      toolName: "grep",
-      content: [{ type: "text", text: "x".repeat(60_000) }],
-      isError: false,
-      timestamp: index,
-    }));
+    const messages = completedToolCycles(5, () => "x".repeat(60_000));
     const source = frame(messages, 100_000);
     const estimator = new ApproximateContextTokenEstimator();
     const stage = stableMicro(projections, {
@@ -465,15 +738,12 @@ describe("StableMicroCompressionStage", () => {
 
   it("projects structured Skill results without treating them as generic artifacts", async () => {
     const projections = projectionStore();
-    const messages: TranscriptMessage[] = Array.from({ length: 5 }, (_, index) => ({
-      role: "toolResult",
-      toolCallId: `skill-${index}`,
-      toolName: "skill_read",
-      content: [{ type: "text", text: `skill ${index} ${"x".repeat(60_000)}` }],
-      details: { kind: "skill_read", skillName: `skill-${index}` },
-      isError: false,
-      timestamp: index,
-    }));
+    const messages = completedToolCycles(
+      5,
+      (index) => `skill ${index} ${"x".repeat(60_000)}`,
+      "skill_read",
+      (index) => ({ kind: "skill_read", skillName: `skill-${index}` }),
+    );
     const source = frame(messages, 100_000);
     const estimator = new ApproximateContextTokenEstimator();
     const stage = new StableMicroCompressionStage({
@@ -487,16 +757,15 @@ describe("StableMicroCompressionStage", () => {
     });
 
     const result = await stage.apply(source.history, gateOptions(estimator, source));
-    expect(result.frame.entries.slice(0, 2)).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          kind: "transcript",
-          message: expect.objectContaining({
-            content: [expect.objectContaining({ text: expect.stringContaining("skill_read") })],
-          }),
-        }),
-      ]),
+    const projected = result.frame.entries.filter(
+      (entry) =>
+        entry.kind === "transcript" &&
+        entry.message.role === "toolResult" &&
+        entry.message.content.some(
+          (block) => block.type === "text" && block.text.includes("skill_read"),
+        ),
     );
+    expect(projected).toHaveLength(2);
     expect(projections.artifacts).toEqual([]);
   });
 
@@ -559,6 +828,49 @@ describe("StableMicroCompressionStage", () => {
     expect(preserved.frame.entries).toEqual(source.history.entries);
   });
 });
+
+function completedToolCycles(
+  count: number,
+  content: (index: number) => string,
+  toolName = "grep",
+  details?: (index: number) => Record<string, string>,
+): TranscriptMessage[] {
+  return Array.from({ length: count }, (_, index): TranscriptMessage[] => {
+    const toolCallId = `${toolName}-${index}`;
+    const timestamp = index * 3;
+    return [
+      {
+        role: "assistant",
+        content: [{ type: "toolCall", id: toolCallId, name: toolName, arguments: {} }],
+        api: "test",
+        provider: "test",
+        model: "test",
+        stopReason: "toolUse",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        timestamp,
+      },
+      {
+        role: "toolResult",
+        toolCallId,
+        toolName,
+        content: [{ type: "text", text: content(index) }],
+        ...(details ? { details: details(index) } : {}),
+        isError: false,
+        timestamp: timestamp + 1,
+      },
+      {
+        role: "assistant",
+        content: [{ type: "text", text: `Observed ${toolCallId}.` }],
+        api: "test",
+        provider: "test",
+        model: "test",
+        stopReason: "stop",
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+        timestamp: timestamp + 2,
+      },
+    ];
+  }).flat();
+}
 
 function stableMicro(
   projections: ReturnType<typeof projectionStore>,

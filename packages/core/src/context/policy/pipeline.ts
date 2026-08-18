@@ -59,6 +59,7 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
           modelCallId: options.modelCallId,
           estimate: { ...before },
           estimateHistory,
+          estimateEntry: (entry) => this.estimator.estimateEntry(entry),
           compression,
           signal: options.signal,
         });
@@ -101,6 +102,7 @@ export class ContextPolicyPipeline implements ContextPolicyPort {
         })),
         estimate: { ...before },
         estimateHistory,
+        estimateEntry: (entry) => this.estimator.estimateEntry(entry),
         compression,
         signal: options.signal,
       });

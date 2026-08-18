@@ -1,5 +1,9 @@
 import type { DeepReadonly, JsonValue } from "../../../data";
-import type { ContextHistoryFrame, ContextTokenEstimate } from "../../contracts/types";
+import type {
+  ContextEntry,
+  ContextHistoryFrame,
+  ContextTokenEstimate,
+} from "../../contracts/types";
 import type { ContextCompressionKind } from "../../contracts/progress";
 import type { ThinkingHistoryPolicy } from "../../../models/runtime";
 
@@ -49,7 +53,63 @@ export interface MicroProjectionOptions {
   readonly sessionId: string;
   readonly modelCallId: string;
   readonly estimate: ContextTokenEstimate;
+  readonly toolCycles: ContextToolCycleView;
+  readonly estimateEntry: (entry: DeepReadonly<ContextEntry>) => number;
   readonly signal?: AbortSignal;
+}
+
+export type MicroProjectionReplayOptions = Omit<
+  MicroProjectionOptions,
+  "toolCycles" | "estimateEntry"
+>;
+
+export type MicroProjectionLossClass = "discardable" | "recoverable" | "semantic";
+
+export interface MicroProjectionCandidate {
+  readonly strategyKey: string;
+  readonly sourceId: string;
+  readonly sourceIndex: number;
+  readonly sourceDigest: string;
+  readonly estimatedOriginalTokens: number;
+  readonly estimatedProjectedTokens: number;
+  readonly estimatedNetSavingsTokens: number;
+  readonly reductionRatio: number;
+  readonly lossClass: MicroProjectionLossClass;
+}
+
+export interface MicroProjectionAssessment {
+  readonly strategyName: string;
+  readonly strategyVersion: number;
+  readonly configurationDigest: string;
+  readonly candidates: readonly MicroProjectionCandidate[];
+  readonly reason: string;
+  readonly details?: DeepReadonly<Record<string, JsonValue>>;
+}
+
+export interface ContextToolCycle {
+  readonly toolCallId: string;
+  readonly toolName: string;
+  readonly span: {
+    readonly startSourceIndex: number;
+    readonly endSourceIndex: number;
+  };
+  readonly call?: {
+    readonly sourceIndex: number;
+    readonly contentIndex: number;
+    readonly sourceDigest: string;
+  };
+  readonly result?: {
+    readonly sourceIndex: number;
+    readonly sourceDigest: string;
+    readonly isError: boolean;
+  };
+  readonly status: "completed" | "pending" | "orphan_result" | "duplicate" | "name_mismatch";
+  readonly consumed: boolean;
+}
+
+export interface ContextToolCycleView {
+  readonly cycles: readonly ContextToolCycle[];
+  findByResultSourceIndex(sourceIndex: number): ContextToolCycle | undefined;
 }
 
 export interface MicroProjectionResult {
@@ -67,19 +127,23 @@ export interface MicroProjectionStrategyPort {
   readonly version: number;
   readonly compressionKind: ContextCompressionKind;
   createState(): MicroStrategyProjectionState;
-  canAdvance(
+  /** Finds deterministic candidates without performing I/O or mutating the frame. */
+  assess(
     frame: DeepReadonly<ContextHistoryFrame>,
     state: DeepReadonly<MicroStrategyProjectionState>,
     options: DeepReadonly<MicroProjectionOptions>,
-  ): boolean;
+  ): MicroProjectionAssessment;
+  /** Reapplies committed projections without creating or persisting new state. */
   replay(
     frame: DeepReadonly<ContextHistoryFrame>,
     state: DeepReadonly<MicroStrategyProjectionState>,
-    options: DeepReadonly<MicroProjectionOptions>,
+    options: DeepReadonly<MicroProjectionReplayOptions>,
   ): Promise<MicroProjectionResult>;
+  /** Applies exactly the globally selected candidates and returns pending state changes. */
   advance(
     frame: DeepReadonly<ContextHistoryFrame>,
     state: DeepReadonly<MicroStrategyProjectionState>,
+    selected: readonly DeepReadonly<MicroProjectionCandidate>[],
     options: DeepReadonly<MicroProjectionOptions>,
   ): Promise<MicroProjectionResult>;
 }

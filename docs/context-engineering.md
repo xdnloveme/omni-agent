@@ -141,21 +141,60 @@ and context window), the Provider request uses that exact value, and Context nev
 substitutes the larger catalog capacity. A persisted model selection may explicitly set
 `requestedOutputTokens`; invalid or out-of-range values fail during model resolution.
 
-The Micro threshold is dynamic. It reserves the larger of 40,000 tokens or 25% of usable
-input; models with at least 500,000 usable input reserve 50%. A zero threshold skips
-Micro advancement. Stable projections are replayed regardless of the threshold.
+The Micro admission threshold is dynamic. It reserves the larger of 40,000 tokens or 25%
+of usable input; models with at least 500,000 usable input reserve 50%. A zero threshold
+skips Micro advancement. Stable projections are replayed regardless of the threshold.
+An admitted rewrite must also reach a recovery target below that threshold. The target
+reserves the larger of 8,000 tokens or 5% of usable input, preventing a small append from
+causing another prefix rewrite on the next model call. If the complete safe candidate set
+cannot reach the target, Micro does not rewrite anything and the mandatory Heavy gate still
+runs.
 
-`StableMicroCompressionStage` is a composite. App injects the ordered strategies; the
-built-in order is Artifact, optional Skill, then Thinking. The stage re-estimates after each
-advance and stops as soon as pressure is resolved. Projection state is keyed by each
-strategy's stable key, so adding a strategy does not require changing the central state
-contract. Artifact Projection externalizes successful, text-only
-tool results longer than 500 characters while preserving the latest three. Recovery is
-an Agent capability, so Core does not name `file_read`. Skill Projection uses structured
-Tool Result details supplied by `SkillRuntime`; it never parses result text. Thinking
-Projection is disabled unless a model explicitly declares `clear_old_text`, preserves
-the latest three Thinking blocks, and retains signatures, redaction, message order,
-ordinary text, and tool calls.
+`StableMicroCompressionStage` is a composite, but registration order no longer decides
+which history is discarded first. Every strategy synchronously assesses detached candidates
+using the shared entry estimator. A pure selector orders candidates by information-loss class,
+then by net token savings, and chooses only the minimum set that reaches the recovery target.
+The stage invokes the cache-aware guard once, applies each selected strategy once, validates
+the actual result, and atomically commits all state and artifacts once.
+
+```text
+stable replay
+  -> pressure gate
+  -> Tool Cycle index
+  -> all strategy assessments
+  -> minimum sufficient selection
+  -> rewrite guard
+  -> selected projections
+  -> atomic commit
+  -> Heavy final gate
+```
+
+A single read-only Tool Cycle index pairs Assistant Tool Calls and Tool Results by ID. Only a
+complete, successful cycle whose result has already been followed by another Assistant message
+can become a Micro candidate. Pending, orphaned, duplicated, name-mismatched, failed, and
+unconsumed cycles remain visible. Recent retention counts complete cycles rather than isolated
+Tool Result messages, and Heavy partitioning uses the same boundary so a call and result cannot
+be split.
+
+Artifact Projection no longer uses a character-count trigger. It constructs the real stable
+artifact reference and compares its estimated token cost with the original successful,
+text-only Tool Result. Candidates must save tokens and reduce their entry by at least 50%; the
+latest three eligible cycles remain inline. Recovery is an Agent capability, so Core does not
+name `file_read`. Skill Projection uses structured Tool Result details supplied by
+`SkillRuntime`; it never parses result text. Thinking Projection is disabled unless a model
+explicitly declares `clear_old_text`, preserves the latest three Thinking messages, and retains
+signatures, redaction, message order, ordinary text, and tool calls. Capability-approved old
+Thinking is classified as discardable, while Artifact and Skill references are recoverable, so
+the selector reduces lower-risk content first.
+
+Custom Micro strategies implement one contract: deterministic `assess()`, read-only
+`replay()`, and selected-only `advance()`. Assessment receives a detached Tool Cycle view and
+the shared `estimateEntry()` capability, never an executable tool or concrete estimator. The
+stage supplies independent runtime copies of the frame, state, candidates, and token estimate;
+TypeScript read-only types are not the isolation boundary. Replay output is accepted only when
+every changed entry is backed by a retained, digest-matching projection record. An unavailable
+record leaves the original entry visible and is not reported as a stable cache replay. The former
+`canAdvance()` contract is removed rather than retained as a compatibility path.
 
 Projection records contain stable source and output digests, versions, configuration
 digests, and artifact references, not Transcript bodies. Replay verifies those facts and
@@ -331,11 +370,12 @@ compression path.
 
 Every preparation receives a required `ContextProgressSinkPort`. The Context Policy
 Pipeline creates one `ContextCompressionProgressCollector` using the initial detached
-frame estimate. A Micro strategy publishes `begin()` only after an advance has produced a
-real rewrite and before the atomic projection commit; a `canAdvance`/`advance` mismatch is
-an invalid strategy result rather than a successful no-op compression. The Heavy gate calls
-`begin()` before summary generation and records its create/extend operation only after
-checkpoint persistence succeeds.
+frame estimate. Micro publishes `begin()` only after selection succeeds and the rewrite
+guard allows the operation, immediately before the first selected strategy advances. A
+strategy must modify exactly its selected source identities, and completion remains pending
+until the atomic projection commit succeeds. Assessment, insufficient-candidate, replay, and
+guard-defer paths emit no compression lifecycle. The Heavy gate calls `begin()` before summary
+generation and records its create/extend operation only after checkpoint persistence succeeds.
 
 ```text
 first actual rewrite -> compression_started
