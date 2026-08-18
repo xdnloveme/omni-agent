@@ -395,10 +395,9 @@ export function createOmniTui(options: TuiOptions): OmniTui {
   });
 
   editor.onSubmit = (raw: string) => {
-    const input = raw.trim();
-    if (!input) return;
+    if (!raw.trim()) return;
     if (onSubmitCallback) {
-      void Promise.resolve(onSubmitCallback(input)).catch((error: unknown) => {
+      void Promise.resolve(onSubmitCallback(raw)).catch((error: unknown) => {
         if (error instanceof Error && error.name === "AbortError") return;
         sink.line(
           chalk.red(`Input failed: ${error instanceof Error ? error.message : String(error)}`),

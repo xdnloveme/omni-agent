@@ -18,6 +18,7 @@ import { SkillStreamPresenter } from "../presentation/skill-stream-presenter";
 import { StreamPresentationRouter } from "../presentation/stream-presentation-router";
 import { TranscriptHistoryPresenter } from "../presentation/transcript-history-presenter";
 import type { TuiTermination } from "../interaction/tui/tui";
+import { parseSlashCommandInput } from "./slash-command-input";
 
 const INITIAL_HISTORY_TURNS = 10;
 
@@ -149,17 +150,13 @@ export async function runAgentMode(agentId: string): Promise<TuiTermination> {
     tui.onSubmit = async (input: string) => {
       if (running) return;
 
-      // Handle slash commands
-      if (input.startsWith("/")) {
-        const parts = input.slice(1).split(/\s+/);
-        const cmdName = parts[0].toLowerCase();
-        const args = input.slice(1 + cmdName.length).trim();
-        // Bare "/" with no command name → show help
-        const command = registry.get(cmdName || "help");
+      const slashInput = parseSlashCommandInput(input);
+      if (slashInput) {
+        const command = registry.get(slashInput.name);
         if (command) {
           tui.appendUserMessage(input);
           try {
-            await command.execute({ args, interaction: commandInteraction });
+            await command.execute({ args: slashInput.args, interaction: commandInteraction });
           } catch (error) {
             if (!(error instanceof Error && error.name === "AbortError")) {
               tui.sink.line(
@@ -173,34 +170,29 @@ export async function runAgentMode(agentId: string): Promise<TuiTermination> {
           return;
         }
 
-        if (!skillController) {
-          tui.appendUserMessage(input);
-          tui.sink.line(chalk.yellow("Unknown command. Type /help for available commands."));
-          tui.sink.spacer();
-          return;
+        if (skillController) {
+          let explicitSkillPreload: Awaited<ReturnType<SkillCliController["resolveSlashPreload"]>> =
+            null;
+          try {
+            explicitSkillPreload = await skillController.resolveSlashPreload(input);
+          } catch (err) {
+            tui.appendUserMessage(input);
+            tui.sink.line(
+              chalk.red(`Error reading skill: ${err instanceof Error ? err.message : String(err)}`),
+            );
+            tui.sink.spacer();
+            return;
+          }
+
+          if (explicitSkillPreload) {
+            await runUserInput(input, explicitSkillPreload.modelInput);
+            return;
+          }
         }
 
-        let explicitSkillPreload: Awaited<ReturnType<SkillCliController["resolveSlashPreload"]>> =
-          null;
-        try {
-          explicitSkillPreload = await skillController.resolveSlashPreload(input);
-        } catch (err) {
-          tui.appendUserMessage(input);
-          tui.sink.line(
-            chalk.red(`Error reading skill: ${err instanceof Error ? err.message : String(err)}`),
-          );
-          tui.sink.spacer();
-          return;
-        }
-
-        if (!explicitSkillPreload) {
-          tui.appendUserMessage(input);
-          tui.sink.line(chalk.yellow("Unknown command. Type /help for available commands."));
-          tui.sink.spacer();
-          return;
-        }
-
-        await runUserInput(input, explicitSkillPreload.modelInput);
+        tui.appendUserMessage(input);
+        tui.sink.line(chalk.yellow("Unknown command. Type /help for available commands."));
+        tui.sink.spacer();
         return;
       }
 
