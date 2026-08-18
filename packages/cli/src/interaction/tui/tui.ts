@@ -29,6 +29,7 @@ import {
 import { InlineSelect } from "./inline-select";
 import { InlineMultiSelect, type MultiSelectOptions } from "./inline-multi-select";
 import { InlineTextInput, type InlineTextInputOptions } from "./inline-text-input";
+import { createClipboardCopy } from "./clipboard";
 import { MarkdownMessage } from "./markdown-message";
 import { DisclosureMessage, disclosureUrl } from "./disclosure-message";
 import type {
@@ -136,6 +137,7 @@ export function createOmniTui(options: TuiOptions): OmniTui {
   const internalLinks = new Map<string, () => void>();
   const terminal = new ProcessTerminal();
   const ui = new TuiAltScreen(terminal, true, undefined, {
+    copySelection: createClipboardCopy(),
     openUrl(url) {
       if (url.startsWith("omni-agent://disclosure/")) {
         const targetId = decodeURIComponent(url.slice("omni-agent://disclosure/".length));
