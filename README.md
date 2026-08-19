@@ -1,114 +1,198 @@
-# xdnloveme
+English | [中文](README.zh.md)
 
-A modular agent runtime with a default coding agent, TUI interaction, multi-provider LLM support, local tools, skills, and session history.
+# Omni Agent
 
-Repository: [github.com/xdnloveme/omni-agent](https://github.com/xdnloveme/omni-agent)
+A TypeScript monorepo for building agent runtimes: a domain-neutral kernel plus independently packaged agents.
 
-## Quick Start
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
+[![Node](https://img.shields.io/badge/node-%3E%3D22.19.0-brightgreen.svg)](https://nodejs.org)
+[![pnpm](https://img.shields.io/badge/pnpm-11.5.1-orange.svg)](https://pnpm.io)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178c6.svg)](https://www.typescriptlang.org)
+[![npm](https://img.shields.io/badge/npm-v0.0.1-cb3837.svg)](https://www.npmjs.com/package/@omni-agent/cli)
+
+The default product is an interactive terminal coding agent. The same runtime also hosts a
+read-only financial analysis agent, or your own.
+
+## Table of Contents
+
+- [Background](#background)
+- [Install](#install)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Extending](#extending)
+- [Features](#features)
+- [Architecture](#architecture)
+- [Project Structure](#project-structure)
+- [Documentation](#documentation)
+- [Development](#development)
+- [Contributing](#contributing)
+- [Security](#security)
+- [License](#license)
+
+## Background
+
+Most agent frameworks couple the execution loop to a product. Omni Agent inverts that: the kernel
+owns execution, tool authorization, cancellation, and context assembly, while agents are
+declarative extensions registered explicitly at composition time.
+
+Three constraints follow, and the codebase enforces them:
+
+- **`core` and `app` never import a concrete agent.** Agents enter through `AgentExtension`.
+- **One tool entry.** Every tool call goes through `ToolCallCoordinator`. There is no second
+  execution path, no legacy branch, no global runtime setter.
+- **Model context is a projection, not the transcript.** Session JSONL is the source of truth;
+  what the model sees is rebuilt every turn through an explicit pipeline.
+
+## Install
+
+### Prerequisites
+
+- Node.js `>= 22.19.0`
+- An API key for at least one supported model vendor
+
+### Install the CLI
 
 ```bash
-pnpm install
-pnpm dev # Start the default coding agent
+npm install -g @omni-agent/cli
 ```
 
-On first launch, you'll be guided to configure a provider and API key.
-
-To build and install the CLI globally from this checkout:
+With pnpm, approve the native build scripts explicitly:
 
 ```bash
-pnpm run pack:cli
-pnpm add -g --allow-build=keytar --allow-build=tree-sitter --allow-build=tree-sitter-bash ./artifacts/omni-agent-cli-0.0.1.tgz
+pnpm add -g --allow-build=keytar --allow-build=tree-sitter --allow-build=tree-sitter-bash \
+  @omni-agent/cli
+```
 
+`keytar`, `tree-sitter`, and `tree-sitter-bash` are native modules with build scripts — keytar
+backs OS keychain credential storage, and the Tree-sitter grammars back Bash command analysis.
+
+### Install from source
+
+To run the latest unreleased code, build a tarball from a checkout and install that instead. This
+path additionally requires pnpm (the repository pins `pnpm@11.5.1`):
+
+```bash
+git clone https://github.com/xdnloveme/omni-agent.git
+cd omni-agent
+pnpm install
+pnpm run pack:cli
+```
+
+```bash
+pnpm add -g --allow-build=keytar --allow-build=tree-sitter --allow-build=tree-sitter-bash \
+  ./artifacts/omni-agent-cli-0.0.1.tgz
+```
+
+The tarball filename follows the version in `packages/cli/package.json`.
+
+### Quick Start
+
+```bash
 cd /path/to/your/project
 omni
 ```
 
-`npm install -g ./artifacts/omni-agent-cli-0.0.1.tgz` is also supported. The
-package version and tarball name come from `packages/cli/package.json`; replace
-`0.0.1` after a future version bump. `omni`, `omni run`, and `omni run coding`
-all start the default coding Agent. Use `omni doctor` for read-only runtime
-diagnostics.
+On first launch, onboarding walks you through selecting a vendor, connection, and model, and
+stores the credential in the OS keychain. Verify the environment at any time with `omni doctor`.
 
-External Agent packages use a package-manager-neutral Node resolution root so
-pnpm's isolated global deployments do not leak into the runtime contract:
+Contributing to Omni Agent itself, or want to run it without installing? See
+[Development](#development) for the from-source workflow.
+
+## Usage
+
+### CLI
 
 ```bash
-pnpm --dir ~/.omni-agent/agents add @omni-agent/agent-example
-# or: npm install --prefix ~/.omni-agent/agents @omni-agent/agent-example
-omni run example
+omni                    # start the coding agent
+omni run [agent-id]     # start an agent (default: coding)
+omni doctor             # read-only runtime diagnostics
+omni --help, -h         # usage
+omni --version, -v      # CLI version
 ```
 
-This directory is only a conventional `node_modules` installation root. It is
-not an Agent registry, and the CLI does not scan it; it resolves the exact
-`@omni-agent/agent-<id>` package name through Node.
+`omni doctor` never mutates state. It reports eight checks: Node.js version, resolved workspace
+root and ID, global directory accessibility, configuration validity, coding-agent blueprint
+availability, and the resolvability of the `keytar`, `tree-sitter`, and `tree-sitter-bash` native
+modules.
 
-## Project Structure
+### Slash commands
 
-Monorepo managed by pnpm workspace:
+Typed at the prompt during a session:
 
-```
-packages/
-  core/   # Agent loop, tools, messages, and stable runtime ports
-  models/ # Model runtime, vendor catalog, provider plugins, and credentials
-  app/    # Application facade, registries, extensions, sessions, config
-  tools/  # Domain-neutral filesystem, shell, search, and web tools
-  cli/    # Process entry, TUI, run mode, diagnostics, and onboarding
+| Command        | Effect                                                 |
+| -------------- | ------------------------------------------------------ |
+| `/config`      | Reconfigure vendor, connection, and model              |
+| `/permissions` | Change permission mode and revoke persistent approvals |
+| `/new`         | Start a new conversation session                       |
+| `/clear`       | Clear the current session history                      |
+| `/help`        | List available commands                                |
+| `/skills`      | List and manage available skills — see note below      |
 
-agents/
-  coding/              # Default coding agent extension
-  financial-analysis/ # Optional read-only financial analysis extension
-```
+`/skills` is registered conditionally: the CLI only builds the skill controller when the started
+agent exposes a `skills` capability. Agents without it never see the command. User-invocable
+skills additionally register as their own slash commands and appear in Tab completion.
 
-The models package depends on core; app composes both. Concrete agents are never
-registered implicitly by core or app.
-Each Agent package exports an `agentBlueprint`; the CLI loads
-`@omni-agent/agent-<id>` by convention, so adding an installed Agent does not
-require another CLI branch.
-Agent sessions are isolated under
-`~/.omni-agent/workspaces/<workspace-id>/sessions/<agent-id>/`. A workspace ID is
-the SHA-256 digest of its canonical Git root, or its canonical current directory
-outside Git. Git subdirectories therefore share history, while different workspaces
-and Agent IDs never restore one another's conversation history. Moving a workspace
-creates a new identity; old data is retained and is not migrated automatically.
-Starting the same Agent in the same workspace restores its most recently active
-persisted Session. The former `~/.omni-agent/sessions/` directory is neither read nor
-written by the workspace-aware runtime. The TUI renders the latest
-ten complete conversation turns in the normal message flow, keeps historical Thinking
-and Tool Calls folded, and can progressively load earlier turns without changing the
-active Session.
-Each Session JSONL file is a strict stream of current `message` and `environment` records;
-the Repository projects all conversation messages plus only the latest complete Environment.
-There is no reader or fallback for the former message-only format, so old development Session
-files must be removed or recreated rather than mixed with the current schema.
+### Built-in tools
 
-## Provider credentials
+| Tool                 | Purpose                                                | Authorization              |
+| -------------------- | ------------------------------------------------------ | -------------------------- |
+| `file_read`          | Bounded, version-consistent paginated UTF-8 read       | `dynamic` (path-scoped)    |
+| `file_write`         | Create or fully overwrite a UTF-8 text file            | `dynamic` (path-scoped)    |
+| `file_edit`          | One exact, whitespace-sensitive replacement            | `dynamic` (path-scoped)    |
+| `glob`               | Fast file discovery by name or path pattern            | `dynamic` (path-scoped)    |
+| `grep`               | ripgrep content search with structured match locations | `dynamic` (path-scoped)    |
+| `bash`               | Execute Bash from the injected execution `cwd`         | `dynamic` (shell analysis) |
+| `web_fetch`          | Fetch a URL and return readable text                   | `dynamic` (URL-scoped)     |
+| `web_search`         | Web search via DuckDuckGo                              | `dynamic` (query-scoped)   |
+| `request_user_input` | Collect 1–3 structured decision answers                | `trusted`                  |
+| `skill_read`         | Load full instructions for a named skill               | `trusted`                  |
 
-Providers are presented vendor-first, then by connection and model. Credentials
-use runtime precedence: an explicit request value, the OS credential store
-(keytar), then process variables, the current project's `.env`, and finally the
-global `~/.omni-agent/.env`. Copy `.env.example` to `.env` when file-based
-project credentials are preferred; the CLI reads but never writes environment
-files.
+`request_user_input` is trusted because it only asks the current user a question — it grants no
+authority and has no external side effect. `bash` is the only tool marked `sandbox_eligible` and
+the only one accepting a caller-supplied timeout (`timeout_ms`).
 
-Non-secret configuration is layered from the global `~/.omni-agent` directory
-and `omni.config.json` / `omni.providers.json` in the project root. A shared model
-is the default for every Agent, while `agents.<id>.model` optionally overrides it.
-Project Agent overrides win over global Agent overrides, followed by project and
-global shared defaults. Provider vendors merge by `id` and
-connections by `id`, with project connections replacing matching global
-connections. Invalid project files are reported instead of silently falling
-back to global configuration. The CLI writes its own model choices only to
-`~/.omni-agent/config.json` and interactive custom Provider definitions only to
-`~/.omni-agent/providers.json`. Project-level `omni.config.json` and
-`omni.providers.json` files are read-only inputs: the CLI never creates, updates,
-or removes them during onboarding or `/config`. Project configuration can be
-committed; secrets remain in keytar or an ignored `.env` file.
+### Permission modes
 
-### Model configuration
+`standard` (default) permits routine workspace reads and writes plus routine external reads, and
+asks before shell execution and higher-risk operations. `supervised` tightens both: it also asks
+before writes and before routine external reads. Every call is reassessed before its scope
+candidates are consulted, and invalid state fails closed to supervised behavior with no automatic
+approvals.
 
-The global `~/.omni-agent/config.json` is owned by the CLI. To configure a
-repository, create `omni.config.json` manually with a shared model and optional
-Agent-specific overrides:
+Approvals persist to `~/.omni-agent/permissions.json` under the granting agent, and their reuse
+boundary depends on the scope kind:
+
+- **Agent-scoped, shared across tools** — `filesystem_read_directory`, `filesystem_read_file`, and
+  `filesystem_write_directory`. A directory read grant is honored by `file_read`, `glob`, and
+  `grep` alike; a directory write grant by `file_write` and `file_edit`. Read grants never
+  authorize writes or shell execution.
+- **Tool-scoped** — `tool_routine` and `bash_executable`, keyed by the specific tool identity, so
+  approving one tool's routine operations says nothing about another's.
+
+## Configuration
+
+Configuration is layered: the global `~/.omni-agent` directory is the baseline, and files in the
+project root override it. A present-but-invalid project file is an error, never a silent fallback
+to global.
+
+The "Written by" column describes current behavior, not a guaranteed invariant.
+
+| File                             | Scope   | Purpose                                  | Written by |
+| -------------------------------- | ------- | ---------------------------------------- | ---------- |
+| `omni.config.json`               | project | Shared model + per-agent model overrides | you        |
+| `omni.providers.json`            | project | Custom vendor and connection definitions | you        |
+| `omni.extensions.mjs`            | project | Local ESM extensions                     | you        |
+| `.env`                           | project | Fallback environment credentials         | you        |
+| `~/.omni-agent/config.json`      | global  | CLI-selected model                       | the CLI    |
+| `~/.omni-agent/providers.json`   | global  | Interactively defined custom providers   | the CLI    |
+| `~/.omni-agent/extensions.mjs`   | global  | Global local extensions                  | you        |
+| `~/.omni-agent/permissions.json` | global  | Persistent tool approvals                | the CLI    |
+| `~/.omni-agent/.env`             | global  | Global fallback environment credentials  | you        |
+
+Today the CLI only writes the three global files marked above; it reads the project files and
+`.env` files without modifying them.
+
+### Model selection
 
 ```json
 {
@@ -129,135 +213,426 @@ Agent-specific overrides:
 }
 ```
 
-The supported JSON Schema is:
+Resolution order: project agent override → global agent override → project shared model → global
+shared model. A model selection may also carry `requestedOutputTokens` (integer) and a
+vendor-validated `settings` object.
 
-```json
-{
-  "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "title": "Omni model configuration",
-  "type": "object",
-  "additionalProperties": false,
-  "required": ["model"],
-  "properties": {
-    "model": { "$ref": "#/$defs/modelSelection" },
-    "agents": {
-      "type": "object",
-      "propertyNames": { "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$" },
-      "additionalProperties": {
-        "type": "object",
-        "additionalProperties": false,
-        "required": ["model"],
-        "properties": {
-          "model": { "$ref": "#/$defs/modelSelection" }
-        }
-      }
-    }
+Model configuration must never contain credentials. Fields such as `apiKey`, `password`,
+`accessToken`, or `privateKey` are rejected.
+
+### Credentials
+
+The OS keychain (via keytar) is the credential source of truth. Environment sources are read-only
+fallbacks resolved in this order:
+
+```text
+process.env  ->  <project>/.env  ->  ~/.omni-agent/.env
+```
+
+The CLI reads environment files but never writes them, and never mutates `process.env`. Copy
+`.env.example` to `.env` for file-based project credentials.
+
+### Built-in vendors
+
+`openai`, `anthropic`, `google`, `mistral`, `deepseek`, `qwen`, `openrouter`, `moonshot`.
+
+`volcengine` and `zhipu` are implemented and exported as opt-in factories
+(`createVolcengineVendorPlugin`, `createZhipuVendorPlugin`) rather than registered by default. Any
+OpenAI-compatible endpoint can be added declaratively through `omni.providers.json`.
+
+## Extending
+
+### Write an extension
+
+An `AgentExtension` is a plain object. Drop it in `omni.extensions.mjs` at the project root, or in
+`~/.omni-agent/extensions.mjs` for every project. The default export may be a single extension or
+an array.
+
+```js
+// omni.extensions.mjs
+export default {
+  manifest: { id: "my-extension", version: "1.0.0", apiVersion: 1 },
+  contributions: {
+    tools: [myTool],
+    commands: [myCommand],
   },
-  "$defs": {
-    "modelSelection": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["vendorId", "connectionId", "modelId"],
-      "properties": {
-        "vendorId": { "type": "string", "minLength": 1 },
-        "connectionId": { "type": "string", "minLength": 1 },
-        "modelId": { "type": "string", "minLength": 1 },
-        "requestedOutputTokens": { "type": "integer", "minimum": 1 },
-        "settings": { "type": "object" }
-      }
-    }
-  }
+  async activate(context) {
+    // context: { cwd: string }
+  },
+  async dispose() {},
+};
+```
+
+The full contribution surface:
+
+```ts
+interface AgentExtensionContributions {
+  agents?: AgentContribution[];
+  tools?: AgentToolDefinition[];
+  commands?: Command[];
+  middleware?: RuntimeMiddleware[];
+  contextMiddleware?: ContextMiddlewarePort[];
+  contextPolicyStages?: ContextPolicyStagePort[];
+  providers?: VendorPlugin[];
 }
 ```
 
-Resolution order is project Agent override, global Agent override, project shared
-model, then global shared model. Model configuration must not contain credentials
-or secret-like fields such as `apiKey`, `password`, `accessToken`, or `privateKey`;
-use keytar or environment variables for those values.
+Registration is transactional: contributions are validated before commit and rolled back in
+reverse order if activation fails. Local extension files are trusted local code and are not
+sandboxed.
 
-Provider plugins compose connection-level Factory strategies rather than building
-adapters in Core. Agent-facing connection settings use a constrained JSON Schema
-contract compiled once with Ajv; local Provider definitions are validated and
-persisted through a single atomic repository.
+### Add a tool
 
-## Runtime permissions
+Every tool declares authorization, execution, and timeout explicitly. There is no default and no
+metadata fallback.
 
-Tool inputs are validated and explicitly routed before execution. Trusted internal
-tools, such as Skill loading and deterministic in-memory computation, do not consult
-permission state. Permission-controlled tools are assessed before execution. The
-default `standard` mode allows routine workspace reads and writes, while asking before shell
-execution and higher-risk operations. `supervised` mode also asks before writes.
-Bash can persist an Agent-scoped approval for a literal executable name when structured Shell
-analysis passes the current boundary checks. The approval applies regardless of subcommand and
-ordinary dynamic arguments, while each call is still reassessed. Compound commands and nested
-substitutions require every known executable scope. Destructive rules, privileged commands,
-static sensitive paths, unresolved executables, and unsupported syntax do not consume the
-executable grant. Explicit hard-stop operations are denied.
+```ts
+import type { AgentToolDefinition } from "@omni-agent/core";
 
-The approval prompt supports persisting the eligible scope, allowing one call, or denying
-the call. Persistent approvals are stored in `~/.omni-agent/permissions.json`. Every call
-is reassessed before its eligible scope keys are consulted. An executable grant covers only that
-literal command name and cannot bypass a later hard-stop, destructive, privileged, or
-sensitive-path assessment. Compound commands require every executable approval requirement;
-one Always decision atomically saves only the missing executable approvals.
+const myTool: AgentToolDefinition = {
+  name: "my_tool",
+  description: "Does one specific thing.",
+  schema: {
+    type: "object",
+    additionalProperties: false,
+    required: ["query"],
+    properties: { query: { type: "string" } },
+  },
+  timeout: { kind: "none" },
+  authorization: { kind: "static", risk: "read", reason: "Reads public data" },
+  execution: { kind: "host" },
+  async execute(params, context) {
+    context.signal?.throwIfAborted();
+    return {
+      content: [{ type: "text", text: `${String(params.query)} in ${context.cwd}` }],
+      isError: false,
+    };
+  },
+};
+```
 
-For `file_read`, ordinary files outside the workspace may persist a canonical parent-directory
-read grant. Sensitive files use exact-file grants, so a directory approval never silently covers
-`.env`, credential locations, system paths, or symlinks resolving into them. Read grants do not
-authorize file mutation or Bash access.
+- `timeout`: `{ kind: "none" }` | `{ kind: "fixed"; timeoutMs }` |
+  `{ kind: "input"; parameter; defaultMs; minMs; maxMs }`
+- `authorization`: `{ kind: "trusted"; reason }` |
+  `{ kind: "static"; risk: "read" | "execute"; reason }` |
+  `{ kind: "dynamic"; assess(input, context) }`
+- `execution`: `{ kind: "host" }` | `{ kind: "sandbox_eligible"; profile }`
 
-This layer is an execution policy, not an OS sandbox. It cannot fully constrain an
-untrusted child process or eliminate filesystem race conditions.
+`execute` must return a `ToolResult`: `content` is an array of `{ type: "text"; text: string }`
+parts and `isError` is required. Return structured errors with `isError: true` rather than hiding
+failures in successful output.
 
-The complete tool-call, authorization, execution, cancellation, persistence, and
-future sandbox contract is documented in
+Resolve paths and spawn processes with the injected execution `cwd`. Never call `process.cwd()`
+inside a tool, and honor `context.signal` wherever work can block.
+
+### Package an agent
+
+An agent package exports an `agentBlueprint` from its root. The CLI resolves
+`@omni-agent/agent-<id>` by convention, so no CLI branch is needed to add one.
+
+```ts
+import type { AgentBlueprint, AgentBlueprintContext } from "@omni-agent/app";
+import { defineAgent } from "@omni-agent/core";
+
+export const agentBlueprint = {
+  id: "example",
+  build(context: AgentBlueprintContext) {
+    const tools = [myTool];
+    return {
+      id: "example",
+      extension: {
+        manifest: { id: "example", version: "1.0.0", apiVersion: 1 },
+        contributions: {
+          tools,
+          agents: [
+            {
+              definition: defineAgent({
+                id: "example",
+                description: "An example agent.",
+                instructions: `You are an example agent working in ${context.cwd}.`,
+              }),
+              tools: { include: tools.map((tool) => tool.name) },
+            },
+          ],
+        },
+      },
+      capabilities: {},
+    };
+  },
+} satisfies AgentBlueprint;
+```
+
+`AgentBlueprintContext` is `{ cwd: string; interaction: InteractionSurfacePort }`. `instructions`
+may be a string or a `(context) => string | Promise<string>` function, and `maxTurns` is optional
+(unlimited when omitted). An extension registered through `AgentFactory` must contribute exactly
+one agent whose id matches the blueprint id.
+
+Install an external agent into the package-manager-neutral resolution root:
+
+```bash
+pnpm --dir ~/.omni-agent/agents add @omni-agent/agent-example
+# or: npm install --prefix ~/.omni-agent/agents @omni-agent/agent-example
+omni run example
+```
+
+That directory is only a conventional `node_modules` root. It is not a registry, and the CLI does
+not scan it — it resolves the exact package name through Node.
+
+### Add a model vendor
+
+A vendor owns one or more connections, each mapping to a distinct runtime provider. Contribute
+`VendorPlugin` values through an extension's `providers` array, or build one with `defineVendor`:
+
+```ts
+interface VendorPlugin {
+  readonly manifest: VendorPluginManifest; // { id, version, apiVersion: 1 }
+  readonly vendor: VendorDefinition; // { id, displayName, connections }
+  createProviders(
+    context: VendorPluginContext,
+  ): readonly ProviderContribution[] | Promise<readonly ProviderContribution[]>;
+  resolveSelection?(
+    selection: ModelSelection,
+    context: VendorSelectionContext,
+  ): ResolvedProviderSelection | Promise<ResolvedProviderSelection>;
+  dispose?(): void | Promise<void>;
+}
+```
+
+For an OpenAI-compatible endpoint, no code is required — declare it in `omni.providers.json`. Only
+a genuinely new wire protocol needs a `ModelTransport` implementation.
+
+## Features
+
+**Extension system.** `AgentExtension` contributes agents, tools, commands, runtime middleware,
+context middleware, context policy stages, and model vendor plugins, with atomic registration and
+rollback. Optional local extensions that fail produce diagnostics without preventing the default
+agent from starting.
+
+**Tool authorization pipeline.** Every tool declares an explicit `authorization` strategy
+(`trusted` / `static` / `dynamic`), an independent `execution` strategy (`host` /
+`sandbox_eligible`), and a timeout policy (`none` / `fixed` / schema-bound `input`). There is no
+central `switch (toolName)` — domain assessment stays with the tool owner.
+
+**Structured shell analysis.** Bash authorization is derived from a single Tree-sitter-backed
+analysis pass. Persistent approval is scoped to a literal executable name (not its subcommands);
+compound commands and nested substitutions require every known executable to be granted.
+`BASH_ENV`, `ENV`, and exported `BASH_FUNC_*` values are stripped before spawning.
+
+**Path-scoped filesystem grants.** Sensitive files require an exact-file grant, so a directory
+approval never silently covers `.env`, credentials, system paths, or symlinks resolving into them.
+
+**Context engine.** Model context is assembled per turn through a fixed pipeline: session snapshot
+→ working conversation → context draft → context middleware → envelope → policy pipeline →
+assembly → `ModelRuntimePort`. Stable micro-compression projects large tool results into
+content-addressed sidecar artifacts (recoverable via `file_read`), and a mandatory heavy checkpoint
+gate at 90% of usable input budget produces a validated structured summary rather than truncating.
+
+**Model-agnostic port.** `ModelRuntimePort` is Core's only model contract. Vendors are plugins
+composing connection-level factory strategies; a genuinely new protocol implements the
+`ModelTransport` port. Backend transport types never cross into Core, App, CLI, or agent packages.
+
+**Prompt caching.** `ModelCacheCoordinator` owns cache intent, scope, and semantic fingerprints,
+and exposes lease state to the context engine as `allow` / `defer`. Prompt bodies are never
+persisted.
+
+**Workspace-isolated sessions.** Transcripts are strict JSONL under
+`~/.omni-agent/workspaces/<workspace-id>/sessions/<agent-id>/`. The workspace ID derives from the
+canonical Git root, so subdirectories of a repository share history while unrelated projects never
+do.
+
+**Skills.** A skill index is contributed to the system prompt with its own budget; full skill
+bodies load on demand through the trusted `skill_read` tool.
+
+### Non-goals
+
+Stated plainly, because they affect how you should deploy this:
+
+- The permission layer is **execution policy, not an OS sandbox**. It cannot fully constrain an
+  untrusted child process or eliminate filesystem race conditions. No OS-level sandbox
+  implementation ships today; `sandbox_eligible` is a marker, not a guarantee.
+- Local ESM extensions (`omni.extensions.mjs`) are **trusted local code** and are not sandboxed.
+- `file_write` / `file_edit` use direct overwrite. This is deliberately not an atomic commit; a
+  failed write may leave an unknown target state.
+- The financial analysis agent is read-only and does not place trades or fetch market data.
+
+## Architecture
+
+```mermaid
+graph TD
+    CLI["packages/cli<br/>terminal host, composition root"]
+    AGENTS["agents/*<br/>coding, financial-analysis"]
+    APP["packages/app<br/>lifecycle, registries, extensions, sessions"]
+    MODELS["packages/models<br/>runtime, vendor plugins, credentials"]
+    TOOLS["packages/tools<br/>fs, shell, search, web"]
+    CORE["packages/core<br/>execution kernel, stable ports"]
+
+    CLI --> AGENTS
+    CLI --> APP
+    CLI --> TOOLS
+    CLI --> CORE
+    AGENTS --> APP
+    AGENTS --> TOOLS
+    AGENTS --> CORE
+    APP --> MODELS
+    APP --> CORE
+    MODELS --> CORE
+    TOOLS --> CORE
+```
+
+| Package           | Responsibility                                                                         |
+| ----------------- | -------------------------------------------------------------------------------------- |
+| `packages/core`   | Agent execution kernel: loop, tool coordination, permissions, context, events, ports   |
+| `packages/models` | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence   |
+| `packages/app`    | Application lifecycle, agent/tool/command registries, extension host, sessions, config |
+| `packages/tools`  | Domain-neutral filesystem, shell, search, and web tools                                |
+| `packages/cli`    | Process entry, TUI, run mode, onboarding, diagnostics                                  |
+| `agents/*`        | Independently packaged business agents                                                 |
+
+### Dependency direction
+
+```text
+tools  -> core
+models -> core
+app    -> core, models
+agents -> app, core, tools
+cli    -> app, core, tools, agents/*
+```
+
+Reverse dependencies are not allowed. `core` and `app` must never import a concrete agent, and an
+agent package must never import the CLI or another agent package.
+
+### Runtime contracts
+
+| Type                          | Role                                                                                |
+| ----------------------------- | ----------------------------------------------------------------------------------- |
+| `ModelRuntimePort`            | Core's only model contract; receives prepared context messages and tool specs       |
+| `AgentRunner`                 | Per-agent execution loop, constructed with exactly one `ModelRuntimePort`           |
+| `ToolCallCoordinator`         | The agent loop's only tool entry: schema validation, domain preflight, routing      |
+| `ToolAuthorizationRouter`     | Admits `trusted` tools directly; delegates everything else to the gate              |
+| `PermissionGate`              | Permission decision point for non-trusted tools                                     |
+| `ToolInvocationRunner`        | Executes authorized calls only; runs middleware after authorization                 |
+| `ExecutionDeadlineSupervisor` | Owns linked cancellation, deadline timers, and late-settlement observation          |
+| `AgentFactory`                | The only assembly entry point: validates blueprint, resolves model, builds instance |
+| `AgentBlueprint`              | The `agentBlueprint` value each agent package exports                               |
+| `AgentExtension`              | Declarative contribution unit; validated and rolled back atomically                 |
+
+The tool call path:
+
+```text
+AgentLoop
+  -> ToolCallCoordinator        schema validation, domain preflight
+  -> ToolAuthorizationRouter
+       |-> trusted              -> authorized call
+       `-> permission-controlled -> PermissionGate -> authorized call
+  -> lifecycle middleware
+  -> ToolInvocationRunner       host or sandbox-eligible execution
+```
+
+Full contract: [`docs/architecture.md`](docs/architecture.md) and
 [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md).
+
+## Project Structure
+
+```text
+omni-agent/
+├── packages/
+│   ├── core/     Agent loop, tool coordination, permissions, context engine, ports
+│   ├── models/   Model runtime, vendor plugins, catalogs, credentials, cache
+│   ├── app/      Lifecycle, registries, extension host, sessions, config, workspaces
+│   ├── tools/    Filesystem, shell, search, web, user-input tools and toolsets
+│   └── cli/      Entry, arg parsing, TUI, run mode, onboarding, doctor, commands
+├── agents/
+│   ├── coding/              Default coding agent (skills, fs, shell, search, web)
+│   └── financial-analysis/  Read-only deterministic indicator agent
+├── docs/         Architecture and runtime contracts
+├── scripts/      Build and packaging scripts
+├── omni.config.json      Project model configuration
+└── omni.providers.json   Project vendor definitions
+```
+
+## Documentation
+
+| Document                                                                                           | Contents                                                               |
+| -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| [`docs/architecture.md`](docs/architecture.md)                                                     | Layers, dependency rules, contracts, composition, and subsystem design |
+| [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | Authoritative tool authorization, execution, cancellation, sandbox     |
+| [`docs/context-engineering.md`](docs/context-engineering.md)                                       | Context pipeline, compression, checkpointing                           |
+| [`docs/model-cache.md`](docs/model-cache.md)                                                       | Prompt cache intent, scopes, fingerprints, lease state                 |
+| [`docs/skill-system-architecture.md`](docs/skill-system-architecture.md)                           | Skill discovery, indexing, and loading                                 |
+| [`docs/pluggable-cli-integration-architecture.md`](docs/pluggable-cli-integration-architecture.md) | CLI integration and pluggability design                                |
+| [`AGENTS.md`](AGENTS.md)                                                                           | Contributor guide: ownership rules and change discipline               |
 
 ## Development
 
+Run Omni Agent directly from a source checkout — no global install, no tarball:
+
 ```bash
-pnpm dev                          # Start the default coding agent
-pnpm run dev -- run <agent-id>    # Start an installed agent package dynamically
-pnpm run dev:coding               # Start the coding agent explicitly
-pnpm run dev:financial-analysis   # Start the read-only financial analysis agent
-pnpm run build:cli                # Build the standalone CLI package directory
-pnpm run pack:cli                 # Create a locally installable npm tarball
-pnpm run format       # Format source, tests, config, and docs
-pnpm run format:check # Verify formatting without changing files
-pnpm run typecheck    # Type checking
-pnpm run test         # Run tests
-pnpm run test:watch   # Test watch mode
+pnpm install
+pnpm dev                           # coding agent (default)
+pnpm run dev:coding                # coding agent, explicitly
+pnpm run dev:financial-analysis    # read-only financial analysis agent
+pnpm run dev -- run <agent-id>     # any installed agent package
 ```
 
-Pre-commit hook (husky) automatically runs `format:check + typecheck + test` to ensure commit quality.
+Verification and build:
 
-## Slash Command System
-
-Built-in commands are registered via `CommandRegistry` and triggered by typing `/command` at runtime:
-
-- `/config` — Reconfigure provider
-- `/permissions` — Change permission mode and revoke automatic tool approvals
-- `/help` — List available commands
-
-**Adding a new command:**
-
-1. Create a new file in `packages/core/src/commands/` or `packages/cli/src/commands/`, implementing the `Command` interface
-2. Register it in the corresponding `index.ts` with `registry.register(yourCommand)`
-
-```ts
-// Command interface
-interface Command {
-  name: string;
-  description: string;
-  execute(ctx: CommandContext): Promise<void>;
-}
+```bash
+pnpm run format         # format source, tests, config, docs
+pnpm run format:check   # verify formatting
+pnpm run typecheck      # project-wide type checking
+pnpm run test           # run the test suite (Vitest)
+pnpm run test:watch     # watch mode
+pnpm run build          # build all packages
+pnpm run build:cli      # build the standalone CLI distribution directory
+pnpm run pack:cli       # produce an installable npm tarball
+pnpm run eval:checkpoint     # offline checkpoint-summary evaluation
+pnpm run eval:clarification  # offline clarification-routing evaluation
 ```
 
-## Tech Stack
+A husky pre-commit hook runs `format:check`, `typecheck`, and `test`.
 
-- TypeScript, Node.js ≥ 22.19
-- [@earendil-works/pi-ai 0.84](https://github.com/earendil-works/pi) — Provider-based model runtime
-- [pi-tui](https://github.com/nicepkg/pi-tui) — Terminal UI
-- Vitest — Testing
-- Husky — Git hooks
-- pnpm workspace — Monorepo management
+## Contributing
+
+Contributions are welcome and pull requests are accepted. There is no CLA and no separate
+`CONTRIBUTING.md` — [`AGENTS.md`](AGENTS.md) is the contributor guide and defines package
+ownership, dependency direction rules, and what belongs where. Read it before your first change.
+
+Questions, bug reports, and feature proposals go to
+[GitHub Issues](https://github.com/xdnloveme/omni-agent/issues). For anything that changes layer
+boundaries or public usage, open an issue to discuss before writing code.
+
+Before submitting:
+
+1. Keep changes scoped; preserve unrelated work in the tree.
+2. Verify dependency direction when adding an import or workspace dependency.
+3. Run `pnpm run format`, `pnpm run typecheck`, and `pnpm run test`.
+4. Run `pnpm run build` when package exports, references, or dependencies change.
+5. Smoke-test `pnpm dev` when CLI startup, composition, configuration, or TUI behavior changes.
+
+Add tests for runtime loops, cancellation, extension atomicity, tool boundaries, and user-visible
+compatibility. Avoid tests that only mirror implementation details.
+
+## Security
+
+Omni Agent executes model-directed shell commands and file writes on your machine. Understand the
+boundary before granting approvals:
+
+- **The security model lives in [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)** — the
+  authoritative contract for tool authorization, permission scoping, execution, cancellation, and
+  sandbox boundaries.
+- **Permissions are execution policy, not a sandbox.** See [Non-goals](#non-goals). Do not rely on
+  the permission layer to contain hostile code; run untrusted work in a VM or container.
+- **Credentials** live in the OS keychain. `.env` files are read-only fallbacks. Never put
+  credentials in `omni.config.json` — credential-shaped fields are rejected.
+- **Extensions are trusted code.** `omni.extensions.mjs` executes with full process privileges.
+  Only load extension files you wrote or audited.
+
+There is no `SECURITY.md` and no private disclosure channel yet. Report vulnerabilities through
+[GitHub Issues](https://github.com/xdnloveme/omni-agent/issues); if a report is sensitive, open a
+minimal issue asking for a private contact rather than posting details.
+
+## License
+
+Licensed under the [Apache License 2.0](LICENSE).
+
+Copyright 2026 [xdnloveme](https://github.com/xdnloveme/omni-agent).
