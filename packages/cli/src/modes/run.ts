@@ -22,7 +22,10 @@ import { parseSlashCommandInput } from "./slash-command-input";
 
 const INITIAL_HISTORY_TURNS = 10;
 
-export async function runAgentMode(agentId: string): Promise<TuiTermination> {
+export async function runAgentMode(
+  agentId: string,
+  options: { readonly trace: boolean } = { trace: false },
+): Promise<TuiTermination> {
   const workspace = await resolveWorkspaceContext(process.cwd());
   const blueprint = await loadAgentBlueprint(agentId);
   const configService = new ConfigService({ cwd: workspace.root });
@@ -64,6 +67,7 @@ export async function runAgentMode(agentId: string): Promise<TuiTermination> {
     }).create(blueprint);
     const app = instance.application;
     const skillCapability = instance.capabilities.skills;
+    if (options.trace) instance.trace?.control.start();
 
     const registry = createCommandRegistry(app, instance.trace);
     let activeAbort: AbortController | null = null;

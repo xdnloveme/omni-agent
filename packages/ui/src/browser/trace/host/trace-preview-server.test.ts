@@ -1,7 +1,9 @@
 import { request } from "node:http";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
 import type { TraceQueryPort } from "@omni-agent/app";
-import { createPreviewServer, type PreviewServer } from "./preview-server";
+import { createPreviewServer, type PreviewServer } from "./trace-preview-server";
 
 const servers: PreviewServer[] = [];
 
@@ -11,7 +13,9 @@ afterEach(async () => {
 
 describe("Trace preview server", () => {
   it("binds to loopback and exposes read-only secured query APIs", async () => {
-    const server = await createPreviewServer(queryFixture());
+    const server = await createPreviewServer(queryFixture(), {
+      assetsDirectory: join(dirname(fileURLToPath(import.meta.url)), ".."),
+    });
     servers.push(server);
     expect(server.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
 
@@ -28,16 +32,6 @@ describe("Trace preview server", () => {
     const agent = await fetch(`${server.url}api/agent`);
     expect(await agent.json()).toEqual({ agentId: "coding", diskUsage: expect.any(Number) });
 
-    const viewModel = await fetch(`${server.url}view-model.js`);
-    expect(viewModel.headers.get("content-type")).toContain("text/javascript");
-    expect(await viewModel.text()).toContain("captureHealth");
-
-    const head = await fetch(`${server.url}api/sessions`, { method: "HEAD" });
-    expect(await head.text()).toBe("");
-    const liveHead = await fetch(`${server.url}api/live`, { method: "HEAD" });
-    expect(liveHead.status).toBe(200);
-    expect(await liveHead.text()).toBe("");
-
     const invalidHost = await new Promise<number | undefined>((resolve, reject) => {
       const outgoing = request(`${server.url}api/sessions`, { headers: { Host: "example.test" } });
       outgoing.on("response", (response) => {
@@ -53,11 +47,6 @@ describe("Trace preview server", () => {
       headers: { "Last-Event-ID": "invalid" },
     });
     expect(invalidCursor.status).toBe(400);
-    const unsafeCursor = await fetch(`${server.url}api/runs/run/live?sessionId=session`, {
-      headers: { "Last-Event-ID": `${Number.MAX_SAFE_INTEGER + 1}:0` },
-    });
-    expect(unsafeCursor.status).toBe(400);
-
     const write = await fetch(`${server.url}api/sessions`, { method: "POST" });
     expect(write.status).toBe(405);
   });

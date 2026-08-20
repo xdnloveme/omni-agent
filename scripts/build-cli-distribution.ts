@@ -1,8 +1,9 @@
-import { readFile, mkdir, rm, writeFile, copyFile, cp } from "node:fs/promises";
+import { readFile, mkdir, rm, writeFile, copyFile } from "node:fs/promises";
+import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { builtinModules, createRequire } from "node:module";
-import { build } from "esbuild";
+import { build, type Metafile, type Plugin } from "esbuild";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
@@ -11,7 +12,10 @@ const allowedExternals = new Set(["keytar", "tree-sitter", "tree-sitter-bash"]);
 const nodeBuiltins = new Set(builtinModules.flatMap((name) => [name, `node:${name}`]));
 const optionalRuntimeModules = new Set(["bufferutil", "supports-color", "utf-8-validate"]);
 
-export async function buildCliDistribution() {
+export async function buildCliDistribution(): Promise<{
+  readonly outputDirectory: string;
+  readonly version: string;
+}> {
   const cliPackage = await readJson(join(repositoryRoot, "packages", "cli", "package.json"));
   const nativeDependencies = {
     keytar: await installedVersion(
@@ -79,11 +83,7 @@ export async function buildCliDistribution() {
   );
   await copyFile(join(repositoryRoot, "README.md"), join(outputDirectory, "README.md"));
   await copyFile(join(repositoryRoot, "LICENSE"), join(outputDirectory, "LICENSE"));
-  await cp(
-    join(repositoryRoot, "packages", "cli", "src", "tracing-preview", "assets"),
-    join(binDirectory, "assets"),
-    { recursive: true },
-  );
+  await buildBrowserAssets(join(binDirectory, "assets"));
 
   const textOutputs = Object.keys(result.metafile.outputs)
     .filter((path) => path.endsWith(".js") || path.endsWith(".js.map"))
@@ -99,8 +99,34 @@ export async function buildCliDistribution() {
   return { outputDirectory, version: cliPackage.version };
 }
 
-function assertApprovedExternals(metafile) {
-  const externalImports = new Set();
+async function buildBrowserAssets(outputDirectory: string): Promise<void> {
+  await new Promise<void>((resolvePromise, reject) => {
+    const child = spawn(
+      "pnpm",
+      [
+        "--filter",
+        "@omni-agent/ui",
+        "exec",
+        "vite",
+        "build",
+        "--config",
+        "vite.config.ts",
+        "--outDir",
+        outputDirectory,
+        "--emptyOutDir",
+      ],
+      { cwd: repositoryRoot, stdio: "inherit" },
+    );
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolvePromise();
+      else reject(new Error(`Vite build failed (${signal ?? code})`));
+    });
+  });
+}
+
+function assertApprovedExternals(metafile: Metafile): void {
+  const externalImports = new Set<string>();
   for (const output of Object.values(metafile.outputs)) {
     for (const entry of output.imports) {
       if (entry.external && !entry.path.startsWith("node:") && !nodeBuiltins.has(entry.path)) {
@@ -114,7 +140,7 @@ function assertApprovedExternals(metafile) {
   }
 }
 
-function optionalRuntimeModuleStubs() {
+function optionalRuntimeModuleStubs(): Plugin {
   // These modules are optional performance/color enhancements in bundled dependencies.
   // Resolving them to the same falsey value used by their missing-module fallbacks keeps
   // the distributable deterministic without turning optional packages into externals.
@@ -134,7 +160,7 @@ function optionalRuntimeModuleStubs() {
   };
 }
 
-async function installedVersion(ownerPackagePath, name) {
+async function installedVersion(ownerPackagePath: string, name: string): Promise<string> {
   const require = createRequire(ownerPackagePath);
   const metadata = await readJson(require.resolve(`${name}/package.json`));
   if (!/^\d+\.\d+\.\d+$/.test(metadata.version ?? "")) {
@@ -143,7 +169,7 @@ async function installedVersion(ownerPackagePath, name) {
   return metadata.version;
 }
 
-async function readJson(path) {
+async function readJson(path: string): Promise<Record<string, any>> {
   return JSON.parse(await readFile(path, "utf8"));
 }
 

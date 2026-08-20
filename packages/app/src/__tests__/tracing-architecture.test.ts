@@ -124,25 +124,6 @@ describe("tracing architecture", () => {
     );
   });
 
-  it("keeps the Preview transport behind the App query boundary", async () => {
-    const sources = await Promise.all(
-      [
-        "packages/cli/src/tracing-preview/preview-server.ts",
-        "packages/cli/src/tracing-preview/preview-command.ts",
-        "packages/cli/src/tracing-clear/clear-command.ts",
-      ].map((path) => readFile(join(repositoryRoot, path), "utf8")),
-    );
-    expect(sources[0]).toContain("TraceQueryPort");
-    expect(sources.join("\n")).not.toMatch(
-      /LocalTraceStore|TraceQueryService|TraceStorageLayout|assertSafePath|layout\./,
-    );
-    const appIndex = await readFile(
-      join(repositoryRoot, "packages", "app", "src", "index.ts"),
-      "utf8",
-    );
-    expect(appIndex).not.toMatch(/LocalTraceStore|TraceQueryService|TraceStorageLayout/);
-  });
-
   it("keeps shared trace semantics and sanitization single-sourced", async () => {
     const productionRoots = [
       join(repositoryRoot, "packages", "core", "src"),

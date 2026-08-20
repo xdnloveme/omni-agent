@@ -14,6 +14,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { AgentScopedTraceRuntime } from "./agent-scoped-trace-runtime";
 import { BoundedTraceWriteQueue } from "./bounded-write-queue";
 import { readJsonLinesChunk } from "./jsonl-reader";
+import { LocalTraceControl } from "./local-trace-control";
 import { TraceQueryService } from "./trace-query-service";
 import { isPathWithin } from "./trace-storage-layout";
 
@@ -42,6 +43,16 @@ async function fixture(agentId = "coding", writeQueueCapacity?: number) {
 }
 
 describe("local tracing", () => {
+  it("keeps capture off until the host explicitly enables it", async () => {
+    const control = new LocalTraceControl();
+
+    expect(control.status()).toBe("off");
+    control.start();
+    expect(control.status()).toBe("on");
+    control.stop();
+    expect(control.status()).toBe("off");
+  });
+
   it("persists ordered replay and a parented active span tree", async () => {
     const { runtime, scope } = await fixture();
 

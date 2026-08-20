@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createLocalTraceQuery } from "@omni-agent/app";
-import { createPreviewServer } from "./preview-server";
+import { createPreviewServer } from "@omni-agent/ui/trace-preview-server";
 
 export async function runTracePreview(agentId: string): Promise<void> {
   const query = createLocalTraceQuery(join(homedir(), ".omni-agent"), agentId);

@@ -7,6 +7,7 @@ packages/core   Agent execution kernel
 packages/models Model runtime, vendor catalog, provider plugins, and credentials
 packages/app    Application lifecycle and extension host
 packages/tools  Domain-neutral tool implementations
+packages/ui     User interaction and presentation surfaces
 packages/cli    Terminal host and composition root
 agents/*        Independently packaged business agents
 ```
@@ -18,11 +19,15 @@ tools -> core
 models -> core
 app -> core, models
 agents/* -> app, core, tools
-cli -> app, core, tools, agents/*
+ui -> app, core
+cli -> app, core, tools, ui, agents/*
 ```
 
 Core and app must not import a concrete agent. Agent packages must not import the
-CLI or another agent package. Domain tools stay with their owning agent; only
+CLI or another agent package. `packages/ui` owns interaction hosts, view models,
+presentation code, and browser assets; the CLI composes an exported UI host but
+must not own routes, browser build configuration, or frontend implementation.
+Domain tools stay with their owning agent; only
 domain-neutral tools may be promoted to `packages/tools`.
 
 ## Models and providers
@@ -373,15 +378,22 @@ Each Run owns append-only span and replay JSONL, with oversized replay payloads 
 UTF-8 parts. Session discovery reconciles Run manifests from disk; the Agent-level index is a
 rebuildable optimization, not business truth.
 
-Capture is off by default. The shared Core sanitizer removes credential-shaped fields while
-preserving operational metrics before payloads reach local persistence. A bounded write queue
-keeps Runtime non-blocking; lifecycle records take priority over streamed detail, and overload
-degrades capture with diagnostics plus a persisted Run-summary dropped-record count. Trace write
-failures never alter model, permission, tool,
+Capture is off by default. The CLI may explicitly enable it for the current Agent process with
+`--trace`, and Host control may enable or disable future Runs interactively. An already active Run
+remains attached to its original capture scope. The shared Core sanitizer
+removes credential-shaped fields while preserving operational metrics before payloads reach local
+persistence. A bounded write queue keeps Runtime non-blocking; lifecycle records take priority over
+streamed detail, and overload degrades capture with diagnostics plus a persisted Run-summary
+dropped-record count. Trace write failures never alter model, permission, tool,
 Stream, or Session behavior. The local viewer is read-only, listens only on `127.0.0.1`, validates
 Host and identifiers, disables caching and framing, applies a restrictive Content Security Policy,
 and loads no external resources. Host-owned `omni trace clear <agentId>` is the only deletion path
 and rejects active captures.
+
+The browser UI projects the span parent graph into a collapsible Waterfall and correlates the
+selected span with Replay payloads for Input, Output, and Attributes. This projection remains a
+read-only UI concern: it may add presentation-only grouping or historical correlation fallback,
+but it does not infer execution state or feed decisions back into Core, App, or an Agent.
 
 `TraceQueryPort` is the stable local query boundary. App owns the concrete store, layout, query,
 and maintenance adapters and exposes only factories for CLI composition. A future OpenTelemetry

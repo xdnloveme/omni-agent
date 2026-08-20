@@ -2,7 +2,7 @@ import { rm } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
-import { buildCliDistribution } from "./build-cli-distribution.mjs";
+import { buildCliDistribution } from "./build-cli-distribution.js";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
@@ -11,7 +11,7 @@ const { outputDirectory, version } = await buildCliDistribution();
 const tarball = join(artifactsDirectory, `omni-agent-cli-${version}.tgz`);
 await rm(tarball, { force: true });
 
-await new Promise((resolvePromise, reject) => {
+await new Promise<void>((resolvePromise, reject) => {
   const child = spawn("pnpm", ["pack", "--pack-destination", artifactsDirectory], {
     cwd: outputDirectory,
     stdio: "inherit",

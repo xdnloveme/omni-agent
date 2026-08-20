@@ -151,9 +151,11 @@ export class ReplayRuntimeObserver implements RuntimeObserverPort {
       },
       output: (fact) => {
         const event = modelOutputEvent(fact);
+        const correlatedModelCallId =
+          fact.kind === "cache_reported" ? fact.report.modelCallId : fact.modelCallId;
         this.record({
           kind: modelOutputKind(fact.kind),
-          ...("modelCallId" in fact ? { correlation: { modelCallId: fact.modelCallId } } : {}),
+          correlation: { modelCallId: correlatedModelCallId },
           payload: { turn, event },
         });
       },

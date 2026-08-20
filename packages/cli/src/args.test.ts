@@ -3,10 +3,16 @@ import { CliUsageError, parseCliArgs } from "./args";
 
 describe("parseCliArgs", () => {
   it.each([
-    [[], { kind: "run", agentId: "coding" }],
-    [["run"], { kind: "run", agentId: "coding" }],
-    [["run", "coding"], { kind: "run", agentId: "coding" }],
-    [["run", "financial-analysis"], { kind: "run", agentId: "financial-analysis" }],
+    [[], { kind: "run", agentId: "coding", trace: false }],
+    [["--trace"], { kind: "run", agentId: "coding", trace: true }],
+    [["run"], { kind: "run", agentId: "coding", trace: false }],
+    [["run", "coding"], { kind: "run", agentId: "coding", trace: false }],
+    [["run", "coding", "--trace"], { kind: "run", agentId: "coding", trace: true }],
+    [
+      ["run", "--trace", "financial-analysis"],
+      { kind: "run", agentId: "financial-analysis", trace: true },
+    ],
+    [["run", "financial-analysis"], { kind: "run", agentId: "financial-analysis", trace: false }],
     [["trace", "preview", "coding"], { kind: "trace-preview", agentId: "coding" }],
     [
       ["trace", "clear", "financial-analysis"],
@@ -28,6 +34,8 @@ describe("parseCliArgs", () => {
     ["chat"],
     ["run", "../unknown"],
     ["run", "coding", "extra"],
+    ["run", "coding", "--trace", "--trace"],
+    ["--trace", "run"],
     ["trace", "preview", "../coding"],
     ["trace", "unknown", "coding"],
   ])("rejects invalid input %j as a usage error", (...input) => {

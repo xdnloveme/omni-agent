@@ -151,6 +151,7 @@ export class SpanRuntimeObserver implements RuntimeObserverPort {
       () => {
         const span = this.tracer.startSpan(RuntimeSpanName.modelGenerate, {
           "agent.turn.index": fact.turn,
+          "agent.model.call.id": fact.modelCallId,
           "gen_ai.request.model": fact.modelId,
           "gen_ai.input.tokens.estimated": fact.estimatedInputTokens,
         });
@@ -246,6 +247,7 @@ export class SpanRuntimeObserver implements RuntimeObserverPort {
       () => {
         const span = this.tracer.startSpan(RuntimeSpanName.toolPreflight, {
           "agent.tool.name": fact.toolName,
+          "agent.tool.call.id": fact.toolCallId,
         });
         const terminal = new RuntimeObservationTerminal("span.preflight", this.diagnostic);
         return {
@@ -271,6 +273,7 @@ export class SpanRuntimeObserver implements RuntimeObserverPort {
       () => {
         const span = this.tracer.startSpan(RuntimeSpanName.toolAuthorization, {
           "agent.tool.name": fact.toolName,
+          "agent.tool.call.id": fact.toolCallId,
         });
         const terminal = new RuntimeObservationTerminal("span.authorization", this.diagnostic);
         return {

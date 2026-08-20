@@ -136,12 +136,14 @@ skills additionally register as their own slash commands and appear in Tab compl
 ### Local Agent traces
 
 The CLI Host provides `/trace start`, `/trace stop`, and `/trace status` for every started Agent.
-Capture is off by default and isolated by Agent under `~/.omni-agent/traces/<agent-id>/`. When enabled, each future
-run records a span lifecycle plus a replay timeline containing sanitized model requests, streamed
-responses, thinking, and tool input/output. Capture uses bounded asynchronous persistence; under
-extreme storage pressure streamed detail may degrade while lifecycle records are prioritized.
-Trace files are local diagnostics; they do not change Session JSONL and are not a second execution
-path.
+Capture is off by default and isolated by Agent under `~/.omni-agent/traces/<agent-id>/`. Start an
+Agent with `omni --trace` or `omni run <agent-id> --trace` to enable capture for that process.
+`/trace start` and `/trace stop` control future runs interactively; an active run remains complete.
+Each captured run records a span lifecycle plus a replay timeline containing sanitized model
+requests, streamed responses, thinking, and tool input/output. Capture uses bounded asynchronous
+persistence; under extreme storage pressure streamed detail may degrade while lifecycle records
+are prioritized. Trace files are local diagnostics; they do not change Session JSONL and are not a
+second execution path.
 
 Start the read-only local viewer in another terminal:
 
@@ -493,14 +495,18 @@ graph TD
     APP["packages/app<br/>lifecycle, registries, extensions, sessions"]
     MODELS["packages/models<br/>runtime, vendor plugins, credentials"]
     TOOLS["packages/tools<br/>fs, shell, search, web"]
+    UI["packages/ui<br/>browser views, presentation models"]
     CORE["packages/core<br/>execution kernel, stable ports"]
 
     CLI --> AGENTS
     CLI --> APP
     CLI --> TOOLS
+    CLI --> UI
     CLI --> CORE
     AGENTS --> APP
     AGENTS --> TOOLS
+    UI --> APP
+    UI --> CORE
     AGENTS --> CORE
     APP --> MODELS
     APP --> CORE
@@ -514,7 +520,8 @@ graph TD
 | `packages/models` | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence   |
 | `packages/app`    | Application lifecycle, agent/tool/command registries, extension host, sessions, config |
 | `packages/tools`  | Domain-neutral filesystem, shell, search, and web tools                                |
-| `packages/cli`    | Process entry, TUI, run mode, onboarding, diagnostics                                  |
+| `packages/ui`     | Interaction surfaces: browser hosts/views, view models, formatting, and visual assets  |
+| `packages/cli`    | Process entry, terminal host, composition, run mode, onboarding, and diagnostics       |
 | `agents/*`        | Independently packaged business agents                                                 |
 
 ### Dependency direction
@@ -524,7 +531,8 @@ tools  -> core
 models -> core
 app    -> core, models
 agents -> app, core, tools
-cli    -> app, core, tools, agents/*
+ui     -> app, core
+cli    -> app, core, tools, ui, agents/*
 ```
 
 Reverse dependencies are not allowed. `core` and `app` must never import a concrete agent, and an

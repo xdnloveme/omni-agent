@@ -18,7 +18,8 @@ packages/core   Agent execution kernel and stable runtime ports
 packages/models Model runtime, vendor plugins, catalogs, and credentials
 packages/app    Application lifecycle, registries, extensions, and sessions
 packages/tools  Domain-neutral filesystem, shell, search, and web tools
-packages/cli    CLI composition root, interaction layer, and onboarding
+packages/ui     Interaction hosts, views, presentation models, and input handling
+packages/cli    CLI composition root, process lifecycle, and onboarding
 agents/*        Independently packaged business agents
 ```
 
@@ -29,7 +30,8 @@ tools -> core
 models -> core
 app -> core, models
 agents/* -> app, core, tools
-cli -> app, core, tools, agents/*
+ui -> app, core
+cli -> app, core, tools, ui, agents/*
 ```
 
 Do not introduce reverse dependencies. `core` and `app` must never import a
@@ -52,8 +54,8 @@ permission, execution, cancellation, and sandbox-boundary contract.
   outside a specific agent or business domain.
 - Keep prompts, domain types, domain services, domain tools, and workflows in the
   owning package under `agents/`.
-- Keep terminal rendering, input handling, onboarding, and process lifecycle in
-  `packages/cli`.
+- Keep browser and terminal rendering, view interaction, and input handling in
+  `packages/ui`; keep onboarding, composition, and process lifecycle in `packages/cli`.
 - Prefer composition and declarative definitions over `BaseAgent` inheritance.
 - Do not add a framework abstraction until at least two real consumers require
   it or it removes meaningful existing complexity.
@@ -64,7 +66,7 @@ Examples:
 file_read, bash, grep                 -> packages/tools
 repository-specific analysis         -> agents/coding
 RSI, MACD, IBKR data adapters         -> agents/financial-analysis
-TUI widgets and keyboard interaction  -> packages/cli
+TUI widgets and keyboard interaction  -> packages/ui
 ```
 
 ## Runtime Contract

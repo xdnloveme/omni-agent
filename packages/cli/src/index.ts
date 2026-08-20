@@ -28,7 +28,9 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
     }
     case "run":
       const { runAgentMode } = await import("./modes/run");
-      process.exitCode = exitCodeForTermination(await runAgentMode(command.agentId));
+      process.exitCode = exitCodeForTermination(
+        await runAgentMode(command.agentId, { trace: command.trace }),
+      );
   }
 }
 

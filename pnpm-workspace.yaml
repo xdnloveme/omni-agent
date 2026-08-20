@@ -10,3 +10,7 @@ allowBuilds:
   protobufjs: true
   tree-sitter: true
   tree-sitter-bash: true
+
+minimumReleaseAgeExclude:
+  - "@vitejs/plugin-react@6.1.0"
+  - vite@8.2.2

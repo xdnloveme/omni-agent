@@ -74,6 +74,30 @@ describe("Runtime Trace observers", () => {
       textSegmentId: "segment",
       delta: "hello",
     });
+    model.output({
+      kind: "cache_reported",
+      report: {
+        outcome: "success",
+        modelCallId: "model-call",
+        scopeId: "scope",
+        requestedRetention: "default",
+        appliedRetention: "short",
+        capability: {
+          mode: "automatic_prefix",
+          retentions: ["none", "short"],
+          stableScopeRetentions: ["short"],
+        },
+        lifecycle: "append_only",
+        commonPrefixMessageCount: 1,
+        previousMessageCount: 1,
+        currentMessageCount: 2,
+        cacheReadTokens: 2,
+        cacheWriteTokens: 1,
+        inputTokens: 3,
+        cacheHitRate: 1 / 3,
+        createdAt: 1,
+      },
+    });
     model.complete({
       response: response(),
       usage: {
@@ -106,6 +130,7 @@ describe("Runtime Trace observers", () => {
     ]);
     expect(spans.every((span) => span.ended === 1)).toBe(true);
     expect(spans.find((span) => span.name === "gen_ai.generate")?.attributes).toMatchObject({
+      "agent.model.call.id": "model-call",
       "gen_ai.response.time_to_first_event_ms": 2,
       "gen_ai.usage.input_tokens": 3,
       "gen_ai.usage.output_tokens": 1,
@@ -118,6 +143,7 @@ describe("Runtime Trace observers", () => {
       "model.request.captured",
       "model.started",
       "model.text.delta",
+      "model.cache.reported",
       "model.completed",
       "agent.final_response",
       "turn.completed",
@@ -128,6 +154,16 @@ describe("Runtime Trace observers", () => {
       payload: {
         systemPrompt: "system",
         messages: [{ role: "user", content: "hello" }],
+      },
+    });
+    expect(replay[7]).toMatchObject({
+      kind: "model.cache.reported",
+      correlation: { modelCallId: "model-call" },
+      payload: {
+        event: {
+          type: "model_cache_report",
+          report: { modelCallId: "model-call", cacheReadTokens: 2 },
+        },
       },
     });
   });
