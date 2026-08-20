@@ -25,6 +25,7 @@ export function TraceStudio() {
   const [viewMode, setViewMode] = useState<ViewMode>("overview");
   const [filter, setFilter] = useState("all");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [hoveredId, setHoveredId] = useState<string | null>(null);
   const [focusedId, setFocusedId] = useState<string | null>(null);
   const [collapsedIds, setCollapsedIds] = useState<Set<string>>(new Set());
 
@@ -71,6 +72,7 @@ export function TraceStudio() {
 
   useEffect(() => {
     setSelectedId(null);
+    setHoveredId(null);
     setFocusedId(null);
     setCollapsedIds(new Set());
     setFilter("all");
@@ -150,11 +152,13 @@ export function TraceStudio() {
               rows={rows}
               spans={data.spans}
               window={window}
+              loading={data.loading}
               viewMode={viewMode}
               selectedId={selectedId}
               criticalIds={criticalIds}
               collapsedIds={collapsedIds}
               onSelect={setSelectedId}
+              onHover={setHoveredId}
               onFocus={(id) => {
                 setSelectedId(id);
                 setFocusedId(id);
@@ -177,6 +181,8 @@ export function TraceStudio() {
               spans={data.spans}
               replay={data.replay}
               run={data.run}
+              loading={data.loading}
+              highlightedId={hoveredId}
             />
           </div>
         </Panel>

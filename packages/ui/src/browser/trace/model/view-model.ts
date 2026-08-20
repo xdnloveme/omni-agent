@@ -223,8 +223,8 @@ export function cachePresentation(cache: NonNullable<DisplayMetrics["cache"]>): 
     tone,
     tooltip: [
       `Lifecycle: ${lifecycle}`,
-      `Read: ${compactNumber(cache.readTokens)} tokens`,
-      `Write: ${compactNumber(cache.writeTokens)} tokens`,
+      `Read: ${formatCompactNumber(cache.readTokens)} tokens`,
+      `Write: ${formatCompactNumber(cache.writeTokens)} tokens`,
       `Retention: ${retention}`,
       ...(cache.reason ? [`Reason: ${String(cache.reason)}`] : []),
     ].join("\n"),
@@ -238,9 +238,9 @@ export function overviewMetricRows(node: DisplayNode): OverviewMetricRow[] {
   const tokens = node.metrics.tokens;
   if (tokens && tokens.total > 0) {
     rows.push(
-      ["Input tokens", compactNumber(tokens.input)],
-      ["Output tokens", compactNumber(tokens.output)],
-      ["Total tokens", compactNumber(tokens.total)],
+      ["Input tokens", formatCompactNumber(tokens.input)],
+      ["Output tokens", formatCompactNumber(tokens.output)],
+      ["Total tokens", formatCompactNumber(tokens.total)],
     );
   }
   const cache = node.metrics.cache;
@@ -252,11 +252,13 @@ export function overviewMetricRows(node: DisplayNode): OverviewMetricRow[] {
         cache.hitRate === null ? "Unavailable" : formatPercent(cache.hitRate),
         presentation.tone,
       ],
-      ["Cache read", `${compactNumber(cache.readTokens)} tokens`],
-      ["Cache write", `${compactNumber(cache.writeTokens)} tokens`],
+      ["Cache read", `${formatCompactNumber(cache.readTokens)} tokens`],
+      ["Cache write", `${formatCompactNumber(cache.writeTokens)} tokens`],
       ["Cache lifecycle", String(cache.lifecycle ?? "unknown")],
       ["Cache retention", String(cache.appliedRetention ?? "none")],
     );
+  } else if (spanPresentation(node.span).kind === "model") {
+    rows.push(["Cache", "Not reported", "muted"]);
   }
   for (const { span } of node.phases) {
     rows.push([
@@ -268,14 +270,17 @@ export function overviewMetricRows(node: DisplayNode): OverviewMetricRow[] {
     const before = numeric(node.span.attributes["context.before_tokens"]);
     const after = numeric(node.span.attributes["context.after_tokens"]);
     if (before > 0)
-      rows.push(["Context", `${compactNumber(before)} → ${compactNumber(after)} tokens`]);
+      rows.push([
+        "Context",
+        `${formatCompactNumber(before)} → ${formatCompactNumber(after)} tokens`,
+      ]);
     const reduction = node.span.attributes["context.reduction_ratio"];
     if (typeof reduction === "number") rows.push(["Reduction", formatPercent(reduction)]);
   }
   if (["agent.run", "agent.turn"].includes(node.span.name)) {
     const summary = traceSummary([node]);
     rows.push(["Models", String(summary.models)], ["Tools", String(summary.tools)]);
-    if (summary.tokenUsage > 0) rows.push(["Tokens", compactNumber(summary.tokenUsage)]);
+    if (summary.tokenUsage > 0) rows.push(["Tokens", formatCompactNumber(summary.tokenUsage)]);
     if (summary.cacheHitRate !== null) {
       rows.push(["Cache hit", formatPercent(summary.cacheHitRate), "hit"]);
     }
@@ -714,8 +719,8 @@ function numeric(value: unknown): number {
   return Number.isFinite(number) ? number : 0;
 }
 
-function compactNumber(value: number): string {
-  return new Intl.NumberFormat(undefined, {
+export function formatCompactNumber(value: number): string {
+  return new Intl.NumberFormat("en", {
     notation: "compact",
     maximumFractionDigits: 1,
   }).format(value);

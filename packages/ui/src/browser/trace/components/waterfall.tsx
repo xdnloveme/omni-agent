@@ -8,7 +8,6 @@ import {
   CornerDownRight,
   Database,
   Focus,
-  Gauge,
   Info,
   Layers3,
   ListTree,
@@ -29,6 +28,7 @@ import type {
 } from "../model/contracts.js";
 import {
   cachePresentation,
+  formatCompactNumber,
   formatDuration,
   overviewMetricRows,
   projectSpanInterval,
@@ -48,6 +48,8 @@ const FILTER_OPTIONS = [
   ["slow", "Slow"],
   ["errors", "Errors"],
 ].map(([value, label]) => ({ value, label }));
+
+const MIN_PHASE_BREAKDOWN_PERCENT = 1;
 
 export function ExecutionToolbar({
   summary,
@@ -88,7 +90,7 @@ export function ExecutionToolbar({
     `${turns} ${turns === 1 ? "turn" : "turns"}`,
     `${summary.models} ${summary.models === 1 ? "model" : "models"}`,
     `${summary.tools} ${summary.tools === 1 ? "tool" : "tools"}`,
-    `${compact(summary.tokenUsage)} tokens`,
+    `${formatCompactNumber(summary.tokenUsage)} tokens`,
     ...(summary.cacheHitRate === null ? [] : [`cache ${formatPercent(summary.cacheHitRate)}`]),
     ...(summary.authorizationMs > 0
       ? [`authorization ${formatDuration(summary.authorizationMs)}`]
@@ -114,10 +116,22 @@ export function ExecutionToolbar({
         </div>
       </div>
       <div className="execution-summary" aria-label={summaryText}>
-        <Metric icon={CornerDownRight} value={turns} label="turns" />
-        <Metric icon={Wrench} value={summary.tools} label="tools" />
-        <Metric icon={Gauge} value={compact(summary.tokenUsage)} label="tokens" />
-        {summary.errors > 0 && <Metric icon={Info} value={summary.errors} label="errors" />}
+        <span className="execution-summary-text" aria-hidden="true">
+          <span className="execution-summary-item summary-turns">
+            {turns} {turns === 1 ? "turn" : "turns"}
+          </span>
+          <span className="execution-summary-item summary-tools">
+            {summary.tools} {summary.tools === 1 ? "tool" : "tools"}
+          </span>
+          <span className="execution-summary-item summary-tokens">
+            {formatCompactNumber(summary.tokenUsage)} tokens
+          </span>
+          {summary.errors > 0 && (
+            <span className="execution-summary-item summary-errors">
+              {summary.errors} {summary.errors === 1 ? "error" : "errors"}
+            </span>
+          )}
+        </span>
         <Hint label={summaryText}>
           <span className="execution-summary-info" tabIndex={0}>
             <Info aria-hidden="true" />
@@ -169,45 +183,30 @@ export function ExecutionToolbar({
   );
 }
 
-function Metric({
-  icon: Icon,
-  value,
-  label,
-}: {
-  readonly icon: LucideIcon;
-  readonly value: string | number;
-  readonly label: string;
-}) {
-  return (
-    <span className="execution-metric">
-      <Icon aria-hidden="true" />
-      <span>
-        {value} {label}
-      </span>
-    </span>
-  );
-}
-
 export function Waterfall({
   rows,
   spans,
   window,
+  loading,
   viewMode,
   selectedId,
   criticalIds,
   collapsedIds,
   onSelect,
+  onHover,
   onFocus,
   onToggle,
 }: {
   readonly rows: readonly FlattenedDisplayNode[];
   readonly spans: readonly TraceSpan[];
   readonly window: TraceTimeWindow | null;
+  readonly loading: boolean;
   readonly viewMode: ViewMode;
   readonly selectedId: string | null;
   readonly criticalIds: ReadonlySet<string>;
   readonly collapsedIds: ReadonlySet<string>;
   readonly onSelect: (id: string) => void;
+  readonly onHover: (id: string | null) => void;
   readonly onFocus: (id: string) => void;
   readonly onToggle: (id: string) => void;
 }) {
@@ -218,8 +217,20 @@ export function Waterfall({
         <TimelineAxis spans={spans} window={window} />
         <span>Duration</span>
       </div>
-      <div className={`waterfall mode-${viewMode}${rows.length ? "" : " empty-state"}`}>
-        {!rows.length && "No trace operations match this view."}
+      <div
+        className={`waterfall mode-${viewMode}${rows.length ? "" : " empty-state"}`}
+        aria-busy={loading}
+      >
+        {!rows.length && (
+          <div className="waterfall-state">
+            <strong>{loading ? "Loading trace…" : "No matching operations"}</strong>
+            <span>
+              {loading
+                ? "Reading spans and captured events for this run."
+                : "Try another operation filter or exit the focused view."}
+            </span>
+          </div>
+        )}
         {window &&
           rows.map((row) => (
             <WaterfallRow
@@ -231,6 +242,7 @@ export function Waterfall({
               collapsed={collapsedIds.has(row.span.spanId)}
               overview={viewMode === "overview"}
               onSelect={onSelect}
+              onHover={onHover}
               onFocus={onFocus}
               onToggle={onToggle}
             />
@@ -289,6 +301,7 @@ function WaterfallRow({
   collapsed,
   overview,
   onSelect,
+  onHover,
   onFocus,
   onToggle,
 }: {
@@ -299,6 +312,7 @@ function WaterfallRow({
   readonly collapsed: boolean;
   readonly overview: boolean;
   readonly onSelect: (id: string) => void;
+  readonly onHover: (id: string | null) => void;
   readonly onFocus: (id: string) => void;
   readonly onToggle: (id: string) => void;
 }) {
@@ -306,12 +320,17 @@ function WaterfallRow({
   const presentation = spanPresentation(span);
   const Icon = iconFor(presentation.kind);
   const interval = projectSpanInterval(span, window);
+  const compactTiming = Boolean(
+    overview && phases.length > 0 && interval && interval.width < MIN_PHASE_BREAKDOWN_PERCENT,
+  );
   const duration = span.completedAt ? formatDuration(span.completedAt - span.startedAt) : "active";
   const style = { "--depth": depth } as CSSProperties;
   return (
     <div
       className={`waterfall-row row-kind-${presentation.kind}${selected ? " selected" : ""}${critical ? " critical" : ""}`}
       style={style}
+      onPointerEnter={() => onHover(span.spanId)}
+      onPointerLeave={() => onHover(null)}
     >
       <button
         type="button"
@@ -344,12 +363,13 @@ function WaterfallRow({
             <span className="timeline-track">
               {interval && (
                 <span
-                  className={`timeline-bar kind-${presentation.kind} ${presentation.statusTone}${interval.clippedStart ? " clipped-start" : ""}${interval.clippedFinish ? " clipped-finish" : ""}${interval.left >= 100 ? " at-end" : ""}`}
+                  className={`timeline-bar kind-${presentation.kind} ${presentation.statusTone}${compactTiming ? " compact-timing" : ""}${interval.clippedStart ? " clipped-start" : ""}${interval.clippedFinish ? " clipped-finish" : ""}${interval.left >= 100 ? " at-end" : ""}`}
                   style={{ left: `${interval.left}%`, width: `${interval.width}%` }}
                   title={spanTimingLabel(span, presentation.label, window.fullStart)}
                 />
               )}
               {overview &&
+                !compactTiming &&
                 phases.map(({ span: phase }) => (
                   <Phase key={phase.spanId} span={phase} window={window} />
                 ))}
@@ -423,7 +443,12 @@ function operationMeta(node: DisplayNode) {
     const cacheView = cache ? cachePresentation(cache) : null;
     return (
       <>
-        {node.metrics.tokens?.total ? `MODEL · ${compact(node.metrics.tokens.total)} TOK` : "MODEL"}
+        <span className="operation-type">MODEL</span>
+        {node.metrics.tokens?.total ? (
+          <span className="operation-detail">
+            {formatCompactNumber(node.metrics.tokens.total)} TOK
+          </span>
+        ) : null}
         {cacheView?.visible && (
           <span className={`metric-pill cache ${cacheView.tone}`} title={cacheView.tooltip}>
             {cacheView.label}
@@ -440,20 +465,42 @@ function operationMeta(node: DisplayNode) {
     const running = node.children.filter(
       ({ span }) => spanPresentation(span).statusTone === "running",
     ).length;
-    return `${calls} CALLS · ${failures ? `${failures} ERROR` : running ? `${running} ACTIVE` : "OK"}`;
+    return (
+      <>
+        <span className="operation-type">BATCH</span>
+        <span className="operation-detail">
+          {calls} CALLS · {failures ? `${failures} ERROR` : running ? `${running} ACTIVE` : "OK"}
+        </span>
+      </>
+    );
   }
   if (presentation.kind === "compaction") {
     const before = Number(node.span.attributes["context.before_tokens"] ?? 0);
     const after = Number(node.span.attributes["context.after_tokens"] ?? 0);
     const reduction = node.span.attributes["context.reduction_ratio"];
-    return before
-      ? `${compact(before)} → ${compact(after)} TOK${typeof reduction === "number" ? ` · −${formatPercent(reduction)}` : ""}`
-      : "CONTEXT";
+    return (
+      <>
+        <span className="operation-type">CONTEXT</span>
+        {before ? (
+          <span className="operation-detail">
+            {formatCompactNumber(before)} → {formatCompactNumber(after)} TOK
+            {typeof reduction === "number" ? ` · −${formatPercent(reduction)}` : ""}
+          </span>
+        ) : null}
+      </>
+    );
   }
   if (presentation.kind === "checkpoint") {
-    return `CONTEXT · ${String(node.span.attributes["context.operation"] ?? "checkpoint").toUpperCase()}`;
+    return (
+      <>
+        <span className="operation-type">CONTEXT</span>
+        <span className="operation-detail">
+          {String(node.span.attributes["context.operation"] ?? "checkpoint").toUpperCase()}
+        </span>
+      </>
+    );
   }
-  return presentation.kind.toUpperCase();
+  return <span className="operation-type">{presentation.kind.toUpperCase()}</span>;
 }
 
 function iconFor(kind: string): LucideIcon {
@@ -474,12 +521,6 @@ function iconFor(kind: string): LucideIcon {
         finish: CircleCheck,
       } as Record<string, LucideIcon>
     )[kind] ?? Bot
-  );
-}
-
-function compact(value: number): string {
-  return new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 }).format(
-    value,
   );
 }
 

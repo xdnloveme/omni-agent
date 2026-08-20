@@ -37,12 +37,16 @@ export function DetailsPanel({
   spans,
   replay,
   run,
+  loading,
+  highlightedId,
 }: {
   readonly node: DisplayNode | null;
   readonly details: NodeDetails | null;
   readonly spans: readonly TraceSpan[];
   readonly replay: readonly TraceReplayRecord[];
   readonly run: TraceRun | null;
+  readonly loading: boolean;
+  readonly highlightedId: string | null;
 }) {
   const [expandedToolIds, setExpandedToolIds] = useState<Set<string>>(new Set());
   const [formats, setFormats] = useState<Map<string, FormatMode>>(new Map());
@@ -54,19 +58,34 @@ export function DetailsPanel({
         <div className="selection-heading">
           <div className="selection-copy">
             <div className="selection-title">
-              <h2>Select an operation</h2>
+              <h2>{loading ? "Loading trace" : "Select an operation"}</h2>
             </div>
-            <p className="selection-meta">Choose a Waterfall row to inspect its data.</p>
+            <p className="selection-meta">
+              {loading
+                ? "Preparing the captured run details."
+                : "Choose a Waterfall row to inspect its data."}
+            </p>
           </div>
         </div>
-        <div className="detail-content empty-state">Select an operation from the Waterfall.</div>
+        <div className="detail-content empty-state">
+          <div className="detail-empty-state">
+            <strong>{loading ? "Loading captured data…" : "Nothing selected"}</strong>
+            <span>
+              {loading
+                ? "This will update as soon as the trace is ready."
+                : "Select an operation on the left to inspect its input, output, and attributes."}
+            </span>
+          </div>
+        </div>
       </aside>
     );
   const presentation = spanPresentation(node.span);
   const Icon = iconFor(presentation.kind);
   return (
     <aside className="details-panel">
-      <div className="selection-heading">
+      <div
+        className={`selection-heading${highlightedId === node.span.spanId ? " linked-highlight" : ""}`}
+      >
         <span className={`selection-icon kind-${presentation.kind}`}>
           <Icon />
         </span>
@@ -102,6 +121,7 @@ export function DetailsPanel({
             formats={formats}
             onFormatChange={setFormat}
             expandedToolIds={expandedToolIds}
+            highlightedId={highlightedId}
             onToolExpanded={(spanId, expanded) =>
               setExpandedToolIds((current) => {
                 const next = new Set(current);
@@ -205,6 +225,7 @@ function Overview({
   formats,
   onFormatChange,
   expandedToolIds,
+  highlightedId,
   onToolExpanded,
 }: {
   readonly node: DisplayNode;
@@ -214,6 +235,7 @@ function Overview({
   readonly formats: ReadonlyMap<string, FormatMode>;
   readonly onFormatChange: (key: string, mode: FormatMode) => void;
   readonly expandedToolIds: ReadonlySet<string>;
+  readonly highlightedId: string | null;
   readonly onToolExpanded: (spanId: string, expanded: boolean) => void;
 }) {
   const tools = relatedToolNodes(node, spans, replay);
@@ -241,6 +263,7 @@ function Overview({
                 formats={formats}
                 onFormatChange={onFormatChange}
                 expanded={expandedToolIds.has(tool.span.spanId)}
+                highlighted={highlightedId === tool.span.spanId}
                 onExpanded={onToolExpanded}
               />
             ))}
@@ -274,6 +297,7 @@ function ToolCard({
   formats,
   onFormatChange,
   expanded,
+  highlighted,
   onExpanded,
 }: {
   readonly node: FlattenedDisplayNode;
@@ -281,6 +305,7 @@ function ToolCard({
   readonly formats: ReadonlyMap<string, FormatMode>;
   readonly onFormatChange: (key: string, mode: FormatMode) => void;
   readonly expanded: boolean;
+  readonly highlighted: boolean;
   readonly onExpanded: (spanId: string, expanded: boolean) => void;
 }) {
   const presentation = spanPresentation(node.span);
@@ -293,7 +318,7 @@ function ToolCard({
     .join(" · ");
   return (
     <details
-      className="tool-detail-card"
+      className={`tool-detail-card${highlighted ? " linked-highlight" : ""}`}
       open={expanded}
       onToggle={(event) => onExpanded(node.span.spanId, event.currentTarget.open)}
     >
