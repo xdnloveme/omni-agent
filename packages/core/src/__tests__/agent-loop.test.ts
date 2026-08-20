@@ -27,6 +27,8 @@ import {
 } from "../environment";
 import type { SessionRecord } from "../session";
 import { digestStableValue } from "../valueDigest";
+import type { RuntimeRunObservation } from "../runtime-observation";
+import { RecordingRuntimeObserver } from "../testing/runtime-observation";
 
 const streamModel = vi.fn<ModelRuntimePort["stream"]>();
 const modelRuntime: ModelRuntimePort = { stream: streamModel };
@@ -88,6 +90,7 @@ function executeLoop(
   contextMiddleware: readonly ContextMiddlewarePort[] = [],
   contextEngine: ContextEnginePort = createContextEngine(),
   coordinator: ToolCallCoordinator = createCoordinator(),
+  observation?: RuntimeRunObservation,
 ) {
   return runAgentLoop({
     config,
@@ -107,6 +110,7 @@ function executeLoop(
       },
     },
     toolCallCoordinator: coordinator,
+    observation,
     signal,
   });
 }
@@ -550,6 +554,12 @@ describe("runAgentLoop", () => {
     };
     const coordinator = createCoordinator();
     const run = vi.spyOn(coordinator, "run");
+    const recorder = new RecordingRuntimeObserver();
+    const observation = recorder.startRun({
+      agentId: "test",
+      sessionId: "test-session",
+      runId: "run",
+    });
     streamModel.mockReturnValueOnce(
       fakeStream([
         {
@@ -579,6 +589,7 @@ describe("runAgentLoop", () => {
         [],
         createContextEngine(),
         coordinator,
+        observation,
       ),
     );
 
@@ -597,6 +608,11 @@ describe("runAgentLoop", () => {
         (event) => event.type === "tool_end" && event.result.meta?.code === "tool_batch_deferred",
       ),
     ).toHaveLength(2);
+    const observedCalls = recorder.records
+      .filter((record) => record.operation === "tool.call.started")
+      .map((record) => (record.fact as { toolCallId: string }).toolCallId);
+    expect(observedCalls).toEqual(["call-before", "call-barrier", "call-second"]);
+    expect(recorder.records.filter((record) => record.operation === "tool.result")).toHaveLength(3);
   });
 
   it("injects a complete environment replacement between model calls and binds tool cwd", async () => {
@@ -997,6 +1013,12 @@ describe("runAgentLoop", () => {
   it("should stop with error when maxTurns is reached", async () => {
     const tool = makeTool("bash");
     const config = makeConfig({ tools: [tool], maxTurns: 1 });
+    const recorder = new RecordingRuntimeObserver();
+    const observation = recorder.startRun({
+      agentId: "test",
+      sessionId: "test-session",
+      runId: "run",
+    });
 
     // LLM always returns tool use — loop should stop after 1 turn
     streamModel.mockReturnValue(
@@ -1020,7 +1042,17 @@ describe("runAgentLoop", () => {
       ]) as any,
     );
 
-    const events = await collectEvents(executeLoop(config, makeMessages("Loop forever")));
+    const events = await collectEvents(
+      executeLoop(
+        config,
+        makeMessages("Loop forever"),
+        undefined,
+        [],
+        createContextEngine(),
+        createCoordinator(),
+        observation,
+      ),
+    );
 
     const lastEvent = events[events.length - 1];
     expect(lastEvent).toEqual({
@@ -1044,6 +1076,8 @@ describe("runAgentLoop", () => {
       turnCount: 1,
       maxTurns: 1,
     });
+    expect(recorder.records.map((record) => record.operation)).toContain("turn.failed");
+    expect(recorder.records.map((record) => record.operation)).not.toContain("turn.completed");
   });
 
   it("injects loop guidance into the next model request without persisting it", async () => {

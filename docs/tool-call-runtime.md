@@ -176,6 +176,15 @@ default executor, direct tool invocation from the loop, or another host-specific
 execution branch. Its authorizer, invocation runner, and input validator are required
 constructor dependencies and must be supplied by the composition root.
 
+Runtime Observation is a read-only side channel over this same authoritative path.
+`ToolCallCoordinator` creates scoped Tool Call, preflight, and authorization observations;
+`ToolInvocationRunner` receives the scoped execution observation. These handles report typed
+facts only. They cannot validate input, authorize a call, modify a result, choose a backend,
+change timeout/cancellation, or reorder middleware and lifecycle adapters. Span names and Replay
+kinds are owned exclusively by Trace Processing outside these Runtime components.
+Calls deferred by turn-barrier scheduling still publish Tool Call result and terminal facts, but do
+not create preflight, authorization, or execution scopes.
+
 ### Turn barrier batches
 
 Before any batch member reaches `ToolCallCoordinator`, the Agent loop scans registered

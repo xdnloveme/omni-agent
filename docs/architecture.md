@@ -296,6 +296,99 @@ is empty or `/new` is requested. Model providers, catalogs, and credentials rema
 infrastructure; model selection may be overridden per Agent. Prompts, tools,
 capabilities, Runner, Session, and mutable runtime state remain instance-local.
 
+## Local tracing and replay
+
+See [Runtime Observation and Local Trace](./tracing.md) for scoped lifecycle, capture, processor,
+and compatibility contracts.
+
+Tracing is an optional, Agent-scoped diagnostic capability built as three explicit layers:
+
+```text
+Core Runtime Observation SPI
+        |
+        v
+Core Trace Processing
+        |
+        v
+App Store / Query adapters -> CLI Preview
+```
+
+Runtime code depends only on typed, scoped Observation handles. Run, Turn, Context, Model,
+Tool Batch, Tool Call, authorization, preflight, and execution scopes report readonly facts at
+their authoritative execution points. They do not know span names, replay kinds, storage,
+OpenTelemetry, or an observability vendor. Observation methods are synchronous, fail-open, and
+cannot alter inputs, results, authorization, scheduling, cancellation, or exceptions.
+
+Trace Processing is the sole owner of translating Runtime facts into span conventions and replay
+records. `SpanRuntimeObserver` and `ReplayRuntimeObserver` are independent consumers combined by
+`CompositeRuntimeObserver`; a failing consumer degrades to a Noop child without disabling the
+other. Noop Observation keeps the Runtime path transparent when capture is absent.
+
+Core separately retains `TracerPort`, `SpanPort`, `ReplaySinkPort`, and `TraceControlPort` for
+Trace processors. The Runtime Observation SPI is a Host composition boundary exposed through
+`@omni-agent/core/host`, not Core's default Agent-facing entry point or `AgentBlueprintContext`.
+Concrete Agents receive no Trace capability and retain the unchanged Blueprint construction
+contract.
+
+App creates one `AgentScopedTraceRuntime` per `AgentFactory` instance. That runtime supplies local
+recording adapters, controls capture independently for each Agent, owns fail-open persistence,
+implements the narrow `AgentRunObservationPort` consumed by `AgentApplication`, and exposes only a
+control-and-inspection capability to the CLI Host. The CLI owns `/trace`; concrete Agents do not
+register or import Trace commands.
+
+```text
+CLI Host command
+        |
+        v
+TraceControlPort
+        |
+AgentRunObservationPort -- begin immutable Run capture lease
+        |
+AgentApplication -- execute the Run with generic Observation
+        |
+Runtime Observation scopes -- typed, read-only execution facts
+        |
+CompositeRuntimeObserver
+        +--> SpanRuntimeObserver ----> TracerPort ----> local span lifecycle store
+        +--> ReplayRuntimeObserver --> ReplaySinkPort -> local replay and payload store
+
+App local query factory --> TraceQueryPort --> loopback-only CLI Preview server --> browser
+```
+
+The observability data classes are intentionally separate:
+
+- Stream events are the live product presentation contract.
+- Session JSONL is the durable conversation source of truth.
+- Span lifecycle records explain causal structure and duration.
+- Replay records preserve sanitized model and tool payloads for historical and live inspection.
+- Logs and future metrics correlate through `agentId`, `sessionId`, `runId`, `traceId`,
+  `modelCallId`, `batchId`, and `toolCallId`; they do not replace the other stores.
+- Runtime middleware, tool lifecycle adapters, and permission observers remain separate because
+  they have different control or domain semantics.
+
+Local Trace data lives at `~/.omni-agent/traces/<agentId>/<sessionId>/<runId>/`. A versioned
+manifest records workspace provenance for collision checks, but the viewer navigates by the
+selected Agent, Session, and Run rather than exposing Workspace as another product dimension.
+Each Run owns append-only span and replay JSONL, with oversized replay payloads split into ordered
+UTF-8 parts. Session discovery reconciles Run manifests from disk; the Agent-level index is a
+rebuildable optimization, not business truth.
+
+Capture is off by default. The shared Core sanitizer removes credential-shaped fields while
+preserving operational metrics before payloads reach local persistence. A bounded write queue
+keeps Runtime non-blocking; lifecycle records take priority over streamed detail, and overload
+degrades capture with diagnostics plus a persisted Run-summary dropped-record count. Trace write
+failures never alter model, permission, tool,
+Stream, or Session behavior. The local viewer is read-only, listens only on `127.0.0.1`, validates
+Host and identifiers, disables caching and framing, applies a restrictive Content Security Policy,
+and loads no external resources. Host-owned `omni trace clear <agentId>` is the only deletion path
+and rejects active captures.
+
+`TraceQueryPort` is the stable local query boundary. App owns the concrete store, layout, query,
+and maintenance adapters and exposes only factories for CLI composition. A future OpenTelemetry
+span exporter, remote replay sink, desktop viewer, or metrics adapter can attach below Trace
+Processing without adding a parallel Agent-loop, tool-execution path, or generic Runtime event
+bus.
+
 ## Context engineering and data ownership
 
 Model context is an ephemeral projection, not the Session transcript. The runtime has

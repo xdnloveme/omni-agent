@@ -1,0 +1,15 @@
+export const RuntimeSpanName = {
+  run: "agent.run",
+  finish: "agent.finish",
+  turn: "agent.turn",
+  environmentCapture: "agent.environment.capture",
+  sessionAppendInput: "agent.session.append_input",
+  sessionPersistOutput: "agent.session.persist_output",
+  contextPrepare: "agent.context.prepare",
+  modelGenerate: "gen_ai.generate",
+  toolBatch: "agent.tool.batch",
+  toolCall: "agent.tool.call",
+  toolPreflight: "agent.tool.preflight",
+  toolAuthorization: "agent.tool.authorization",
+  toolExecution: "agent.tool.execution",
+} as const;

@@ -11,7 +11,7 @@ import { createOmniTui } from "../interaction/tui/tui";
 import { TuiInteractionSurface } from "../interaction/surface/tui-interaction-surface";
 import { TuiCommandInteractionAdapter } from "../interaction/command-interaction-adapter";
 import { persistOnboardingSelection, runOnboarding } from "../onboarding";
-import { createCommandRegistry } from "../commands/index";
+import { createCommandRegistry, HOST_COMMAND_NAMES } from "../commands/index";
 import { SkillCliController } from "../skills";
 import { TuiApprovalBroker } from "../interaction/permissions/tui-approval-broker";
 import { SkillStreamPresenter } from "../presentation/skill-stream-presenter";
@@ -60,11 +60,12 @@ export async function runAgentMode(agentId: string): Promise<TuiTermination> {
       modelService,
       interactionSurface: interaction,
       approvalBroker: new TuiApprovalBroker(interaction),
+      reservedCommandNames: HOST_COMMAND_NAMES,
     }).create(blueprint);
     const app = instance.application;
     const skillCapability = instance.capabilities.skills;
 
-    const registry = createCommandRegistry(app);
+    const registry = createCommandRegistry(app, instance.trace);
     let activeAbort: AbortController | null = null;
     let running = false;
     const restoredMessages = app.currentSessionSnapshot().messages;

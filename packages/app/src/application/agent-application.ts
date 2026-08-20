@@ -13,12 +13,14 @@ import {
   type EnvironmentContextControllerPort,
   type SessionSnapshot,
 } from "@omni-agent/core";
+import type { RuntimeRunObservation } from "@omni-agent/core/host";
 import type { AgentSessionRepository } from "@omni-agent/core";
 import { ConfigService } from "../config/config-service";
 import { ExtensionManager } from "../extensions/extension-manager";
 import { ModelService, type ModelSelection } from "../models/model-service";
 import type { PermissionService } from "../permissions/permission-service";
 import type { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
+import { NOOP_AGENT_RUN_OBSERVATION, type AgentRunObservationPort } from "./agent-run-observation";
 
 export class AgentApplication {
   readonly runner: AgentRunner;
@@ -34,6 +36,7 @@ export class AgentApplication {
   private readonly contextStorage: ContextSessionStorage;
   private readonly environmentContext: EnvironmentContextControllerPort;
   private readonly cacheLeases: ModelCacheLeaseController;
+  private readonly runObservation: AgentRunObservationPort;
 
   constructor(dependencies: AgentApplicationDependencies) {
     this.extensions = dependencies.extensions;
@@ -47,6 +50,7 @@ export class AgentApplication {
     this.contextStorage = dependencies.contextStorage;
     this.environmentContext = dependencies.environmentContext;
     this.cacheLeases = dependencies.cacheLeases;
+    this.runObservation = dependencies.runObservation ?? NOOP_AGENT_RUN_OBSERVATION;
     this.permissions = dependencies.permissionService;
     this.runner = new AgentRunner(
       dependencies.modelService.runtime,
@@ -60,12 +64,31 @@ export class AgentApplication {
 
   async run(input: string, callbacks: StreamCallbacks, signal?: AbortSignal): Promise<void> {
     const sessionId = this.requireSessionId();
+    await this.runObservation.observe(
+      { sessionId, input, callbacks, signal },
+      (observation, observedCallbacks) =>
+        this.executeRun(input, observedCallbacks, sessionId, observation, signal),
+    );
+  }
+
+  private async executeRun(
+    input: string,
+    callbacks: StreamCallbacks,
+    sessionId: string,
+    observation: RuntimeRunObservation,
+    signal?: AbortSignal,
+  ): Promise<void> {
     await this.cacheLeases.hydrate(sessionId);
     const streamSession = createStreamSession(callbacks);
+    const captureObservation = observation.startOperation({ kind: "environment_capture" });
     let capture;
     try {
-      capture = await this.environmentContext.capture(this.sessions.snapshot().environment, signal);
+      capture = await captureObservation.run(() =>
+        this.environmentContext.capture(this.sessions.snapshot().environment, signal),
+      );
+      captureObservation.complete({});
     } catch (error) {
+      captureObservation.fail({ error });
       if (!(error instanceof EnvironmentContextError)) throw error;
       streamSession.handle({
         type: "error",
@@ -78,15 +101,28 @@ export class AgentApplication {
       });
       return;
     }
-    await this.sessions.append(sessionId, [
-      ...(capture.changed ? [{ kind: "environment" as const, context: capture.context }] : []),
-      { kind: "message", message: createUserMessage(input) },
-    ]);
-    const events = this.runner.run(this.agentConfig, this.sessions.snapshot(), signal, {
-      session: streamSession,
-    });
+    const appendInput = () =>
+      this.sessions.append(sessionId, [
+        ...(capture.changed ? [{ kind: "environment" as const, context: capture.context }] : []),
+        { kind: "message", message: createUserMessage(input) },
+      ]);
+    const appendObservation = observation.startOperation({ kind: "session_append_input" });
+    try {
+      await appendObservation.run(appendInput);
+      appendObservation.complete({});
+    } catch (error) {
+      appendObservation.fail({ error });
+      throw error;
+    }
+    const events = this.runner.run(
+      this.agentConfig,
+      this.sessions.snapshot(),
+      signal,
+      { session: streamSession },
+      observation,
+    );
     for await (const event of events) {
-      await this.persistProduced(sessionId, event);
+      await this.persistProduced(sessionId, event, observation);
     }
   }
 
@@ -171,15 +207,34 @@ export class AgentApplication {
   }
 
   async dispose(): Promise<void> {
-    await this.extensions.dispose();
+    const results = await Promise.allSettled([
+      this.extensions.dispose(),
+      this.runObservation.dispose(),
+    ]);
+    const errors = results
+      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
+      .map((result) => result.reason);
+    if (errors.length > 0) throw new AggregateError(errors, "Failed to dispose Agent application");
   }
 
-  private async persistProduced(sessionId: string, event: AgentEvent): Promise<void> {
+  private async persistProduced(
+    sessionId: string,
+    event: AgentEvent,
+    observation: RuntimeRunObservation,
+  ): Promise<void> {
     if (event.type === "model_cache_report") {
       await this.cacheLeases.persist(sessionId, event.report);
     }
-    if ((event.type === "done" || event.type === "error") && event.produced?.length) {
-      await this.sessions.append(sessionId, event.produced);
+    const produced = event.type === "done" || event.type === "error" ? event.produced : undefined;
+    if (produced?.length) {
+      const persistObservation = observation.startOperation({ kind: "session_persist_output" });
+      try {
+        await persistObservation.run(() => this.sessions.append(sessionId, produced));
+        persistObservation.complete({});
+      } catch (error) {
+        persistObservation.fail({ error });
+        throw error;
+      }
     }
   }
 
@@ -224,6 +279,7 @@ export interface AgentApplicationDependencies {
   readonly contextStorage: ContextSessionStorage;
   readonly environmentContext: EnvironmentContextControllerPort;
   readonly cacheLeases: ModelCacheLeaseController;
+  readonly runObservation?: AgentRunObservationPort;
 }
 
 export interface ContextSessionStorage {

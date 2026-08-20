@@ -12,6 +12,7 @@ export interface ToolCallRequest {
 
 export interface ToolCallEnvironment {
   agentId: string;
+  batchId?: string;
   cwd: string;
   middleware: readonly ToolExecutionMiddleware[];
   lifecycleAdapters: readonly ToolLifecycleAdapter[];

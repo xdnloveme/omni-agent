@@ -215,6 +215,29 @@ export type {
   ToolResultPresentationData,
 } from "./types";
 export type { ExtensionEvent } from "./extension-events";
+export {
+  NOOP_REPLAY_SINK,
+  NOOP_SPAN,
+  NOOP_TRACE_CONTROL,
+  NOOP_TRACER,
+  assertTraceId,
+  assertTraceName,
+} from "./tracing/index";
+export type {
+  ReplayCorrelation,
+  ReplayEventInput,
+  ReplaySinkPort,
+  SpanPort,
+  TraceAttributes,
+  TraceControlPort,
+  TraceRunIdentity,
+  TraceScalar,
+  TraceSpanIdentity,
+  TraceStatus,
+  TraceTerminalState,
+  TracerPort,
+} from "./tracing/index";
+export { sanitizeTracePayload } from "./security/index";
 export type {
   ModelEvent,
   ModelRequest,

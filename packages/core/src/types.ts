@@ -13,6 +13,7 @@ import type {
   ContextProgressEvent,
 } from "./context";
 import type { SessionRecord, SessionSnapshot } from "./session";
+import type { RuntimeRunObservation } from "./runtime-observation";
 
 export interface AgentToolDefinition {
   name: string;
@@ -136,6 +137,7 @@ export interface AgentLoopInput {
   agentId: string;
   environmentContext: import("./environment").EnvironmentContextControllerPort;
   toolCallCoordinator: import("./tool-calls/tool-call-coordinator").ToolCallCoordinator;
+  observation?: RuntimeRunObservation;
   signal?: AbortSignal;
   options?: import("./agent-loop").AgentLoopOptions;
 }

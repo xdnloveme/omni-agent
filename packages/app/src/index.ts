@@ -5,6 +5,10 @@ export type {
   AgentApplicationDependencies,
   ContextSessionStorage,
 } from "./application/agent-application";
+export type {
+  AgentRunObservationPort,
+  AgentRunObservationRequest,
+} from "./application/agent-run-observation";
 export {
   ContextSidecarLayout,
   ContextProjectionRepository,
@@ -77,3 +81,10 @@ export type {
 export { ProviderRegistrationCoordinator } from "./models/provider-registration-coordinator";
 export { resolveWorkspaceContext } from "./workspaces/index";
 export type { WorkspaceContext } from "./workspaces/index";
+export { createLocalTraceMaintenance, createLocalTraceQuery } from "./tracing/index";
+export type {
+  AgentTraceInspection,
+  AgentTraceControlCapability,
+  TraceMaintenancePort,
+  TraceQueryPort,
+} from "./tracing/index";

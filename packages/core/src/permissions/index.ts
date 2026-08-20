@@ -14,9 +14,8 @@ export {
   formatSanitizedToolInput,
   sanitizePermissionLabel,
   sanitizePermissionPresentation,
-  sanitizeSensitiveValue,
-  sanitizeSensitiveText,
 } from "./presentation";
+export { sanitizeSensitiveValue, sanitizeSensitiveText } from "../security";
 export { DenyApprovalBroker } from "./ports";
 export type {
   ApprovalBroker,

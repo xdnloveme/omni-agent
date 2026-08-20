@@ -5,6 +5,7 @@ import type { ToolCallCoordinator } from "../tool-calls";
 import type { ContextEnginePort, ContextMiddlewarePort } from "../context";
 import type { SessionSnapshot } from "../session";
 import type { EnvironmentContextControllerPort } from "../environment";
+import type { RuntimeRunObservation } from "../runtime-observation";
 
 /** Host-facing runner with explicit runtime and tool-execution dependencies. */
 export class AgentRunner {
@@ -22,6 +23,7 @@ export class AgentRunner {
     snapshot: SessionSnapshot,
     signal?: AbortSignal,
     options?: AgentLoopOptions,
+    observation?: RuntimeRunObservation,
   ): AsyncGenerator<AgentEvent> {
     return runAgentLoop({
       config,
@@ -32,6 +34,7 @@ export class AgentRunner {
       agentId: this.agentId,
       environmentContext: this.environmentContext,
       toolCallCoordinator: this.toolCallCoordinator,
+      observation,
       signal,
       options,
     });

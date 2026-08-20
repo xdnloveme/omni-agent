@@ -1,9 +1,14 @@
 import { isAbortError, throwIfAborted } from "../execution";
 import { assertJsonObject } from "../data";
 import type { ToolInvocationRunner } from "../execution";
-import { sanitizeSensitiveValue } from "../permissions";
+import { sanitizeSensitiveValue } from "../security";
 import { collectLifecycleEndEvents, collectLifecycleStartEvents } from "../tool-lifecycle";
 import type { RegisteredAgentTool, ToolResult } from "../types";
+import {
+  NOOP_RUNTIME_TOOL_BATCH_OBSERVATION,
+  type RuntimeToolBatchObservation,
+  type RuntimeToolCallObservation,
+} from "../runtime-observation";
 import type { ToolInputValidator } from "./tool-input-validator";
 import type { ToolAuthorizationResult, ToolAuthorizer } from "./tool-authorization-router";
 import type {
@@ -27,131 +32,236 @@ export class ToolCallCoordinator {
     tools: readonly RegisteredAgentTool[],
     request: ToolCallRequest,
     environment: ToolCallEnvironment,
+    batchObservation: RuntimeToolBatchObservation = NOOP_RUNTIME_TOOL_BATCH_OBSERVATION,
   ): AsyncGenerator<ToolCallEvent> {
     const totalStartedAt = Date.now();
-    throwIfAborted(request.signal);
     const tool = tools.find((candidate) => candidate.name === request.toolName);
-    if (!tool) {
-      yield startEvent(request);
-      yield endEvent(
-        request,
-        errorResult(`Tool not found: ${request.toolName}`),
-        metrics(totalStartedAt),
-      );
-      return;
-    }
-
+    throwIfAborted(request.signal);
+    const callObservation = batchObservation.startCall({
+      toolName: request.toolName,
+      toolCallId: request.toolCallId,
+      ...(environment.batchId ? { batchId: environment.batchId } : {}),
+      input: request.input,
+      ...(tool?.authorization.hiddenInputKeys
+        ? { hiddenInputKeys: tool.authorization.hiddenInputKeys }
+        : {}),
+    });
     try {
-      const validationError = this.options.inputValidator.validate(tool.schema, request.input);
-      yield startEvent(request, tool.authorization.hiddenInputKeys);
-      if (validationError) {
-        yield endEvent(
+      if (!tool) {
+        yield startEvent(request);
+        const result = errorResult(`Tool not found: ${request.toolName}`);
+        const callMetrics = metrics(totalStartedAt);
+        yield finishToolCall(
+          callObservation,
           request,
-          errorResult(`Invalid tool input: ${validationError}`, { code: "invalid_tool_input" }),
-          metrics(totalStartedAt),
+          environment,
+          result,
+          callMetrics,
+          "complete",
         );
         return;
       }
 
-      if (tool.preflight) {
-        let preflight;
-        try {
-          preflight = await tool.preflight.validate(request.input, {
-            cwd: environment.cwd,
-            signal: request.signal,
+      try {
+        const validationError = this.options.inputValidator.validate(tool.schema, request.input);
+        yield startEvent(request, tool.authorization.hiddenInputKeys);
+        if (validationError) {
+          const result = errorResult(`Invalid tool input: ${validationError}`, {
+            code: "invalid_tool_input",
           });
-        } catch (error) {
-          if (isAbortError(error, request.signal)) throw error;
-          yield endEvent(
+          yield finishToolCall(
+            callObservation,
             request,
-            errorResult("Tool preflight failed.", { code: "tool_preflight_failed" }),
+            environment,
+            result,
             metrics(totalStartedAt),
+            "complete",
+          );
+          return;
+        }
+
+        if (tool.preflight) {
+          const preflightObservation = callObservation.startPreflight({
+            toolName: request.toolName,
+            toolCallId: request.toolCallId,
+          });
+          let preflight;
+          try {
+            preflight = await preflightObservation.run(() =>
+              tool.preflight!.validate(request.input, {
+                cwd: environment.cwd,
+                signal: request.signal,
+              }),
+            );
+            preflightObservation.complete({ outcome: preflight.outcome });
+          } catch (error) {
+            if (isAbortError(error, request.signal)) {
+              preflightObservation.cancel({ error });
+              throw error;
+            }
+            preflightObservation.fail({ error });
+            const result = errorResult("Tool preflight failed.", {
+              code: "tool_preflight_failed",
+            });
+            yield finishToolCall(
+              callObservation,
+              request,
+              environment,
+              result,
+              metrics(totalStartedAt),
+              "complete",
+            );
+            return;
+          }
+          throwIfAborted(request.signal);
+          if (preflight.outcome === "error") {
+            yield finishToolCall(
+              callObservation,
+              request,
+              environment,
+              preflight.result,
+              metrics(totalStartedAt),
+              "complete",
+            );
+            return;
+          }
+        }
+
+        let authorization: ToolAuthorizationResult;
+        const authorizationObservation = callObservation.startAuthorization({
+          toolName: request.toolName,
+          toolCallId: request.toolCallId,
+        });
+        try {
+          authorization = await authorizationObservation.run(() =>
+            this.options.authorizer.authorize({
+              tool,
+              input: request.input,
+              context: {
+                cwd: environment.cwd,
+                agentId: environment.agentId,
+                toolIdentity: tool.toolIdentity,
+                toolCallId: request.toolCallId,
+                signal: request.signal,
+              },
+            }),
+          );
+          if (authorization.outcome === "denied") {
+            authorizationObservation.deny({
+              authorizationMs: authorization.authorizationMs,
+            });
+          } else {
+            authorizationObservation.complete({
+              outcome: "allowed",
+              authorizationMs: authorization.authorizationMs,
+            });
+          }
+        } catch (error) {
+          if (isAbortError(error, request.signal)) {
+            authorizationObservation.cancel({ error });
+            throw error;
+          }
+          authorizationObservation.fail({ error });
+          const result = errorResult("Tool authorization failed.", {
+            code: "tool_authorization_failed",
+          });
+          yield finishToolCall(
+            callObservation,
+            request,
+            environment,
+            result,
+            metrics(totalStartedAt),
+            "complete",
           );
           return;
         }
         throwIfAborted(request.signal);
-        if (preflight.outcome === "error") {
-          yield endEvent(request, preflight.result, metrics(totalStartedAt));
+        if (authorization.outcome === "denied") {
+          yield finishToolCall(
+            callObservation,
+            request,
+            environment,
+            authorization.result,
+            metrics(totalStartedAt, authorization.authorizationMs),
+            "deny",
+          );
           return;
         }
-      }
 
-      let authorization: ToolAuthorizationResult;
-      try {
-        authorization = await this.options.authorizer.authorize({
-          tool,
-          input: request.input,
-          context: {
-            cwd: environment.cwd,
-            agentId: environment.agentId,
-            toolIdentity: tool.toolIdentity,
+        const createLifecycleInput = () =>
+          structuredClone(authorization.call.input) as Record<string, unknown>;
+        for (const event of collectLifecycleStartEvents(
+          environment.lifecycleAdapters,
+          {
+            toolName: tool.name,
             toolCallId: request.toolCallId,
-            signal: request.signal,
           },
-        });
+          createLifecycleInput,
+        )) {
+          yield event;
+        }
+
+        const executionFact = {
+          toolName: request.toolName,
+          toolCallId: request.toolCallId,
+          ...(environment.batchId ? { batchId: environment.batchId } : {}),
+        };
+        const executionObservation = callObservation.startExecution(executionFact);
+        const invocation = await callObservation.run(() =>
+          this.options.invocationRunner.invoke(
+            authorization.call,
+            environment.middleware,
+            {
+              toolCallId: request.toolCallId,
+              ...(environment.batchId ? { batchId: environment.batchId } : {}),
+            },
+            executionObservation,
+          ),
+        );
+        throwIfAborted(request.signal);
+        for (const event of collectLifecycleEndEvents(
+          environment.lifecycleAdapters,
+          {
+            toolName: tool.name,
+            toolCallId: request.toolCallId,
+            result: invocation.result,
+            durationMs: invocation.executionMs,
+          },
+          createLifecycleInput,
+        )) {
+          yield event;
+        }
+        const callMetrics = metrics(
+          totalStartedAt,
+          authorization.authorizationMs,
+          invocation.executionMs,
+        );
+        yield finishToolCall(
+          callObservation,
+          request,
+          environment,
+          invocation.result,
+          callMetrics,
+          "complete",
+        );
       } catch (error) {
-        if (isAbortError(error, request.signal)) throw error;
-        yield endEvent(
+        if (isAbortError(error, request.signal)) {
+          throw error;
+        }
+        const result = errorResult(error instanceof Error ? error.message : String(error));
+        yield finishToolCall(
+          callObservation,
           request,
-          errorResult("Tool authorization failed.", {
-            code: "tool_authorization_failed",
-          }),
+          environment,
+          result,
           metrics(totalStartedAt),
+          "complete",
         );
-        return;
       }
-      throwIfAborted(request.signal);
-      if (authorization.outcome === "denied") {
-        yield endEvent(
-          request,
-          authorization.result,
-          metrics(totalStartedAt, authorization.authorizationMs),
-        );
-        return;
-      }
-
-      const createLifecycleInput = () =>
-        structuredClone(authorization.call.input) as Record<string, unknown>;
-      for (const event of collectLifecycleStartEvents(
-        environment.lifecycleAdapters,
-        {
-          toolName: tool.name,
-          toolCallId: request.toolCallId,
-        },
-        createLifecycleInput,
-      )) {
-        yield event;
-      }
-
-      const invocation = await this.options.invocationRunner.invoke(
-        authorization.call,
-        environment.middleware,
-      );
-      throwIfAborted(request.signal);
-      for (const event of collectLifecycleEndEvents(
-        environment.lifecycleAdapters,
-        {
-          toolName: tool.name,
-          toolCallId: request.toolCallId,
-          result: invocation.result,
-          durationMs: invocation.executionMs,
-        },
-        createLifecycleInput,
-      )) {
-        yield event;
-      }
-      yield endEvent(
-        request,
-        invocation.result,
-        metrics(totalStartedAt, authorization.authorizationMs, invocation.executionMs),
-      );
     } catch (error) {
-      if (isAbortError(error, request.signal)) throw error;
-      yield endEvent(
-        request,
-        errorResult(error instanceof Error ? error.message : String(error)),
-        metrics(totalStartedAt),
-      );
+      if (isAbortError(error, request.signal)) callObservation.cancel({ error });
+      else callObservation.fail({ error });
+      throw error;
     }
   }
 }
@@ -173,7 +283,7 @@ function endEvent(
   request: ToolCallRequest,
   result: ToolResult,
   callMetrics: ToolCallMetrics,
-): ToolCallEvent {
+): Extract<ToolCallEvent, { type: "tool_end" }> {
   return {
     type: "tool_end",
     toolName: request.toolName,
@@ -182,6 +292,27 @@ function endEvent(
     durationMs: callMetrics.executionMs,
     metrics: callMetrics,
   };
+}
+
+function finishToolCall(
+  observation: RuntimeToolCallObservation,
+  request: ToolCallRequest,
+  environment: ToolCallEnvironment,
+  result: ToolResult,
+  callMetrics: ToolCallMetrics,
+  terminal: "complete" | "deny",
+): Extract<ToolCallEvent, { type: "tool_end" }> {
+  const event = endEvent(request, result, callMetrics);
+  observation.result({
+    toolName: request.toolName,
+    toolCallId: request.toolCallId,
+    ...(environment.batchId ? { batchId: environment.batchId } : {}),
+    result: event.result,
+    metrics: callMetrics,
+  });
+  if (terminal === "deny") observation.deny({ result });
+  else observation.complete({ result });
+  return event;
 }
 
 function validateToolResult(result: ToolResult, toolName: string): ValidatedToolResult {

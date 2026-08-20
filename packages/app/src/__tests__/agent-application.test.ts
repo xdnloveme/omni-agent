@@ -22,6 +22,8 @@ import type { ExtensionManager } from "../extensions/extension-manager";
 import type { ModelService } from "../models/model-service";
 import type { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
 import { createPermissionRuntime } from "../permissions/create-permission-runtime";
+import { AgentScopedTraceRuntime } from "../tracing/agent-scoped-trace-runtime";
+import { TraceQueryService } from "../tracing/trace-query-service";
 
 const directories: string[] = [];
 
@@ -31,7 +33,7 @@ afterEach(async () => {
   );
 });
 
-async function fixture() {
+async function fixture(withTrace = false) {
   const root = await mkdtemp(join(tmpdir(), "omni-agent-app-"));
   directories.push(root);
   const sessions = new AgentSessionRepository({ agentId: "test", sessionsRoot: root });
@@ -82,6 +84,14 @@ async function fixture() {
     forget: vi.fn(),
   } as unknown as ModelCacheLeaseController;
   let currentDate = "2026-08-17";
+  const traceRuntime = withTrace
+    ? new AgentScopedTraceRuntime({
+        globalDirectory: root,
+        agentId: "test",
+        workspaceId: "workspace",
+        cwd: root,
+      })
+    : undefined;
   return {
     app: new AgentApplication({
       extensions,
@@ -123,6 +133,7 @@ async function fixture() {
         },
       }),
       cacheLeases,
+      runObservation: traceRuntime,
     }),
     configService,
     dispose,
@@ -130,6 +141,8 @@ async function fixture() {
     sessions,
     contextStorage,
     cacheLeases,
+    traceRuntime,
+    runtime,
     setCurrentDate(value: string) {
       currentDate = value;
     },
@@ -196,6 +209,70 @@ describe("AgentApplication model selection", () => {
 });
 
 describe("AgentApplication session persistence", () => {
+  it("records one complete local run without changing Session persistence", async () => {
+    const { app, traceRuntime, sessions, runtime } = await fixture(true);
+    traceRuntime!.control.start();
+    runtime.stream = async function* () {
+      yield { type: "text_delta", delta: "hello" };
+      yield {
+        type: "done",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "hello" }],
+          stopReason: "stop",
+          usage: { input: 5, output: 1, cacheRead: 0, cacheWrite: 0 },
+          timestamp: Date.now(),
+        },
+      } as never;
+    };
+    await app.run("trace me", {});
+
+    expect(sessions.snapshot().messages).toHaveLength(2);
+    const query = new TraceQueryService(traceRuntime!.store);
+    const [session] = await query.sessions();
+    const [run] = await query.runs(session!.sessionId);
+    expect(run).toMatchObject({ status: "completed", sessionId: sessions.snapshot().sessionId });
+    const spans = await query.spans(run!.sessionId, run!.runId);
+    expect(spans.map((span) => span.name)).toEqual([
+      "agent.run",
+      "agent.environment.capture",
+      "agent.session.append_input",
+      "agent.turn",
+      "agent.environment.capture",
+      "agent.context.prepare",
+      "gen_ai.generate",
+      "agent.session.persist_output",
+      "agent.finish",
+    ]);
+    expect(spans.find((span) => span.name === "gen_ai.generate")?.attributes).toMatchObject({
+      "gen_ai.usage.input_tokens": expect.any(Number),
+      "gen_ai.usage.output_tokens": 1,
+    });
+    const replay = await query.replay(run!.sessionId, run!.runId);
+    expect(replay.map((event) => event.kind)).toEqual([
+      "run.started",
+      "user.input",
+      "turn.started",
+      "context.prepared",
+      "model.request.captured",
+      "model.started",
+      "model.text.delta",
+      "model.completed",
+      "agent.final_response",
+      "turn.completed",
+      "run.completed",
+    ]);
+    expect(replay.find((event) => event.kind === "turn.completed")?.payload).toMatchObject({
+      usage: { inputTokens: expect.any(Number), outputTokens: 1, totalTokens: expect.any(Number) },
+    });
+    expect(replay.find((event) => event.kind === "run.completed")?.payload).toMatchObject({
+      usage: { inputTokens: expect.any(Number), outputTokens: 1, totalTokens: expect.any(Number) },
+    });
+    expect(run?.summary).toMatchObject({
+      usage: { inputTokens: expect.any(Number), outputTokens: 1, totalTokens: expect.any(Number) },
+    });
+  });
+
   it("writes one initial environment snapshot, skips identical snapshots, and replaces on change", async () => {
     const { app, sessions, setCurrentDate } = await fixture();
     vi.spyOn(app.runner, "run").mockImplementation(() =>

@@ -32,7 +32,9 @@ import { ContextSidecarLayout } from "../context/sidecarLayout";
 import { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
 import { ModelCacheLeaseRepository } from "../models/cache/model-cache-lease-repository";
 import { NodeRuntimeEnvironmentProvider } from "../environment";
+import type { AgentTraceControlCapability } from "../tracing";
 import { WorkspaceStorageLayout, type WorkspaceContext } from "../workspaces/index";
+import { AgentScopedTraceRuntime } from "../tracing";
 
 export interface SkillCapability {
   readonly runtime: SkillRuntime;
@@ -63,6 +65,7 @@ export interface AgentInstance {
   readonly id: string;
   readonly application: AgentApplication;
   readonly capabilities: AgentCapabilities;
+  readonly trace?: AgentTraceControlCapability;
   dispose(): Promise<void>;
 }
 
@@ -74,6 +77,7 @@ export interface AgentFactoryOptions {
   readonly configService: ConfigService;
   readonly modelService: ModelService;
   readonly loadExtensions?: boolean;
+  readonly reservedCommandNames?: readonly string[];
   readonly approvalBroker?: ApprovalBroker;
   readonly interactionSurface?: InteractionSurfacePort;
   readonly permissionObserver?: PermissionObserver;
@@ -100,14 +104,37 @@ export class AgentFactory {
     }
 
     const interaction = this.options.interactionSurface ?? new RejectingInteractionSurface();
-    const module = await blueprint.build({ cwd: this.cwd, interaction });
+    const pendingTraceDiagnostics: { operation: string; message: string }[] = [];
+    let reportTraceDiagnostic = (diagnostic: { operation: string; message: string }) => {
+      pendingTraceDiagnostics.push(diagnostic);
+    };
+    const traceRuntime = new AgentScopedTraceRuntime({
+      globalDirectory: this.globalDirectory,
+      agentId: blueprint.id,
+      workspaceId: this.options.workspace.id,
+      cwd: this.cwd,
+      onDiagnostic: (diagnostic) => reportTraceDiagnostic(diagnostic),
+    });
+    const module = await blueprint.build({
+      cwd: this.cwd,
+      interaction,
+    });
     validateModule(blueprint.id, module);
     const toolInputValidator = new ToolInputValidator();
     const manager = new ExtensionManager({
       cwd: this.cwd,
       modelProviders: this.options.modelService.providerPlugins,
       tools: new ToolRegistry(toolInputValidator),
+      reservedCommandNames: this.options.reservedCommandNames,
     });
+    reportTraceDiagnostic = (diagnostic) => {
+      manager.diagnostics.push({
+        extensionId: "builtin-tracing",
+        source: diagnostic.operation,
+        message: diagnostic.message,
+      });
+    };
+    for (const diagnostic of pendingTraceDiagnostics) reportTraceDiagnostic(diagnostic);
 
     try {
       await manager.register(module.extension, `builtin-${blueprint.id}`);
@@ -212,12 +239,14 @@ export class AgentFactory {
         contextStorage,
         environmentContext,
         cacheLeases,
+        runObservation: traceRuntime,
       });
       let disposed = false;
       return {
         id: blueprint.id,
         application,
         capabilities: module.capabilities,
+        trace: traceRuntime.capability,
         async dispose() {
           if (disposed) return;
           disposed = true;
@@ -227,6 +256,7 @@ export class AgentFactory {
     } catch (error) {
       try {
         await manager.dispose();
+        await traceRuntime.dispose();
       } catch (cleanupError) {
         throw new AggregateError([error, cleanupError], `Failed to create agent ${blueprint.id}`);
       }

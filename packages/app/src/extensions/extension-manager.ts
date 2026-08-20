@@ -14,6 +14,7 @@ export interface ExtensionManagerOptions {
   agents?: AgentRegistry;
   tools?: ToolRegistry;
   commands?: CommandRegistry;
+  reservedCommandNames?: readonly string[];
   modelProviders?: VendorPluginManager;
 }
 
@@ -40,6 +41,7 @@ export class ExtensionManager {
     }
   >();
   private readonly modelProviders?: VendorPluginManager;
+  private readonly reservedCommandNames: ReadonlySet<string>;
 
   constructor(options: ExtensionManagerOptions) {
     this.cwd = options.cwd;
@@ -47,6 +49,7 @@ export class ExtensionManager {
     this.tools = options.tools ?? new ToolRegistry();
     this.commands = options.commands ?? new CommandRegistry();
     this.modelProviders = options.modelProviders;
+    this.reservedCommandNames = new Set(options.reservedCommandNames);
   }
 
   async register(extension: AgentExtension, originId = extension.manifest.id): Promise<void> {
@@ -184,7 +187,11 @@ export class ExtensionManager {
     }
     const commandNames = new Set<string>();
     for (const command of extension.contributions.commands ?? []) {
-      if (commandNames.has(command.name) || this.commands.has(command.name)) {
+      if (
+        commandNames.has(command.name) ||
+        this.commands.has(command.name) ||
+        this.reservedCommandNames.has(command.name)
+      ) {
         throw new Error(`Command already registered: ${command.name}`);
       }
       commandNames.add(command.name);

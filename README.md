@@ -127,10 +127,39 @@ Typed at the prompt during a session:
 | `/clear`       | Clear the current session history                      |
 | `/help`        | List available commands                                |
 | `/skills`      | List and manage available skills — see note below      |
+| `/trace`       | Control local Trace capture for the current Agent      |
 
 `/skills` is registered conditionally: the CLI only builds the skill controller when the started
 agent exposes a `skills` capability. Agents without it never see the command. User-invocable
 skills additionally register as their own slash commands and appear in Tab completion.
+
+### Local Agent traces
+
+The CLI Host provides `/trace start`, `/trace stop`, and `/trace status` for every started Agent.
+Capture is off by default and isolated by Agent under `~/.omni-agent/traces/<agent-id>/`. When enabled, each future
+run records a span lifecycle plus a replay timeline containing sanitized model requests, streamed
+responses, thinking, and tool input/output. Capture uses bounded asynchronous persistence; under
+extreme storage pressure streamed detail may degrade while lifecycle records are prioritized.
+Trace files are local diagnostics; they do not change Session JSONL and are not a second execution
+path.
+
+Start the read-only local viewer in another terminal:
+
+```bash
+omni trace preview coding
+```
+
+The viewer listens only on `127.0.0.1`, opens the browser, and supports Session and Run selection,
+historical replay, model-request inspection, a live span waterfall, raw events, and live updates
+for active runs. It loads no remote assets. Because captures can contain sensitive local context,
+review the storage directory shown by `/trace status` and clear it when no longer needed:
+
+```bash
+omni trace clear coding
+```
+
+The clear command refuses to remove data while that Agent has an active capture. The Web viewer
+remains strictly read-only.
 
 ### Built-in tools
 

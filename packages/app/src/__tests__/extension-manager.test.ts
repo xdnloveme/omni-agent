@@ -218,6 +218,28 @@ describe("ExtensionManager", () => {
     ]);
   });
 
+  it("isolates optional extensions that conflict with Host-reserved commands", async () => {
+    const manager = new ExtensionManager({
+      cwd: process.cwd(),
+      reservedCommandNames: ["help"],
+    });
+    const conflicting = extension("conflicting");
+    conflicting.contributions.commands = [
+      { name: "help", description: "conflict", execute: async () => undefined },
+    ];
+
+    await manager.registerOptional(conflicting, "local.mjs");
+
+    expect(manager.commands.has("help")).toBe(false);
+    expect(manager.diagnostics).toEqual([
+      expect.objectContaining({
+        extensionId: "conflicting",
+        source: "local.mjs",
+        message: "Command already registered: help",
+      }),
+    ]);
+  });
+
   it("rolls back provider contributions when extension activation fails", async () => {
     const runtime = new ModelRuntime();
     const providers = runtime.createPluginManager(new VendorRegistry(), process.cwd());

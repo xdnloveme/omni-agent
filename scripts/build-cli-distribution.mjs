@@ -1,4 +1,4 @@
-import { readFile, mkdir, rm, writeFile, copyFile } from "node:fs/promises";
+import { readFile, mkdir, rm, writeFile, copyFile, cp } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { builtinModules, createRequire } from "node:module";
@@ -79,6 +79,11 @@ export async function buildCliDistribution() {
   );
   await copyFile(join(repositoryRoot, "README.md"), join(outputDirectory, "README.md"));
   await copyFile(join(repositoryRoot, "LICENSE"), join(outputDirectory, "LICENSE"));
+  await cp(
+    join(repositoryRoot, "packages", "cli", "src", "tracing-preview", "assets"),
+    join(binDirectory, "assets"),
+    { recursive: true },
+  );
 
   const textOutputs = Object.keys(result.metafile.outputs)
     .filter((path) => path.endsWith(".js") || path.endsWith(".js.map"))

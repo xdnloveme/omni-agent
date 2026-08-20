@@ -42,4 +42,28 @@ describe("permission sanitizer", () => {
   it("sanitizes persistent approval labels", () => {
     expect(sanitizePermissionLabel("Trust\u001b[31m token=private")).toBe("Trust token=[REDACTED]");
   });
+
+  it("preserves token accounting while redacting credential tokens", () => {
+    expect(
+      sanitizeSensitiveValue({
+        inputTokens: 12,
+        outputTokens: 3,
+        totalTokens: 15,
+        estimatedInputTokens: 14,
+        accessToken: "private",
+        githubToken: "private",
+        api_key: "private",
+        clientSecretValue: "private",
+      }),
+    ).toEqual({
+      inputTokens: 12,
+      outputTokens: 3,
+      totalTokens: 15,
+      estimatedInputTokens: 14,
+      accessToken: "[REDACTED]",
+      githubToken: "[REDACTED]",
+      api_key: "[REDACTED]",
+      clientSecretValue: "[REDACTED]",
+    });
+  });
 });

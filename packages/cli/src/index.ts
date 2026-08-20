@@ -16,6 +16,16 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
       const { runDoctor } = await import("./diagnostics/doctor");
       if (!(await runDoctor())) process.exitCode = 1;
       return;
+    case "trace-preview": {
+      const { runTracePreview } = await import("./tracing-preview/preview-command");
+      await runTracePreview(command.agentId);
+      return;
+    }
+    case "trace-clear": {
+      const { runTraceClear } = await import("./tracing-clear/clear-command");
+      await runTraceClear(command.agentId, command.confirmed);
+      return;
+    }
     case "run":
       const { runAgentMode } = await import("./modes/run");
       process.exitCode = exitCodeForTermination(await runAgentMode(command.agentId));

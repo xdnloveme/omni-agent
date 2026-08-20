@@ -2,6 +2,11 @@ import { describe, expect, it, vi } from "vitest";
 import { PermissionGate } from "../permissions";
 import { ToolAuthorizationRouter, ToolCallCoordinator, ToolInputValidator } from "../tool-calls";
 import { ToolInvocationRunner } from "../execution";
+import {
+  NOOP_RUNTIME_TOOL_BATCH_OBSERVATION,
+  type RuntimeToolCallStartedFact,
+} from "../runtime-observation";
+import { RecordingRuntimeObserver } from "../testing/runtime-observation";
 import type { RegisteredAgentTool, ToolResult } from "../types";
 
 function fixture(options: { allow?: boolean } = {}) {
@@ -107,6 +112,82 @@ describe("ToolCallCoordinator", () => {
     });
     expect(value.execute).not.toHaveBeenCalled();
     expect(value.order).toEqual([]);
+  });
+
+  it("carries descriptor-hidden input keys into Tool Replay", async () => {
+    const value = fixture();
+    const recorded: RuntimeToolCallStartedFact[] = [];
+    value.tool.authorization = {
+      kind: "static",
+      risk: "read",
+      reason: "read",
+      hiddenInputKeys: ["value"],
+    };
+    const observation = {
+      ...NOOP_RUNTIME_TOOL_BATCH_OBSERVATION,
+      startCall(fact: RuntimeToolCallStartedFact) {
+        recorded.push(fact);
+        return NOOP_RUNTIME_TOOL_BATCH_OBSERVATION.startCall(fact);
+      },
+    };
+
+    const result = [];
+    for await (const event of value.coordinator.run(
+      [value.tool],
+      { toolName: "echo", toolCallId: "call-1", input: { value: "private" } },
+      {
+        agentId: "test",
+        cwd: "/workspace",
+        lifecycleAdapters: [],
+        middleware: [],
+      },
+      observation,
+    )) {
+      result.push(event);
+    }
+
+    expect(recorded).toContainEqual(
+      expect.objectContaining({
+        hiddenInputKeys: ["value"],
+        input: { value: "private" },
+      }),
+    );
+    expect(result.at(-1)).toMatchObject({
+      type: "tool_end",
+      result: { isError: false },
+    });
+  });
+
+  it("closes Tool Call observation before publishing the terminal event", async () => {
+    const value = fixture();
+    const recorder = new RecordingRuntimeObserver();
+    const run = recorder.startRun({ agentId: "test", sessionId: "session", runId: "run" });
+    const turn = run.startTurn({ turn: 0 });
+    const batch = turn.startToolBatch({
+      batch: {
+        batchId: "batch",
+        modelCallId: "model-call",
+        members: [{ toolName: "echo", toolCallId: "call-1", preview: { action: "execute" } }],
+      },
+    });
+    const iterator = value.coordinator.run(
+      [value.tool],
+      { toolName: "echo", toolCallId: "call-1", input: { value: "hello" } },
+      {
+        agentId: "test",
+        batchId: "batch",
+        cwd: "/workspace",
+        lifecycleAdapters: [],
+        middleware: [],
+      },
+      batch,
+    );
+
+    await iterator.next();
+    const terminal = await iterator.next();
+
+    expect(terminal.value).toMatchObject({ type: "tool_end", toolCallId: "call-1" });
+    expect(recorder.records.map((record) => record.operation)).toContain("tool.call.completed");
   });
 
   it("stops on domain preflight errors before authorization and execution", async () => {

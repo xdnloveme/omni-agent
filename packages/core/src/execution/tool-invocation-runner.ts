@@ -13,6 +13,10 @@ import type {
   SandboxRunnerPort,
   ToolInvocationResult,
 } from "./types";
+import {
+  NOOP_RUNTIME_EXECUTION_OBSERVATION,
+  type RuntimeExecutionObservation,
+} from "../runtime-observation";
 
 export type { LateToolSettlementEvent } from "./execution-deadline-supervisor";
 
@@ -30,6 +34,8 @@ export class ToolInvocationRunner {
   async invoke(
     call: AuthorizedToolCall,
     middleware: readonly ToolExecutionMiddleware[],
+    correlation: { toolCallId?: string; batchId?: string } = {},
+    observation: RuntimeExecutionObservation = NOOP_RUNTIME_EXECUTION_OBSERVATION,
   ): Promise<ToolInvocationResult> {
     const executionStartedAt = Date.now();
     const executionContext: AuthorizedExecutionContext = {
@@ -41,20 +47,37 @@ export class ToolInvocationRunner {
       throwIfAborted(call.context.signal);
       for (const entry of middleware) await entry.beforeExecute?.(executionContext);
       throwIfAborted(call.context.signal);
-      const result = await this.executeAuthorized(call);
+      const result = await observation.run(() => this.executeAuthorized(call));
       throwIfAborted(call.context.signal);
       for (const entry of middleware) await entry.afterExecute?.(executionContext, result);
       throwIfAborted(call.context.signal);
-      return { result, executionMs: Date.now() - executionStartedAt };
+      const executionMs = Date.now() - executionStartedAt;
+      observation.complete({
+        toolName: call.tool.name,
+        ...correlation,
+        result,
+        executionMs,
+      });
+      return { result, executionMs };
     } catch (error) {
-      if (isAbortError(error, call.context.signal)) throw error;
-      return {
-        result:
-          error instanceof ToolTimeoutError
-            ? timeoutResult(error)
-            : toolError(error instanceof Error ? error.message : String(error)),
-        executionMs: Date.now() - executionStartedAt,
+      if (isAbortError(error, call.context.signal)) {
+        observation.cancel({ error });
+        throw error;
+      }
+      const result =
+        error instanceof ToolTimeoutError
+          ? timeoutResult(error)
+          : toolError(error instanceof Error ? error.message : String(error));
+      const executionMs = Date.now() - executionStartedAt;
+      const fact = {
+        toolName: call.tool.name,
+        ...correlation,
+        result,
+        executionMs,
       };
+      if (error instanceof ToolTimeoutError) observation.timeout({ ...fact, error });
+      else observation.complete(fact);
+      return { result, executionMs };
     }
   }
 

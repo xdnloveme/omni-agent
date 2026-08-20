@@ -9,7 +9,7 @@
     "dev:coding": "tsx packages/cli/src/index.ts run coding",
     "dev:financial-analysis": "tsx packages/cli/src/index.ts run financial-analysis",
     "clean": "node scripts/clean-dist.mjs",
-    "build": "pnpm run clean && tsc -b --force packages/core packages/tools packages/models packages/app agents/coding agents/financial-analysis packages/cli",
+    "build": "pnpm run clean && tsc -b --force packages/core packages/tools packages/models packages/app agents/coding agents/financial-analysis packages/cli && node packages/cli/scripts/copy-trace-preview-assets.mjs",
     "typecheck": "tsc -b packages/core packages/tools packages/models packages/app agents/coding agents/financial-analysis packages/cli && tsc -p packages/core/evals/checkpointSummary/tsconfig.json && tsc -p agents/coding/evals/clarificationRouting/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
