@@ -22,6 +22,8 @@ import {
 } from "../context";
 import {
   EnvironmentContextController,
+  EnvironmentContextError,
+  type EnvironmentContextControllerPort,
   type EnvironmentContextRecord,
   type RuntimeEnvironmentSnapshot,
 } from "../environment";
@@ -91,6 +93,11 @@ function executeLoop(
   contextEngine: ContextEnginePort = createContextEngine(),
   coordinator: ToolCallCoordinator = createCoordinator(),
   observation?: RuntimeRunObservation,
+  environmentContext: EnvironmentContextControllerPort = {
+    async capture() {
+      return { changed: false as const };
+    },
+  },
 ) {
   return runAgentLoop({
     config,
@@ -104,11 +111,7 @@ function executeLoop(
     contextMiddleware,
     modelRuntime,
     agentId: "test",
-    environmentContext: {
-      async capture() {
-        return { changed: false as const };
-      },
-    },
+    environmentContext,
     toolCallCoordinator: coordinator,
     observation,
     signal,
@@ -245,6 +248,94 @@ describe("runAgentLoop", () => {
     const textEvents = events.filter((event) => event.type === "text_delta");
     expect(textEvents[0]?.textSegmentId).toBe(textEvents[1]?.textSegmentId);
     expect(streamModel.mock.calls[0]?.[2].maxOutputTokens).toBe(config.model.requestedOutputTokens);
+  });
+
+  it("preserves phase and terminal observation order for a final response", async () => {
+    const recorder = new RecordingRuntimeObserver();
+    const observation = recorder.startRun({
+      agentId: "test",
+      sessionId: "test-session",
+      runId: "run",
+    });
+    streamModel.mockReturnValue(
+      fakeStream([
+        {
+          type: "done",
+          message: { content: [{ type: "text", text: "done" }], stopReason: "stop" },
+        },
+      ]) as never,
+    );
+
+    const events = await collectEvents(
+      executeLoop(
+        makeConfig({ tools: [] }),
+        makeMessages("Hi"),
+        undefined,
+        [],
+        createContextEngine(),
+        createCoordinator(),
+        observation,
+      ),
+    );
+
+    expect(events.map((event) => event.type)).toEqual([
+      "model_context_prepared",
+      "final_response",
+      "done",
+    ]);
+    expect(recorder.records.map((record) => record.operation)).toEqual([
+      "run.started",
+      "turn.started",
+      "operation.environment_capture.started",
+      "operation.environment_capture.completed",
+      "context.started",
+      "context.prepared",
+      "context.completed",
+      "model.started",
+      "model.request",
+      "model.completed",
+      "agent.final_response",
+      "turn.completed",
+    ]);
+  });
+
+  it("keeps emitted behavior identical with Noop and recording observations", async () => {
+    streamModel.mockImplementation(
+      () =>
+        fakeStream([
+          {
+            type: "done",
+            message: { content: [{ type: "text", text: "done" }], stopReason: "stop" },
+          },
+        ]) as never,
+    );
+    const config = makeConfig({ tools: [] });
+    const withoutObservation = await collectEvents(executeLoop(config, makeMessages("Hi")));
+    const recorder = new RecordingRuntimeObserver();
+    const withObservation = await collectEvents(
+      executeLoop(
+        config,
+        makeMessages("Hi"),
+        undefined,
+        [],
+        createContextEngine(),
+        createCoordinator(),
+        recorder.startRun({ agentId: "test", sessionId: "test-session", runId: "run" }),
+      ),
+    );
+
+    expect(withObservation.map((event) => event.type)).toEqual(
+      withoutObservation.map((event) => event.type),
+    );
+    expect(
+      producedMessages(withObservation.find((event) => event.type === "done")?.produced).map(
+        (message) => message.role,
+      ),
+    ).toEqual(
+      producedMessages(withoutObservation.find((event) => event.type === "done")?.produced).map(
+        (message) => message.role,
+      ),
+    );
   });
 
   it("does not mark a truncated text response as final", async () => {
@@ -1277,13 +1368,168 @@ describe("runAgentLoop", () => {
     expect(streamModel).not.toHaveBeenCalled();
   });
 
+  it("cancels Context and Turn observations when context preparation aborts", async () => {
+    const recorder = new RecordingRuntimeObserver();
+    const contextEngine: ContextEnginePort = {
+      async prepare() {
+        throw abortError();
+      },
+    };
+
+    await expect(
+      collectEvents(
+        executeLoop(
+          makeConfig(),
+          makeMessages("Hi"),
+          undefined,
+          [],
+          contextEngine,
+          createCoordinator(),
+          recorder.startRun({ agentId: "test", sessionId: "test-session", runId: "run" }),
+        ),
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(recorder.records.map((record) => record.operation).slice(-2)).toEqual([
+      "context.cancelled",
+      "turn.cancelled",
+    ]);
+  });
+
+  it("preserves the structured environment failure path before model execution", async () => {
+    const recorder = new RecordingRuntimeObserver();
+    const observation = recorder.startRun({
+      agentId: "test",
+      sessionId: "test-session",
+      runId: "run",
+    });
+    const events = await collectEvents(
+      executeLoop(
+        makeConfig(),
+        makeMessages("Hi"),
+        undefined,
+        [],
+        createContextEngine(),
+        createCoordinator(),
+        observation,
+        {
+          async capture() {
+            throw new EnvironmentContextError({
+              code: "environment_context_invalid",
+              message: "Invalid environment",
+              field: "workspace.cwd",
+              retryable: false,
+            });
+          },
+        },
+      ),
+    );
+
+    expect(events).toEqual([
+      {
+        type: "error",
+        failure: {
+          code: "environment_context_invalid",
+          message: "Invalid environment",
+          field: "workspace.cwd",
+          retryable: false,
+        },
+        produced: [],
+        usage: undefined,
+      },
+    ]);
+    expect(recorder.records.map((record) => record.operation).slice(-2)).toEqual([
+      "operation.environment_capture.failed",
+      "turn.failed",
+    ]);
+    expect(streamModel).not.toHaveBeenCalled();
+  });
+
+  it("cancels Model and Turn observations when model streaming aborts", async () => {
+    const recorder = new RecordingRuntimeObserver();
+    streamModel.mockImplementation(async function* () {
+      throw abortError();
+    });
+
+    await expect(
+      collectEvents(
+        executeLoop(
+          makeConfig(),
+          makeMessages("Hi"),
+          undefined,
+          [],
+          createContextEngine(),
+          createCoordinator(),
+          recorder.startRun({ agentId: "test", sessionId: "test-session", runId: "run" }),
+        ),
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(recorder.records.map((record) => record.operation).slice(-2)).toEqual([
+      "model.cancelled",
+      "turn.cancelled",
+    ]);
+  });
+
+  it("cancels Tool Batch and Turn observations when tool coordination aborts", async () => {
+    const recorder = new RecordingRuntimeObserver();
+    streamModel.mockReturnValue(
+      fakeStream([
+        {
+          type: "done",
+          message: {
+            content: [{ type: "toolCall", id: "call", name: "test_tool", arguments: {} }],
+            stopReason: "toolUse",
+          },
+        },
+      ]) as never,
+    );
+    const coordinator = {
+      async *run() {
+        throw abortError();
+      },
+    } as unknown as ToolCallCoordinator;
+
+    await expect(
+      collectEvents(
+        executeLoop(
+          makeConfig(),
+          makeMessages("Hi"),
+          undefined,
+          [],
+          createContextEngine(),
+          coordinator,
+          recorder.startRun({ agentId: "test", sessionId: "test-session", runId: "run" }),
+        ),
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(recorder.records.map((record) => record.operation).slice(-2)).toEqual([
+      "tool.batch.cancelled",
+      "turn.cancelled",
+    ]);
+  });
+
   it("should yield error when LLM returns an error event", async () => {
+    const recorder = new RecordingRuntimeObserver();
+    const observation = recorder.startRun({
+      agentId: "test",
+      sessionId: "test-session",
+      runId: "run",
+    });
     streamModel.mockReturnValue(
       fakeStream([{ type: "error", error: { errorMessage: "Rate limit exceeded" } }]) as any,
     );
 
     const config = makeConfig();
-    const events = await collectEvents(executeLoop(config, makeMessages("Hi")));
+    const events = await collectEvents(
+      executeLoop(
+        config,
+        makeMessages("Hi"),
+        undefined,
+        [],
+        createContextEngine(),
+        createCoordinator(),
+        observation,
+      ),
+    );
 
     expect(events.filter((event) => event.type === "error")).toEqual([
       {
@@ -1294,6 +1540,40 @@ describe("runAgentLoop", () => {
           retryable: true,
         },
       },
+    ]);
+    expect(recorder.records.map((record) => record.operation).slice(-2)).toEqual([
+      "model.failed",
+      "turn.failed",
+    ]);
+  });
+
+  it("preserves the missing model response failure and terminal order", async () => {
+    const recorder = new RecordingRuntimeObserver();
+    streamModel.mockReturnValue(fakeStream([]) as never);
+
+    const events = await collectEvents(
+      executeLoop(
+        makeConfig(),
+        makeMessages("Hi"),
+        undefined,
+        [],
+        createContextEngine(),
+        createCoordinator(),
+        recorder.startRun({ agentId: "test", sessionId: "test-session", runId: "run" }),
+      ),
+    );
+
+    expect(events.at(-1)).toEqual({
+      type: "error",
+      failure: {
+        code: "model_response_missing",
+        message: "No response from LLM",
+        retryable: true,
+      },
+    });
+    expect(recorder.records.map((record) => record.operation).slice(-2)).toEqual([
+      "model.failed",
+      "turn.failed",
     ]);
   });
 
@@ -1372,3 +1652,9 @@ describe("runAgentLoop", () => {
     expect(messages).toHaveLength(originalLength);
   });
 });
+
+function abortError(): Error {
+  const error = new Error("aborted");
+  error.name = "AbortError";
+  return error;
+}

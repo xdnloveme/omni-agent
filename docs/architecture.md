@@ -741,6 +741,28 @@ publish the facts in structured metadata and LLM-visible text. The coding Agent 
 file-read ranges from those facts; search tools do not invoke file reads, and file reads
 do not consume hidden search state.
 
+## Agent loop orchestration
+
+`runAgentLoop` is the Run-level imperative shell. It owns iteration and Run termination but
+delegates each loop iteration to an internal orchestrator. One iteration maps to the Runtime
+Observation Turn scope and keeps environment/context preparation, model streaming, and optional
+tool-batch work in explicit order. Each phase owns exactly its scoped Runtime Observation lifecycle;
+the iteration orchestrator alone owns the Turn terminal, and `ToolCallCoordinator` remains the only
+tool-call entry.
+
+```text
+runAgentLoop
+  -> runLoopIteration
+       -> environment/context preparation
+       -> model streaming
+       -> tool batch -> ToolCallCoordinator
+```
+
+Phase results are internal discriminated unions for normal control flow. Phase functions are not
+extension points and are not exported from Core. Model runtimes, middleware, context policies,
+tools, and observers remain the supported composition boundaries; extensions cannot insert or
+reorder Agent-loop phases.
+
 ## Stream presentation boundary
 
 User-visible streaming follows one direction:

@@ -38,6 +38,16 @@ export class RecordingRuntimeObserver implements RuntimeObserverPort {
         this.record("turn.started", value);
         return {
           ...NOOP_RUNTIME_TURN_OBSERVATION,
+          startOperation: (operation) => {
+            this.record(`operation.${operation.kind}.started`, operation);
+            return {
+              ...NOOP_RUNTIME_OPERATION_OBSERVATION,
+              complete: (terminal) =>
+                this.record(`operation.${operation.kind}.completed`, terminal),
+              fail: (terminal) => this.record(`operation.${operation.kind}.failed`, terminal),
+              cancel: (terminal) => this.record(`operation.${operation.kind}.cancelled`, terminal),
+            };
+          },
           startContext: (context) => {
             this.record("context.started", context);
             return {
