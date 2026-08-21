@@ -490,18 +490,21 @@ Stated plainly, because they affect how you should deploy this:
 
 ```mermaid
 graph TD
-    CLI["packages/cli<br/>terminal host, composition root"]
+    HOST["apps/omni<br/>binary entry, composition root"]
+    CLI["packages/cli<br/>commands, Agent orchestration"]
     AGENTS["agents/*<br/>coding, financial-analysis"]
     APP["packages/app<br/>lifecycle, registries, extensions, sessions"]
     MODELS["packages/models<br/>runtime, vendor plugins, credentials"]
     TOOLS["packages/tools<br/>fs, shell, search, web"]
-    UI["packages/ui<br/>browser views, presentation models"]
+    UI["packages/ui<br/>browser + terminal presentation"]
     CORE["packages/core<br/>execution kernel, stable ports"]
 
+    HOST --> CLI
+    HOST --> UI
+    HOST --> APP
     CLI --> AGENTS
     CLI --> APP
     CLI --> TOOLS
-    CLI --> UI
     CLI --> CORE
     AGENTS --> APP
     AGENTS --> TOOLS
@@ -520,8 +523,9 @@ graph TD
 | `packages/models` | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence   |
 | `packages/app`    | Application lifecycle, agent/tool/command registries, extension host, sessions, config |
 | `packages/tools`  | Domain-neutral filesystem, shell, search, and web tools                                |
-| `packages/ui`     | Interaction surfaces: browser hosts/views, view models, formatting, and visual assets  |
-| `packages/cli`    | Process entry, terminal host, composition, run mode, onboarding, and diagnostics       |
+| `packages/ui`     | Browser and terminal interaction, presentation, adapters, formatting, and delivery     |
+| `packages/cli`    | Commands, Agent creation/use-case orchestration, sessions, and onboarding workflow     |
+| `apps/omni`       | Binary entry, CLI/UI composition, signals, Trace preview lifecycle, and process exit   |
 | `agents/*`        | Independently packaged business agents                                                 |
 
 ### Dependency direction
@@ -532,11 +536,13 @@ models -> core
 app    -> core, models
 agents -> app, core, tools
 ui     -> app, core
-cli    -> app, core, tools, ui, agents/*
+cli    -> app, core, tools, agents/*
+apps/omni -> app, cli, ui
 ```
 
-Reverse dependencies are not allowed. `core` and `app` must never import a concrete agent, and an
-agent package must never import the CLI or another agent package.
+Reverse dependencies are not allowed. CLI and UI do not import each other; `apps/omni` is their
+only composition root. `core` and `app` must never import a concrete agent, and an agent package
+must never import the CLI, UI, or another agent package.
 
 ### Runtime contracts
 
@@ -577,7 +583,10 @@ omni-agent/
 │   ├── models/   Model runtime, vendor plugins, catalogs, credentials, cache
 │   ├── app/      Lifecycle, registries, extension host, sessions, config, workspaces
 │   ├── tools/    Filesystem, shell, search, web, user-input tools and toolsets
-│   └── cli/      Entry, arg parsing, TUI, run mode, onboarding, doctor, commands
+│   ├── ui/       Browser and terminal presentation, interaction adapters, delivery
+│   └── cli/      Arg parsing, commands, Agent run and onboarding orchestration
+├── apps/
+│   └── omni/     Binary entry, CLI/UI composition, signals, process lifecycle
 ├── agents/
 │   ├── coding/              Default coding agent (skills, fs, shell, search, web)
 │   └── financial-analysis/  Read-only deterministic indicator agent

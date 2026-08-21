@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { CommandSelectionOptions, InteractionRequest } from "@omni-agent/core";
-import type { OmniTui } from "../tui/tui";
+import type { OmniTui } from "../runtime/tui";
 import { TuiInteractionSurface } from "./tui-interaction-surface";
 
 function request(fields: InteractionRequest["fields"]): InteractionRequest {

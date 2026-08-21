@@ -8,8 +8,6 @@
   "references": [
     { "path": "../core" },
     { "path": "../app" },
-    { "path": "../tools" },
-    { "path": "../ui" },
     { "path": "../../agents/coding" },
     { "path": "../../agents/financial-analysis" }
   ],

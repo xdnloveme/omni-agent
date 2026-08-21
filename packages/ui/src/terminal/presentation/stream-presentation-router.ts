@@ -1,5 +1,5 @@
 import type { StreamCallbacks } from "@omni-agent/core";
-import type { OmniTui } from "../interaction/tui/tui";
+import type { OmniTui } from "../runtime/tui";
 import { CompressionEventPresenter } from "./compression-event-presenter";
 import { RunMetricsPresenter } from "./run-metrics-presenter";
 import { RunPresentationModel } from "./run-presentation-model";

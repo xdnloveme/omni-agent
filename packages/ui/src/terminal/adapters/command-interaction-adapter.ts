@@ -5,7 +5,7 @@ import type {
   InteractionSurfacePort,
 } from "@omni-agent/core";
 import { InteractionAbortError } from "@omni-agent/core";
-import type { OmniTui } from "./tui/tui";
+import type { OmniTui } from "../runtime/tui";
 
 export class TuiCommandInteractionAdapter implements CommandInteractionPort {
   constructor(

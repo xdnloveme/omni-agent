@@ -38,7 +38,7 @@ export async function buildCliDistribution(): Promise<{
   const result = await build({
     absWorkingDir: repositoryRoot,
     entryPoints: {
-      "cli-entry": join(repositoryRoot, "packages", "cli", "src", "index.ts"),
+      "cli-entry": join(repositoryRoot, "apps", "omni", "src", "index.ts"),
     },
     outdir: outputDirectory,
     entryNames: "bin/[name]",

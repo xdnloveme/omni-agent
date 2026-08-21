@@ -65,6 +65,25 @@ importers:
         specifier: ^5.9.2
         version: 5.9.3
 
+  apps/omni:
+    dependencies:
+      '@omni-agent/app':
+        specifier: workspace:*
+        version: link:../../packages/app
+      '@omni-agent/cli':
+        specifier: workspace:*
+        version: link:../../packages/cli
+      '@omni-agent/ui':
+        specifier: workspace:*
+        version: link:../../packages/ui
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.19.19
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+
   packages/app:
     dependencies:
       '@omni-agent/core':
@@ -83,12 +102,6 @@ importers:
 
   packages/cli:
     dependencies:
-      '@earendil-works/pi-tui':
-        specifier: ^0.84.2
-        version: 0.84.2
-      '@inquirer/prompts':
-        specifier: ^8.0.0
-        version: 8.5.2(@types/node@22.19.19)
       '@omni-agent/agent-coding':
         specifier: workspace:*
         version: link:../../agents/coding
@@ -101,15 +114,6 @@ importers:
       '@omni-agent/core':
         specifier: workspace:*
         version: link:../core
-      '@omni-agent/tools':
-        specifier: workspace:*
-        version: link:../tools
-      '@omni-agent/ui':
-        specifier: workspace:*
-        version: link:../ui
-      chalk:
-        specifier: ^5.6.2
-        version: 5.6.2
     devDependencies:
       '@types/node':
         specifier: ^22.10.5
@@ -183,9 +187,15 @@ importers:
 
   packages/ui:
     dependencies:
+      '@earendil-works/pi-tui':
+        specifier: ^0.84.2
+        version: 0.84.2
       '@hono/node-server':
         specifier: ^2.1.1
         version: 2.1.1(hono@4.13.3)
+      '@inquirer/prompts':
+        specifier: ^8.0.0
+        version: 8.5.2(@types/node@22.19.19)
       '@omni-agent/app':
         specifier: workspace:*
         version: link:../app
@@ -201,6 +211,9 @@ importers:
       '@radix-ui/react-tooltip':
         specifier: ^1.2.16
         version: 1.2.16(@types/react-dom@19.2.4(@types/react@19.2.18))(@types/react@19.2.18)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      chalk:
+        specifier: ^5.6.2
+        version: 5.6.2
       dompurify:
         specifier: ^3.4.14
         version: 3.4.14

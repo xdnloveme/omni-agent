@@ -19,7 +19,8 @@ packages/models Model runtime, vendor plugins, catalogs, and credentials
 packages/app    Application lifecycle, registries, extensions, and sessions
 packages/tools  Domain-neutral filesystem, shell, search, and web tools
 packages/ui     Interaction hosts, views, presentation models, and input handling
-packages/cli    CLI composition root, process lifecycle, and onboarding
+packages/cli    Commands and Agent use-case orchestration
+apps/omni       Binary entry, process lifecycle, and composition root
 agents/*        Independently packaged business agents
 ```
 
@@ -31,7 +32,8 @@ models -> core
 app -> core, models
 agents/* -> app, core, tools
 ui -> app, core
-cli -> app, core, tools, ui, agents/*
+cli -> app, core, tools, agents/*
+apps/omni -> app, cli, ui
 ```
 
 Do not introduce reverse dependencies. `core` and `app` must never import a
@@ -54,8 +56,9 @@ permission, execution, cancellation, and sandbox-boundary contract.
   outside a specific agent or business domain.
 - Keep prompts, domain types, domain services, domain tools, and workflows in the
   owning package under `agents/`.
-- Keep browser and terminal rendering, view interaction, and input handling in
-  `packages/ui`; keep onboarding, composition, and process lifecycle in `packages/cli`.
+- Keep browser and terminal rendering, view interaction, input handling, and presentation
+  lifecycle in `packages/ui`; keep Agent and onboarding workflow orchestration in `packages/cli`;
+  keep composition and process lifecycle in `apps/omni`.
 - Prefer composition and declarative definitions over `BaseAgent` inheritance.
 - Do not add a framework abstraction until at least two real consumers require
   it or it removes meaningful existing complexity.

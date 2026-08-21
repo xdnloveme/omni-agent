@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { TextDeltaEvent } from "@omni-agent/core";
-import type { OmniTui } from "../interaction/tui/tui";
+import type { OmniTui } from "../runtime/tui";
 import type { RunPresentationViewModel } from "./view-models";
 import { StreamPresentationRouter } from "./stream-presentation-router";
 

@@ -5,7 +5,11 @@
     "rootDir": "./src",
     "composite": true
   },
-  "references": [{ "path": "../../packages/core" }, { "path": "../../packages/app" }],
+  "references": [
+    { "path": "../../packages/core" },
+    { "path": "../../packages/app" },
+    { "path": "../../packages/tools" }
+  ],
   "include": ["src/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }

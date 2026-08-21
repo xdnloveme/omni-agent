@@ -7,12 +7,8 @@ import {
   type ExtensionEvent,
   type SkillSource,
 } from "@omni-agent/core";
-import type { OmniTui } from "../interaction/tui/tui";
-import {
-  renderSkillReadEnd,
-  renderSkillReadStart,
-  type SkillRenderSink,
-} from "../skills/skill-renderer";
+import type { OmniTui } from "../runtime/tui";
+import { renderSkillReadEnd, renderSkillReadStart, type SkillRenderSink } from "./skill-renderer";
 
 export class SkillStreamPresenter {
   constructor(private readonly tui: OmniTui) {}

@@ -6,8 +6,8 @@ import {
   type Component,
 } from "@earendil-works/pi-tui";
 import chalk from "chalk";
-import { formatElapsedTime } from "../../presentation/format";
-import type { DisclosureViewModel } from "../../presentation/view-models";
+import { formatElapsedTime } from "../presentation/format";
+import type { DisclosureViewModel } from "../presentation/view-models";
 
 export class DisclosureMessage implements Component {
   private expanded: boolean;

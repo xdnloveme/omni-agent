@@ -1,8 +1,9 @@
-import chalk from "chalk";
 import type { Command, SkillRegistry } from "@omni-agent/core";
+import type { TextPresentationPort } from "../host-services";
 
 export function createSkillsCommand(
   skillRegistry: SkillRegistry,
+  text: TextPresentationPort,
   onReload?: () => void | Promise<void>,
 ): Command {
   return {
@@ -13,10 +14,10 @@ export function createSkillsCommand(
       if (subcommand === "reload") {
         const result = await skillRegistry.reload();
         await onReload?.();
-        ctx.interaction.line(chalk.green(`Reloaded ${result.skills.length} skills.`));
+        ctx.interaction.line(text.success(`Reloaded ${result.skills.length} skills.`));
         if (result.diagnostics.length > 0) {
           ctx.interaction.line(
-            chalk.yellow(
+            text.warning(
               `${result.diagnostics.length} diagnostics. Run /skills diagnostics for details.`,
             ),
           );
@@ -28,16 +29,16 @@ export function createSkillsCommand(
       if (subcommand === "diagnostics") {
         const diagnostics = skillRegistry.diagnostics();
         if (diagnostics.length === 0) {
-          ctx.interaction.line(chalk.green("No skill diagnostics."));
+          ctx.interaction.line(text.success("No skill diagnostics."));
           ctx.interaction.spacer();
           return;
         }
-        ctx.interaction.line(chalk.bold("Skill diagnostics"));
+        ctx.interaction.line(text.heading("Skill diagnostics"));
         for (const diagnostic of diagnostics) {
           ctx.interaction.line(
-            `${diagnostic.type === "error" ? chalk.red("error") : chalk.yellow("warning")} ${diagnostic.code}: ${diagnostic.message}`,
+            `${diagnostic.type === "error" ? text.error("error") : text.warning("warning")} ${diagnostic.code}: ${diagnostic.message}`,
           );
-          ctx.interaction.line(chalk.dim(`  ${diagnostic.path}`));
+          ctx.interaction.line(text.muted(`  ${diagnostic.path}`));
         }
         ctx.interaction.spacer();
         return;
@@ -45,12 +46,12 @@ export function createSkillsCommand(
 
       const skills = skillRegistry.list();
       if (skills.length === 0) {
-        ctx.interaction.line(chalk.dim("No skills loaded."));
+        ctx.interaction.line(text.muted("No skills loaded."));
         ctx.interaction.spacer();
         return;
       }
 
-      ctx.interaction.line(chalk.bold("Available skills"));
+      ctx.interaction.line(text.heading("Available skills"));
       for (const skill of skills) {
         const flags = [
           skill.source.scope,
@@ -59,8 +60,8 @@ export function createSkillsCommand(
         ]
           .filter(Boolean)
           .join(", ");
-        ctx.interaction.line(`${chalk.cyan(skill.name)} ${chalk.dim(`[${flags}]`)}`);
-        ctx.interaction.line(chalk.dim(`  ${skill.description}`));
+        ctx.interaction.line(`${text.accent(skill.name)} ${text.muted(`[${flags}]`)}`);
+        ctx.interaction.line(text.muted(`  ${skill.description}`));
       }
       ctx.interaction.spacer();
     },

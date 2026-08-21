@@ -1,6 +1,6 @@
 import type { MarkdownTheme } from "@earendil-works/pi-tui";
 import { describe, expect, it } from "vitest";
-import type { RunPresentationViewModel } from "../../presentation/view-models";
+import type { RunPresentationViewModel } from "../presentation/view-models";
 import { RunMessage } from "./run-message";
 
 type FinalNode = NonNullable<RunPresentationViewModel["finalNode"]>;

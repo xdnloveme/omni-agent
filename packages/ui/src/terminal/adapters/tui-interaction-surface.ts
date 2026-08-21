@@ -10,7 +10,7 @@ import {
   type InteractionSurfacePort,
   type InteractionValue,
 } from "@omni-agent/core";
-import type { OmniTui } from "../tui/tui";
+import type { OmniTui } from "../runtime/tui";
 
 export class TuiInteractionSurface implements InteractionSurfacePort {
   private activeAbort: AbortController | null = null;

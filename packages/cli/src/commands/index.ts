@@ -5,6 +5,7 @@ import { createConfigCommand } from "./config";
 import { createHelpCommand } from "./help";
 import { createPermissionsCommand } from "./permissions";
 import { createTraceCommand } from "./trace";
+import type { CliHostServices } from "../host-services";
 
 export const HOST_COMMAND_NAMES = [
   "config",
@@ -18,11 +19,12 @@ export const HOST_COMMAND_NAMES = [
 
 export function createCommandRegistry(
   app: AgentApplication,
+  host: Pick<CliHostServices, "createOnboardingInteraction" | "text">,
   trace?: AgentTraceControlCapability,
 ): CommandRegistry {
   const registry = new CommandRegistry();
-  registry.register(createConfigCommand(app));
-  registry.register(createPermissionsCommand(app));
+  registry.register(createConfigCommand(app, host.createOnboardingInteraction, host.text));
+  registry.register(createPermissionsCommand(app, host.text));
   if (trace) registry.register(createTraceCommand(trace));
   for (const command of app.extensions.commands.list()) {
     if (registry.has(command.name)) {
@@ -30,6 +32,6 @@ export function createCommandRegistry(
     }
     registry.register(command);
   }
-  registry.register(createHelpCommand(registry));
+  registry.register(createHelpCommand(registry, host.text));
   return registry;
 }

@@ -1,6 +1,6 @@
-import type { TuiTermination } from "./interaction/tui/tui";
+import type { HostTermination } from "./host-services";
 
-export function exitCodeForTermination(termination: TuiTermination): number {
+export function exitCodeForTermination(termination: HostTermination): number {
   switch (termination.kind) {
     case "completed":
       return 0;

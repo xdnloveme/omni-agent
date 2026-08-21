@@ -1,4 +1,3 @@
-import { input, select } from "@inquirer/prompts";
 import {
   ProviderRegistrationCoordinator,
   type ModelService,
@@ -6,57 +5,49 @@ import {
 } from "@omni-agent/app";
 import type { JsonValue } from "@omni-agent/core";
 import { formatSettingDefault, parseSettingValue } from "./model-settings";
+import type { OnboardingInteractionPort } from "../host-services";
 
 export async function selectModel(
   modelService: ModelService,
   prepareProvider: (providerId: string) => Promise<void>,
+  interaction: OnboardingInteractionPort,
 ): Promise<ModelSelection> {
   const vendors = modelService.listVendors();
-  const choice = await select<
-    | { readonly kind: "vendor"; readonly vendor: (typeof vendors)[number] }
-    | { readonly kind: "custom" }
-  >({
-    message: "Select your model provider",
-    choices: [
-      ...vendors.map((vendor) => ({
-        name: vendor.displayName,
-        value: { kind: "vendor" as const, vendor },
-      })),
-      { name: "Custom OpenAI-compatible", value: { kind: "custom" as const } },
-    ],
-    loop: false,
-  });
-  if (choice.kind === "custom") return selectCustomModel(modelService, prepareProvider);
-  const { vendor } = choice;
-  const connection =
+  const vendorId = await interaction.selectProvider([
+    ...vendors.map((vendor) => ({ id: vendor.id, label: vendor.displayName })),
+    { id: "__custom__", label: "Custom OpenAI-compatible" },
+  ]);
+  if (vendorId === "__custom__")
+    return selectCustomModel(modelService, prepareProvider, interaction);
+  const vendor = vendors.find((candidate) => candidate.id === vendorId);
+  if (!vendor) throw new Error(`Unknown model vendor: ${vendorId}`);
+  const connectionId =
     vendor.connections.length === 1
-      ? vendor.connections[0]
-      : await select({
-          message: `Select your ${vendor.displayName} connection`,
-          choices: vendor.connections.map((connection) => ({
-            name: connection.displayName,
-            value: connection,
-          })),
-          loop: false,
-        });
+      ? vendor.connections[0]!.id
+      : await interaction.select(
+          `Select your ${vendor.displayName} connection`,
+          vendor.connections.map((item) => ({ id: item.id, label: item.displayName })),
+          { loop: false },
+        );
+  const connection = vendor.connections.find((candidate) => candidate.id === connectionId);
+  if (!connection) throw new Error(`Unknown connection for ${vendor.displayName}`);
   await prepareProvider(connection.providerId);
   const models = await modelService.listModels(connection.providerId);
   if (models.length === 0) throw new Error(`No models available for ${vendor.displayName}`);
-  const modelId = await select({
-    message: `Select your ${vendor.displayName} model`,
-    choices: models.map((model) => ({
-      name: model.name,
-      value: model.id,
+  const modelId = await interaction.selectModel(
+    models.map((model) => ({
+      id: model.id,
+      label: model.name,
       description: `${model.contextWindow.toLocaleString()} context`,
     })),
-    loop: false,
-  });
+    `Select your ${vendor.displayName} model`,
+  );
   const settings: Record<string, JsonValue> = {};
   const required = new Set(connection.settingsSchema?.required ?? []);
   for (const [key, property] of Object.entries(connection.settingsSchema?.properties ?? {})) {
-    const value = await input({
+    const value = await interaction.input({
       message: `Enter ${key}${required.has(key) ? "" : " (optional)"}`,
-      default: formatSettingDefault(property),
+      defaultValue: formatSettingDefault(property),
       validate: (value) => {
         if (!value.trim()) return required.has(key) ? `${key} is required` : true;
         try {
@@ -80,14 +71,15 @@ export async function selectModel(
 async function selectCustomModel(
   modelService: ModelService,
   prepareProvider: (providerId: string) => Promise<void>,
+  interaction: OnboardingInteractionPort,
 ): Promise<ModelSelection> {
-  const id = await input({
+  const id = await interaction.input({
     message: "Enter a vendor id",
-    default: "custom",
+    defaultValue: "custom",
     validate: (value) =>
       /^[a-z0-9][a-z0-9-]*$/.test(value) || "Use lowercase letters, numbers, and hyphens",
   });
-  const baseUrl = await input({
+  const baseUrl = await interaction.input({
     message: "Enter the OpenAI-compatible base URL",
     validate: (value) => {
       try {
@@ -98,29 +90,29 @@ async function selectCustomModel(
       }
     },
   });
-  const modelId = await input({
+  const modelId = await interaction.input({
     message: "Enter the model id",
     validate: (value) => Boolean(value.trim()) || "Model id is required",
   });
   const contextWindow = Number(
-    await input({
+    await interaction.input({
       message: "Enter the context window",
-      default: "128000",
+      defaultValue: "128000",
       validate: (value) =>
         (Number.isFinite(Number(value)) && Number(value) > 0) || "Enter a positive number",
     }),
   );
   const maxTokens = Number(
-    await input({
+    await interaction.input({
       message: "Enter maximum output tokens",
-      default: "4096",
+      defaultValue: "4096",
       validate: (value) =>
         (Number.isFinite(Number(value)) && Number(value) > 0) || "Enter a positive number",
     }),
   );
-  const envVar = await input({
+  const envVar = await interaction.input({
     message: "Enter the API key environment variable",
-    default: `${id.replace(/-/g, "_").toUpperCase()}_API_KEY`,
+    defaultValue: `${id.replace(/-/g, "_").toUpperCase()}_API_KEY`,
     validate: (value) =>
       /^[A-Za-z_][A-Za-z0-9_]*$/.test(value) || "Enter a valid environment variable name",
   });

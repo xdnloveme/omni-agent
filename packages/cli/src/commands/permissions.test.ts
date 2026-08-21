@@ -3,6 +3,15 @@ import type { AgentApplication } from "@omni-agent/app";
 import type { CommandContext } from "@omni-agent/core";
 import { createPermissionsCommand } from "./permissions";
 
+const text = {
+  heading: (value: string) => value,
+  accent: (value: string) => value,
+  muted: (value: string) => value,
+  success: (value: string) => value,
+  warning: (value: string) => value,
+  error: (value: string) => value,
+};
+
 describe("permissions command", () => {
   it("lists and revokes a persistent approval by grant ID", async () => {
     const revokePersistentApproval = vi.fn(async () => undefined);
@@ -37,7 +46,7 @@ describe("permissions command", () => {
       },
     } satisfies CommandContext;
 
-    await createPermissionsCommand(app).execute(context);
+    await createPermissionsCommand(app, text).execute(context);
 
     expect(revokePersistentApproval).toHaveBeenCalledWith("grant-id");
     expect(select).toHaveBeenCalledWith(

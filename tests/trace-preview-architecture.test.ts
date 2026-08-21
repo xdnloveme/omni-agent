@@ -34,18 +34,11 @@ describe("trace preview architecture", () => {
     expect(appIndex).not.toMatch(/LocalTraceStore|TraceQueryService|TraceStorageLayout/);
   });
 
-  it("keeps CLI preview code as composition and process lifecycle only", async () => {
-    const previewDirectory = join(repositoryRoot, "packages/cli/src/tracing-preview");
-    const entries = await readdir(previewDirectory, { withFileTypes: true });
-    const command = await source("packages/cli/src/tracing-preview/preview-command.ts");
+  it("keeps preview composition and process lifecycle in the Host", async () => {
+    const command = await source("apps/omni/src/trace-preview.ts");
 
-    expect(
-      entries
-        .filter((entry) => entry.isFile())
-        .map((entry) => entry.name)
-        .sort(),
-    ).toEqual(["preview-command.ts"]);
     expect(command).toContain("@omni-agent/ui/trace-preview-server");
+    expect(command).toContain("@omni-agent/app");
     expect(command).not.toMatch(
       /\bHono\b|serveStatic|\.get\(["']\/api|TraceQueryPort|Waterfall|React|Vite/,
     );

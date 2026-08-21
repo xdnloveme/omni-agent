@@ -1,8 +1,11 @@
-import chalk from "chalk";
 import type { Command } from "@omni-agent/core";
 import type { AgentApplication } from "@omni-agent/app";
+import type { TextPresentationPort } from "../host-services";
 
-export function createPermissionsCommand(app: AgentApplication): Command {
+export function createPermissionsCommand(
+  app: AgentApplication,
+  text: TextPresentationPort,
+): Command {
   return {
     name: "permissions",
     description: "Manage permission mode and persistent approvals",
@@ -56,14 +59,14 @@ export function createPermissionsCommand(app: AgentApplication): Command {
         const selected = selectedResult.kind === "selected" ? selectedResult.value : undefined;
         if (selected === "standard" || selected === "supervised") {
           await app.setPermissionMode(selected);
-          ctx.interaction.line(chalk.green(`Permission mode changed to ${selected}.`));
+          ctx.interaction.line(text.success(`Permission mode changed to ${selected}.`));
         }
       } else if (action === "clear") {
         await app.clearPersistentApprovals();
-        ctx.interaction.line(chalk.green("Persistent approvals cleared."));
+        ctx.interaction.line(text.success("Persistent approvals cleared."));
       } else if (action.startsWith("revoke:")) {
         await app.revokePersistentApproval(action.slice("revoke:".length));
-        ctx.interaction.line(chalk.green("Persistent approval revoked."));
+        ctx.interaction.line(text.success("Persistent approval revoked."));
       }
       ctx.interaction.spacer();
     },

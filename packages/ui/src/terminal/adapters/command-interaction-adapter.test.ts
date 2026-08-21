@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { InteractionSurfacePort } from "@omni-agent/core";
 import { InteractionAbortError } from "@omni-agent/core";
 import { ScriptedInteractionSurface } from "@omni-agent/core/testing";
-import type { OmniTui } from "./tui/tui";
+import type { OmniTui } from "../runtime/tui";
 import { TuiCommandInteractionAdapter } from "./command-interaction-adapter";
 
 function tui(): OmniTui {

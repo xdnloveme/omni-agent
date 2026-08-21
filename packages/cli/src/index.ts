@@ -2,8 +2,12 @@ import { CliUsageError, parseCliArgs } from "./args";
 import { CLI_HELP } from "./help";
 import { CLI_VERSION } from "./version";
 import { exitCodeForTermination } from "./process-exit";
+import type { CliHostServices } from "./host-services";
 
-export async function main(args: readonly string[] = process.argv.slice(2)): Promise<void> {
+export { CliUsageError } from "./args";
+export type { AgentConsolePort, CliHostServices, HostTermination } from "./host-services";
+
+export async function main(args: readonly string[], host: CliHostServices): Promise<void> {
   const command = parseCliArgs(args);
   switch (command.kind) {
     case "help":
@@ -17,34 +21,18 @@ export async function main(args: readonly string[] = process.argv.slice(2)): Pro
       if (!(await runDoctor())) process.exitCode = 1;
       return;
     case "trace-preview": {
-      const { runTracePreview } = await import("./tracing-preview/preview-command");
-      await runTracePreview(command.agentId);
+      await host.runTracePreview(command.agentId);
       return;
     }
     case "trace-clear": {
       const { runTraceClear } = await import("./tracing-clear/clear-command");
-      await runTraceClear(command.agentId, command.confirmed);
+      await runTraceClear(command.agentId, command.confirmed, host.confirm);
       return;
     }
     case "run":
       const { runAgentMode } = await import("./modes/run");
       process.exitCode = exitCodeForTermination(
-        await runAgentMode(command.agentId, { trace: command.trace }),
+        await runAgentMode(command.agentId, host, { trace: command.trace }),
       );
   }
 }
-
-void main().catch((error) => {
-  if (error instanceof CliUsageError) {
-    console.error(error.message);
-    console.error("Run 'omni --help' for usage.");
-    process.exitCode = 2;
-    return;
-  }
-  if (error instanceof Error && error.name === "AbortError") {
-    process.exitCode = 130;
-    return;
-  }
-  console.error(error);
-  process.exitCode = 1;
-});

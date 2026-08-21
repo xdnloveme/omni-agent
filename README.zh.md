@@ -432,13 +432,18 @@ interface VendorPlugin {
 
 ```mermaid
 graph TD
-    CLI["packages/cli<br/>终端宿主、组装根"]
+    HOST["apps/omni<br/>二进制入口、组装根"]
+    CLI["packages/cli<br/>命令、Agent 编排"]
     AGENTS["agents/*<br/>coding、financial-analysis"]
     APP["packages/app<br/>生命周期、注册表、扩展、会话"]
     MODELS["packages/models<br/>运行时、Vendor 插件、凭证"]
     TOOLS["packages/tools<br/>文件、Shell、搜索、Web"]
+    UI["packages/ui<br/>浏览器与终端展示"]
     CORE["packages/core<br/>执行内核、稳定端口"]
 
+    HOST --> CLI
+    HOST --> UI
+    HOST --> APP
     CLI --> AGENTS
     CLI --> APP
     CLI --> TOOLS
@@ -458,7 +463,9 @@ graph TD
 | `packages/models` | 模型运行时、Vendor 插件、模型目录、协议转换、凭证持久化      |
 | `packages/app`    | 应用生命周期，Agent/工具/命令注册表，扩展宿主，会话，配置    |
 | `packages/tools`  | 领域无关的文件系统、Shell、搜索与 Web 工具                   |
-| `packages/cli`    | 进程入口、TUI、运行模式、初始引导、诊断                      |
+| `packages/ui`     | 浏览器与终端交互、展示投影、适配器、格式化与交付             |
+| `packages/cli`    | 命令、Agent 创建与用例编排、会话及初始引导流程               |
+| `apps/omni`       | 二进制入口、CLI/UI 组装、信号、Trace 预览生命周期和退出码    |
 | `agents/*`        | 独立打包的业务 Agent                                         |
 
 ### 依赖方向
@@ -468,10 +475,12 @@ tools  -> core
 models -> core
 app    -> core, models
 agents -> app, core, tools
+ui     -> app, core
 cli    -> app, core, tools, agents/*
+apps/omni -> app, cli, ui
 ```
 
-不允许反向依赖。`core` 和 `app` 绝不能导入具体 Agent，Agent 包也绝不能导入 CLI 或另一个 Agent 包。
+不允许反向依赖。CLI 与 UI 不互相导入，`apps/omni` 是唯一组装根。`core` 和 `app` 绝不能导入具体 Agent，Agent 包也绝不能导入 CLI、UI 或另一个 Agent 包。
 
 ### 运行时契约
 
@@ -512,7 +521,10 @@ omni-agent/
 │   ├── models/   模型运行时、Vendor 插件、模型目录、凭证、缓存
 │   ├── app/      生命周期、注册表、扩展宿主、会话、配置、工作区
 │   ├── tools/    文件系统、Shell、搜索、Web、用户输入工具与工具集
-│   └── cli/      入口、参数解析、TUI、运行模式、引导、doctor、命令
+│   ├── ui/       浏览器与终端展示、交互适配器与交付层
+│   └── cli/      参数解析、命令、Agent 运行与初始引导编排
+├── apps/
+│   └── omni/     二进制入口、CLI/UI 组装、信号与进程生命周期
 ├── agents/
 │   ├── coding/              默认编码 Agent（技能、文件、Shell、搜索、Web）
 │   └── financial-analysis/  只读的确定性指标计算 Agent

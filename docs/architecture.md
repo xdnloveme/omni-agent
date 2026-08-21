@@ -8,7 +8,8 @@ packages/models Model runtime, vendor catalog, provider plugins, and credentials
 packages/app    Application lifecycle and extension host
 packages/tools  Domain-neutral tool implementations
 packages/ui     User interaction and presentation surfaces
-packages/cli    Terminal host and composition root
+packages/cli    Commands and Agent use-case orchestration
+apps/omni       Binary entry and composition root
 agents/*        Independently packaged business agents
 ```
 
@@ -20,13 +21,15 @@ models -> core
 app -> core, models
 agents/* -> app, core, tools
 ui -> app, core
-cli -> app, core, tools, ui, agents/*
+cli -> app, core, tools, agents/*
+apps/omni -> app, cli, ui
 ```
 
 Core and app must not import a concrete agent. Agent packages must not import the
 CLI or another agent package. `packages/ui` owns interaction hosts, view models,
-presentation code, and browser assets; the CLI composes an exported UI host but
-must not own routes, browser build configuration, or frontend implementation.
+presentation code, browser assets, and terminal delivery. CLI and UI do not import
+each other; `apps/omni` is the only package that composes both. UI must not create
+Agents, load Blueprints, persist configuration, or branch on Agent identity.
 Domain tools stay with their owning agent; only
 domain-neutral tools may be promoted to `packages/tools`.
 
@@ -225,14 +228,15 @@ must not interpret them as policy or alter stable field, option, and action IDs.
 PermissionGate -> ApprovalBroker ------------┐
 Command -> TuiCommandInteractionAdapter ------+-> InteractionSurfacePort
 request_user_input -> clarification adapter --┘             |
-                                                        CLI TUI Surface
+                                                        UI TUI Surface
 ```
 
 `AgentFactory` lends one host-owned Surface to each Blueprint. The factory and Blueprint
 do not own or dispose it, and non-interactive hosts receive `RejectingInteractionSurface`,
 which fails with `interaction_unavailable` instead of guessing an answer or waiting
-forever. The CLI owns `TuiInteractionSurface`, its single foreground slot, focus and input
-handoff, abort listeners, and disposal. Nested requests fail with `interaction_busy`.
+forever. The UI package owns `TuiInteractionSurface`, its single foreground slot, focus and input
+handoff, abort listeners, and disposal. CLI consumes only the interaction ports supplied by the
+Host. Nested requests fail with `interaction_busy`.
 
 Permission, Command, and clarification retain independent adapters and validation:
 the Surface never grants permission, maps command values, or decides whether a question
@@ -315,7 +319,7 @@ Core Runtime Observation SPI
 Core Trace Processing
         |
         v
-App Store / Query adapters -> CLI Preview
+App Store / Query adapters -> UI Preview Server -> Browser
 ```
 
 Runtime code depends only on typed, scoped Observation handles. Run, Turn, Context, Model,
@@ -338,7 +342,7 @@ contract.
 App creates one `AgentScopedTraceRuntime` per `AgentFactory` instance. That runtime supplies local
 recording adapters, controls capture independently for each Agent, owns fail-open persistence,
 implements the narrow `AgentRunObservationPort` consumed by `AgentApplication`, and exposes only a
-control-and-inspection capability to the CLI Host. The CLI owns `/trace`; concrete Agents do not
+control-and-inspection capability to CLI orchestration. The CLI owns `/trace`; concrete Agents do not
 register or import Trace commands.
 
 ```text
@@ -357,7 +361,10 @@ CompositeRuntimeObserver
         +--> SpanRuntimeObserver ----> TracerPort ----> local span lifecycle store
         +--> ReplayRuntimeObserver --> ReplaySinkPort -> local replay and payload store
 
-App local query factory --> TraceQueryPort --> loopback-only CLI Preview server --> browser
+App local query factory --> TraceQueryPort --> loopback-only UI Preview server --> browser
+                                      ^
+                                      |
+                               apps/omni composition
 ```
 
 The observability data classes are intentionally separate:
@@ -396,7 +403,7 @@ read-only UI concern: it may add presentation-only grouping or historical correl
 but it does not infer execution state or feed decisions back into Core, App, or an Agent.
 
 `TraceQueryPort` is the stable local query boundary. App owns the concrete store, layout, query,
-and maintenance adapters and exposes only factories for CLI composition. A future OpenTelemetry
+and maintenance adapters and exposes only factories for Host composition. A future OpenTelemetry
 span exporter, remote replay sink, desktop viewer, or metrics adapter can attach below Trace
 Processing without adding a parallel Agent-loop, tool-execution path, or generic Runtime event
 bus.
@@ -664,7 +671,8 @@ path-security facts into their own permission presentations.
 Cross-domain path normalization, workspace-boundary checks, and sensitive-path
 definitions remain pure shared security primitives. The app
 owns the default policy, Agent-scoped permission service, and atomic persistence.
-The CLI supplies the approval broker and renders approval prompts. No layer
+The UI supplies the approval broker and renders approval prompts through the Host-provided
+interaction surface. No layer
 dispatches permission behavior through a central switch on tool name.
 
 The default modes are `standard` and `supervised`. Standard mode permits routine
@@ -783,13 +791,13 @@ User-visible streaming follows one direction:
 Tool / Context / Model Cache
   -> immutable Core event DTO
   -> StreamSession callbacks
-  -> CLI StreamPresentationRouter
+  -> UI StreamPresentationRouter
   -> feature presenters
   -> pure ViewModel
   -> generic TUI component
 ```
 
-Core owns event facts and never terminal wording. The CLI presenters own correlation,
+Core owns event facts and never terminal wording. The UI presenters own correlation,
 labels, sanitization, bounded formatting, and responsive metrics. `DisclosureMessage`
 only renders `DisclosureViewModel`; it does not import Agent packages, App services,
 Context decisions, tool names, or compression kinds. AgentLoop bridges Context progress
@@ -806,7 +814,7 @@ successfully completed assistant response containing text will end the Agent loo
 tool execution, AgentLoop emits
 `final_response(modelCallId)` before `done`. Presentation consumers use that identity to
 mark the matching text node as final; they must not infer final content from event order,
-`done`, or the last rendered component. The CLI run presentation model owns stable
+`done`, or the last rendered component. The UI run presentation model owns stable
 nodes and projects process, final, and metrics regions. TUI components render that
 projection and retain only local interaction state such as whether the process region is
 expanded.
@@ -823,7 +831,7 @@ batch from timing. Tool definitions may declare a bounded semantic invocation pr
 using an action, resource kind, and input key. This declaration is validated at tool
 registration and excluded from `ModelToolSpec`. Tools never provide terminal wording.
 
-The CLI `ToolBatchPresenter` applies Composite presentation: a single visible tool keeps
+The UI `ToolBatchPresenter` applies Composite presentation: a single visible tool keeps
 its existing disclosure, while two or more visible tools become one progressively updated
 group. The collapsed group previews the currently executing operation and its elapsed
 time. Expanding it renders the existing child disclosures, which remain independently
@@ -839,10 +847,10 @@ commit. Stable replay, threshold skips, insufficient candidates, cache deferral,
 no-candidate paths emit nothing. These events are observation-only and never enter Session,
 Model Context, or checkpoint storage.
 
-The CLI labels `inputTokens / usableInputBudget` as Context pressure because that is the
+The UI labels `inputTokens / usableInputBudget` as Context pressure because that is the
 ratio used by Micro and Heavy. Wide rendering also shows `inputTokens / contextWindow` as
 Window usage and keeps Cache hit beside it. Compression disclosures receive the triggering
-input total, usable budget, and threshold from the immutable progress DTO; CLI never
+input total, usable budget, and threshold from the immutable progress DTO; UI never
 recomputes compression policy or reads Context decisions.
 
 Commands depend on Core's `CommandInteractionPort`, not a TUI type or `AgentConfig`.

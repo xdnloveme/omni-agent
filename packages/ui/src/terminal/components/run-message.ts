@@ -4,8 +4,8 @@ import type {
   RunMetricsViewModel,
   RunPresentationNode,
   RunPresentationViewModel,
-} from "../../presentation/view-models";
-import { formatElapsedTime } from "../../presentation/format";
+} from "../presentation/view-models";
+import { formatElapsedTime } from "../presentation/format";
 import { DisclosureMessage, disclosureUrl } from "./disclosure-message";
 import { MarkdownMessage } from "./markdown-message";
 

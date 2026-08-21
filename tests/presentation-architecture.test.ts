@@ -2,9 +2,27 @@ import { readFile, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { describe, expect, it } from "vitest";
 
-const repositoryRoot = join(import.meta.dirname, "..", "..", "..", "..");
+const repositoryRoot = join(import.meta.dirname, "..");
 
 describe("stream presentation architecture", () => {
+  it("keeps CLI and UI mutually independent and composes them only in apps/omni", async () => {
+    const cliPackage = await readFile(join(repositoryRoot, "packages/cli/package.json"), "utf8");
+    const uiPackage = await readFile(join(repositoryRoot, "packages/ui/package.json"), "utf8");
+    const cliSources = await productionSources(join(repositoryRoot, "packages/cli/src"));
+    const uiSources = await productionSources(join(repositoryRoot, "packages/ui/src"));
+    const hostSources = await productionSources(join(repositoryRoot, "apps/omni/src"));
+
+    expect(cliPackage).not.toMatch(/@omni-agent\/ui|pi-tui|chalk|@inquirer\/prompts/);
+    expect(cliSources).not.toMatch(/@omni-agent\/ui|pi-tui|chalk|@inquirer\/prompts/);
+    expect(uiPackage).not.toMatch(/@omni-agent\/cli|agent-coding|agent-financial-analysis/);
+    expect(uiSources).not.toMatch(
+      /@omni-agent\/cli|agents\/|agent-coding|agent-financial-analysis/,
+    );
+    expect(uiSources).not.toMatch(/AgentFactory|loadAgentBlueprint|saveAgentModel|saveSharedModel/);
+    expect(hostSources).toMatch(/@omni-agent\/cli/);
+    expect(hostSources).toMatch(/@omni-agent\/ui/);
+  });
+
   it("keeps runtime packages and agents independent from CLI rendering", async () => {
     const roots = ["core", "app", "models", "tools"].map((name) =>
       join(repositoryRoot, "packages", name, "src"),
@@ -24,7 +42,7 @@ describe("stream presentation architecture", () => {
   });
 
   it("keeps generic TUI components free of feature and domain knowledge", async () => {
-    const tuiRoot = join(repositoryRoot, "packages", "cli", "src", "interaction", "tui");
+    const tuiRoot = join(repositoryRoot, "packages", "ui", "src", "terminal", "components");
     const sources = await Promise.all(
       (await sourceFiles(tuiRoot))
         .filter((file) => !file.endsWith(".test.ts"))
@@ -40,8 +58,9 @@ describe("stream presentation architecture", () => {
       join(
         repositoryRoot,
         "packages",
-        "cli",
+        "ui",
         "src",
+        "terminal",
         "presentation",
         "transcript-history-presenter.ts",
       ),
@@ -103,8 +122,15 @@ async function sourceFiles(root: string): Promise<string[]> {
       const path = join(root, entry.name);
       return entry.isDirectory()
         ? sourceFiles(path)
-        : Promise.resolve(path.endsWith(".ts") ? [path] : []);
+        : Promise.resolve(path.endsWith(".ts") || path.endsWith(".tsx") ? [path] : []);
     }),
   );
   return nested.flat();
+}
+
+async function productionSources(root: string): Promise<string> {
+  const files = (await sourceFiles(root)).filter(
+    (file) => !file.endsWith(".test.ts") && !file.includes("/__tests__/"),
+  );
+  return (await Promise.all(files.map((file) => readFile(file, "utf8")))).join("\n");
 }

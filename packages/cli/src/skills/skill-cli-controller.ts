@@ -1,31 +1,33 @@
 import { type CommandRegistry, type SkillRuntime } from "@omni-agent/core";
-import type { OmniTui, SlashCommand } from "../interaction/tui/tui";
+import type { AgentConsolePort, CommandDescriptor, TextPresentationPort } from "../host-services";
 import { createSkillsCommand } from "../commands/skills";
-import { renderSkillReadEnd, renderSkillReadStart } from "./skill-renderer";
 
 export interface SkillCliControllerOptions {
   skillRuntime: SkillRuntime;
   commandRegistry: CommandRegistry;
-  tui: OmniTui;
+  console: AgentConsolePort;
+  text: TextPresentationPort;
   refreshInstructions: () => Promise<void>;
 }
 
 export class SkillCliController {
   private readonly skillRuntime: SkillRuntime;
   private readonly commandRegistry: CommandRegistry;
-  private readonly tui: OmniTui;
+  private readonly console: AgentConsolePort;
+  private readonly text: TextPresentationPort;
   private readonly refreshInstructions: () => Promise<void>;
 
   constructor(options: SkillCliControllerOptions) {
     this.skillRuntime = options.skillRuntime;
     this.commandRegistry = options.commandRegistry;
-    this.tui = options.tui;
+    this.console = options.console;
+    this.text = options.text;
     this.refreshInstructions = options.refreshInstructions;
   }
 
   registerCommands(): void {
     this.commandRegistry.register(
-      createSkillsCommand(this.skillRuntime.registry, async () => {
+      createSkillsCommand(this.skillRuntime.registry, this.text, async () => {
         await this.refreshInstructions();
         this.refreshAutocomplete();
       }),
@@ -33,15 +35,15 @@ export class SkillCliController {
   }
 
   refreshAutocomplete(): void {
-    const builtins = this.commandRegistry.list().map((c): SlashCommand => ({
+    const builtins = this.commandRegistry.list().map((c): CommandDescriptor => ({
       name: c.name,
       description: c.description,
     }));
     const skillCommands = this.skillRuntime.registry
       .list()
       .filter((skill) => skill.userInvocable)
-      .map((skill): SlashCommand => ({ name: skill.name, description: skill.description }));
-    this.tui.setCommands([...builtins, ...skillCommands]);
+      .map((skill): CommandDescriptor => ({ name: skill.name, description: skill.description }));
+    this.console.setCommandCatalog([...builtins, ...skillCommands]);
   }
 
   async resolveSlashPreload(
@@ -50,18 +52,14 @@ export class SkillCliController {
     const preload = await this.skillRuntime.resolveSlashPreload(input);
     if (!preload) return null;
 
-    renderSkillReadStart(this.tui.sink, preload.skill.name);
-    renderSkillReadEnd(
-      this.tui.sink,
-      {
-        skillName: preload.skill.name,
-        status: preload.status,
-        source: preload.skill.source,
-        filePath: preload.skill.filePath,
-        tokenEstimate: preload.skill.tokenEstimate,
-      },
-      "explicit",
-    );
+    this.console.presentSkillRead({
+      skillName: preload.skill.name,
+      status: preload.status,
+      source: preload.skill.source,
+      filePath: preload.skill.filePath,
+      tokenEstimate: preload.skill.tokenEstimate,
+      mode: "explicit",
+    });
 
     return {
       displayInput: preload.displayInput,
