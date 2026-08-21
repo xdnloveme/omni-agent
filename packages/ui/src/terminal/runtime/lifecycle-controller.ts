@@ -16,31 +16,44 @@ export interface TuiLifecycleController {
 }
 
 export function createTuiLifecycleController(options: LifecycleOptions): TuiLifecycleController {
-  let closed = false;
+  type LifecycleState = "created" | "running" | "closed";
+
+  let state: LifecycleState = "created";
+  let closedWith: TuiTermination | null = null;
+  let completion: Promise<TuiTermination> | null = null;
   let resolveDone: ((termination: TuiTermination) => void) | null = null;
 
   return {
     start() {
+      if (state === "closed") return Promise.resolve(closedWith!);
+      if (completion) return completion;
+
+      state = "running";
       options.statusLine.setText(options.initialStatus);
-      return new Promise<TuiTermination>((resolve) => {
+      completion = new Promise<TuiTermination>((resolve) => {
         resolveDone = resolve;
         options.ui.start();
         // Starting commits all pre-start view updates as one deterministic initial frame.
         options.ui.renderNow(true);
       });
+      return completion;
     },
     pause() {
+      if (state !== "running") return;
       options.ui.stop();
     },
     resume() {
+      if (state !== "running") return;
       options.ui.start();
       options.ui.requestRender(true);
     },
     shutdown(termination: TuiTermination = { kind: "completed" }) {
-      if (closed) return;
-      closed = true;
+      if (state === "closed") return;
+      const wasRunning = state === "running";
+      state = "closed";
+      closedWith = termination;
       options.release();
-      options.ui.stop();
+      if (wasRunning) options.ui.stop();
       resolveDone?.(termination);
     },
   };

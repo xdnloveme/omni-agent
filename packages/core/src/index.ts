@@ -271,7 +271,7 @@ export type {
   CommandSelectionResult,
   CommandInteractionPort,
 } from "./commands/index";
-export { createSkillsContributor, defaultContributors } from "./system-prompt/index";
+export { agentsMdContributor, createSkillsContributor } from "./system-prompt/index";
 export type { SystemPromptContributor } from "./system-prompt/index";
 export {
   composeStableSystemPrompt,
@@ -369,3 +369,4 @@ export type {
 } from "./environment";
 export { assertJsonObject, isJsonValue } from "./data";
 export type { DeepReadonly, JsonValue } from "./data";
+export { digestStableValue, serializeStableValue } from "./valueDigest";

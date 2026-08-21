@@ -10,8 +10,7 @@
     "./shell": "./src/shell/index.ts",
     "./search": "./src/search/index.ts",
     "./web": "./src/web/index.ts",
-    "./user-input": "./src/user-input/index.ts",
-    "./toolsets": "./src/toolsets/index.ts"
+    "./user-input": "./src/user-input/index.ts"
   },
   "scripts": {
     "build": "tsc -p tsconfig.json"

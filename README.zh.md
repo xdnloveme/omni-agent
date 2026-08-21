@@ -102,13 +102,16 @@ omni
 ```bash
 omni                    # 启动编码 Agent
 omni run [agent-id]     # 启动某个 Agent（默认：coding）
+omni agent describe <agent-id>       # 列出 Agent 包可提供的组件
+omni agent validate <agent-id>       # 不创建运行时资源，只验证 Recipe
+omni agent plan <agent-id> [--json]  # 显示解析后的不可变 Composition
 omni doctor             # 只读运行时诊断
 omni --help, -h         # 用法说明
 omni --version, -v      # CLI 版本
 ```
 
 `omni doctor` 绝不修改任何状态。它会报告八项检查：Node.js 版本、解析出的工作区根目录与 ID、全局目录
-可访问性、配置有效性、coding agent blueprint 可用性，以及 `keytar`、`tree-sitter`、
+可访问性、配置有效性、Coding Agent Package 可用性，以及 `keytar`、`tree-sitter`、
 `tree-sitter-bash` 三个原生模块能否解析。
 
 ### 斜杠命令
@@ -123,10 +126,33 @@ omni --version, -v      # CLI 版本
 | `/clear`       | 清空当前会话历史                 |
 | `/help`        | 列出可用命令                     |
 | `/skills`      | 查看和管理可用技能 —— 见下方说明 |
+| `/trace`       | 控制当前 Agent 的本地 Trace 捕获 |
 
 `/skills` 是条件注册的：只有当启动的 Agent 暴露了 `skills` 能力时，CLI 才会构建技能控制器。不具备该
 能力的 Agent 根本看不到这个命令。此外，可由用户调用的技能会各自注册为独立的斜杠命令，并出现在 Tab
 补全中。
+
+### 本地 Agent Trace
+
+CLI Host 为每个已启动 Agent 提供 `/trace start`、`/trace stop` 和 `/trace status`。捕获默认关闭，
+并按 Agent 隔离在 `~/.omni-agent/traces/<agent-id>/`。可通过 `omni --trace` 或
+`omni run <agent-id> --trace` 为当前进程启用捕获；停止捕获只影响后续 Run，不会截断正在执行的 Run。
+Trace 记录经过清理的模型请求、流式响应、Thinking、Tool 输入输出、运行生命周期和有效 Assembly
+Evidence，但不改变 Session JSONL，也不是第二条执行路径。
+
+在另一个终端打开只读本地 Viewer：
+
+```bash
+omni trace preview coding
+```
+
+Viewer 只监听 `127.0.0.1`，不加载远程资源。Trace 可能包含敏感的本地上下文；不再需要时可清理：
+
+```bash
+omni trace clear coding
+```
+
+Agent 仍有活动捕获时，清理命令会拒绝删除数据。Web Viewer 始终保持只读。
 
 ### 内置工具
 
@@ -310,28 +336,83 @@ const myTool: AgentToolDefinition = {
 
 ### 打包一个 Agent
 
-Agent 包从其根部导出 `agentBlueprint`。CLI 按约定解析 `@omni-agent/agent-<id>`，因此新增 Agent 不需要
-改动 CLI 分支。
+建议先运行[五分钟构建教程](docs/build-an-agent-in-five-minutes.md)中的
+[`examples/minimal-agent`](examples/minimal-agent)。仓库提供的
+[`agent-manifest-v2.schema.json`](schemas/agent-manifest-v2.schema.json) 可在兼容编辑器中提供
+YAML 补全和即时结构诊断。
+
+Agent 包从根部导出 `./agent.yaml` 和 `agentBlueprint`。CLI 在导入可执行代码前先验证静态 Manifest，
+并按约定解析 `@omni-agent/agent-<id>`，因此新增 Agent 不需要改动 CLI 分支。
+
+```yaml
+apiVersion: omni-agent/v2
+kind: Agent
+metadata:
+  id: example
+  displayName: Example Agent
+runtime:
+  blueprintApiVersion: 2
+description: An example agent.
+composition:
+  prompt:
+    profile: example.default
+    contributors: []
+  tools:
+    sequence:
+      - tool: example.tool
+  capabilities: {}
+```
 
 ```ts
 import type { AgentBlueprint, AgentBlueprintContext } from "@omni-agent/app";
 import { defineAgent } from "@omni-agent/core";
 
+// 包内 Catalog：Descriptor 和 Factory 由同一个组件定义拥有。
+const toolComponents = [
+  {
+    descriptor: {
+      id: "example.tool",
+      displayName: "Example tool",
+      description: "Does one specific thing.",
+      toolName: myTool.name,
+    },
+    create: () => myTool,
+  },
+] as const;
+const toolComponentsById = new Map(
+  toolComponents.map((component) => [component.descriptor.id, component]),
+);
+
 export const agentBlueprint = {
-  id: "example",
+  descriptor: {
+    promptProfiles: [
+      {
+        id: "example.default",
+        displayName: "Default example prompt",
+        description: "Core instructions for the example agent.",
+      },
+    ],
+    promptContributors: [],
+    toolBundles: [],
+    tools: toolComponents.map(({ descriptor }) => descriptor),
+    capabilities: { skills: [], artifactRecovery: [] },
+  },
   build(context: AgentBlueprintContext) {
-    const tools = [myTool];
+    const tools = context.composition.tools.componentIds.map((id) => {
+      const component = toolComponentsById.get(id);
+      if (!component) throw new Error(`Unknown Tool component: ${id}`);
+      return component.create();
+    });
     return {
-      id: "example",
       extension: {
-        manifest: { id: "example", version: "1.0.0", apiVersion: 1 },
+        manifest: { id: context.manifest.metadata.id, version: "1.0.0", apiVersion: 1 },
         contributions: {
           tools,
           agents: [
             {
               definition: defineAgent({
-                id: "example",
-                description: "An example agent.",
+                id: context.manifest.metadata.id,
+                description: context.manifest.description,
                 instructions: `You are an example agent working in ${context.cwd}.`,
               }),
               tools: { include: tools.map((tool) => tool.name) },
@@ -345,9 +426,10 @@ export const agentBlueprint = {
 } satisfies AgentBlueprint;
 ```
 
-`AgentBlueprintContext` 即 `{ cwd: string; interaction: InteractionSurfacePort }`。`instructions`
-可以是字符串，也可以是 `(context) => string | Promise<string>` 函数；`maxTurns` 可选（省略时不限
-轮次）。通过 `AgentFactory` 注册的扩展必须恰好贡献一个 id 与 blueprint id 相同的 Agent。
+`AgentBlueprintContext` 包含 `{ manifest, composition, cwd, interaction }`。不可变 Composition
+由 App Planner 根据 Manifest Recipe 和 Blueprint Descriptor 解析；Agent Package 不声明轮次上限。
+通过 `AgentFactory` 注册的扩展必须恰好贡献一个 ID 与 Manifest ID 相同的 Agent。Package 必须
+导出 `./agent.yaml`，Package Version 只以 `package.json` 为准。
 
 把外部 Agent 安装到包管理器中立的解析根目录：
 
@@ -450,6 +532,8 @@ graph TD
     CLI --> CORE
     AGENTS --> APP
     AGENTS --> TOOLS
+    UI --> APP
+    UI --> CORE
     AGENTS --> CORE
     APP --> MODELS
     APP --> CORE
@@ -484,18 +568,18 @@ apps/omni -> app, cli, ui
 
 ### 运行时契约
 
-| 类型                          | 作用                                                      |
-| ----------------------------- | --------------------------------------------------------- |
-| `ModelRuntimePort`            | Core 唯一的模型契约，只接收已准备好的上下文消息与工具规格 |
-| `AgentRunner`                 | 单 Agent 执行循环，构造时恰好接收一个 `ModelRuntimePort`  |
-| `ToolCallCoordinator`         | Agent 循环唯一的工具入口：schema 校验、领域预检、路由     |
-| `ToolAuthorizationRouter`     | 直接放行 `trusted` 工具，其余全部委派给权限门             |
-| `PermissionGate`              | 非受信工具的权限决策点                                    |
-| `ToolInvocationRunner`        | 只执行已授权的调用；中间件在授权之后才运行                |
-| `ExecutionDeadlineSupervisor` | 负责联动取消、截止计时器和迟到结果的观测上报              |
-| `AgentFactory`                | 唯一的组装入口：校验 blueprint、解析模型、创建实例        |
-| `AgentBlueprint`              | 每个 Agent 包导出的 `agentBlueprint` 值                   |
-| `AgentExtension`              | 声明式贡献单元，经过校验并可原子回滚                      |
+| 类型                          | 作用                                                          |
+| ----------------------------- | ------------------------------------------------------------- |
+| `ModelRuntimePort`            | Core 唯一的模型契约，只接收已准备好的上下文消息与工具规格     |
+| `AgentRunner`                 | 单 Agent 执行循环，构造时恰好接收一个 `ModelRuntimePort`      |
+| `ToolCallCoordinator`         | Agent 循环唯一的工具入口：schema 校验、领域预检、路由         |
+| `ToolAuthorizationRouter`     | 直接放行 `trusted` 工具，其余全部委派给权限门                 |
+| `PermissionGate`              | 非受信工具的权限决策点                                        |
+| `ToolInvocationRunner`        | 只执行已授权的调用；中间件在授权之后才运行                    |
+| `ExecutionDeadlineSupervisor` | 负责联动取消、截止计时器和迟到结果的观测上报                  |
+| `AgentFactory`                | 唯一运行时组装入口：把 Agent Package 解析为不可变 Plan 和实例 |
+| `AgentBlueprint`              | 每个 Agent 包导出的 `agentBlueprint` 值                       |
+| `AgentExtension`              | 声明式贡献单元，经过校验并可原子回滚                          |
 
 工具调用路径：
 
@@ -520,7 +604,7 @@ omni-agent/
 │   ├── core/     Agent 循环、工具协调、权限、上下文引擎、端口
 │   ├── models/   模型运行时、Vendor 插件、模型目录、凭证、缓存
 │   ├── app/      生命周期、注册表、扩展宿主、会话、配置、工作区
-│   ├── tools/    文件系统、Shell、搜索、Web、用户输入工具与工具集
+│   ├── tools/    文件系统、Shell、搜索、Web 与用户输入工具
 │   ├── ui/       浏览器与终端展示、交互适配器与交付层
 │   └── cli/      参数解析、命令、Agent 运行与初始引导编排
 ├── apps/
@@ -536,15 +620,18 @@ omni-agent/
 
 ## 文档
 
-| 文档                                                                                               | 内容                                       |
-| -------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| [`docs/architecture.md`](docs/architecture.md)                                                     | 分层、依赖规则、契约、组装流程与子系统设计 |
-| [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | 工具授权、执行、取消与沙箱边界的权威契约   |
-| [`docs/context-engineering.md`](docs/context-engineering.md)                                       | 上下文管线、压缩与检查点                   |
-| [`docs/model-cache.md`](docs/model-cache.md)                                                       | 提示词缓存意图、作用域、指纹与租约状态     |
-| [`docs/skill-system-architecture.md`](docs/skill-system-architecture.md)                           | 技能的发现、索引与加载                     |
-| [`docs/pluggable-cli-integration-architecture.md`](docs/pluggable-cli-integration-architecture.md) | CLI 集成与可插拔性设计                     |
-| [`AGENTS.md`](AGENTS.md)                                                                           | 贡献者指南：归属规则与变更纪律             |
+| 文档                                                                                               | 内容                                                      |
+| -------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
+| [`docs/architecture.md`](docs/architecture.md)                                                     | 分层、依赖规则、契约、组装流程与子系统设计                |
+| [`docs/agent-package.md`](docs/agent-package.md)                                                   | Manifest v2、Blueprint、组合、Package 加载与所有权        |
+| [`docs/build-an-agent-in-five-minutes.md`](docs/build-an-agent-in-five-minutes.md)                 | 可执行的最小 Agent 教程与动态 YAML 组装                   |
+| [`docs/tracing.md`](docs/tracing.md)                                                               | Runtime Observation、Assembly Evidence、本地 Trace 与回放 |
+| [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | 工具授权、执行、取消与沙箱边界的权威契约                  |
+| [`docs/context-engineering.md`](docs/context-engineering.md)                                       | 上下文管线、压缩与检查点                                  |
+| [`docs/model-cache.md`](docs/model-cache.md)                                                       | 提示词缓存意图、作用域、指纹与租约状态                    |
+| [`docs/skill-system-architecture.md`](docs/skill-system-architecture.md)                           | 技能的发现、索引与加载                                    |
+| [`docs/pluggable-cli-integration-architecture.md`](docs/pluggable-cli-integration-architecture.md) | CLI 集成与可插拔性设计                                    |
+| [`AGENTS.md`](AGENTS.md)                                                                           | 贡献者指南：归属规则与变更纪律                            |
 
 ## 开发
 
@@ -556,6 +643,9 @@ pnpm dev                           # 编码 Agent（默认）
 pnpm run dev:coding                # 显式启动编码 Agent
 pnpm run dev:financial-analysis    # 只读金融分析 Agent
 pnpm run dev -- run <agent-id>     # 任意已安装的 Agent 包
+pnpm run dev -- agent describe coding
+pnpm run dev -- agent validate coding
+pnpm run dev -- agent plan coding --json
 ```
 
 校验与构建：

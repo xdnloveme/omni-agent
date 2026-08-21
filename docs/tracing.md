@@ -67,3 +67,20 @@ neither command imports Runtime Observation or store internals.
 The local disk schema, query DTOs, Preview HTTP/SSE contract, Session JSONL, and Context sidecars
 are compatibility boundaries. Future exporters should attach below Trace processing rather than
 adding a second runtime execution or observation path.
+
+## Assembly evidence
+
+After composition, extensions, prompt, and tools are resolved, App creates `AgentAssemblyEvidence`,
+the sole owner of the current effective assembly facts. Evidence includes the selected Prompt
+profile, ordered contributor IDs, Tool component IDs, and Capability IDs, but never the Manifest
+source or executable implementations. Model and instruction configuration transitions
+update that evidence. At Run start, App projects it into a frozen `AgentAssemblySnapshot`. Its digest
+is computed from `AgentAssemblyFacts` before the digest field is attached, so it cannot be
+self-referential. Arrays retain runtime order; paths, credentials, prompt text, environment values,
+tool inputs, and Session data are excluded.
+
+`AgentScopedTraceRuntime` receives a read-only Snapshot provider and reads it exactly once when a Run
+starts. The same Snapshot is written to that Run's running and completed Manifests, so later
+configuration changes cannot rewrite historical evidence. Trace never feeds the Snapshot back into
+configuration, runtime decisions, or model-cache identity and policy. Historical Manifests without
+the field remain readable and require no migration; Session JSONL and Context sidecars are unchanged.

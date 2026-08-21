@@ -71,6 +71,11 @@ export function TopBar({
           ? `${capitalize(run.status)} · ${formatDuration((run.completedAt ?? Date.now()) - run.startedAt)}`
           : "No run"}
       </span>
+      <span className="agent-chip" title={run?.assembly?.digest}>
+        {run?.assembly
+          ? `${run.assembly.packageName}@${run.assembly.packageVersion} · ${run.assembly.model.modelId} · ${run.assembly.digest.slice(0, 15)}`
+          : "Assembly unavailable"}
+      </span>
     </header>
   );
 }

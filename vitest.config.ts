@@ -5,11 +5,12 @@ export default defineConfig({
     environment: "node",
     include: [
       "tests/**/*.test.ts",
+      "apps/*/src/**/*.test.ts",
       "packages/*/src/**/*.test.ts",
       "packages/core/evals/**/*.test.ts",
       "agents/*/src/**/*.test.ts",
       "agents/*/evals/**/*.test.ts",
     ],
-    exclude: ["packages/*/dist/**", "agents/*/dist/**", "node_modules/**"],
+    exclude: ["apps/*/dist/**", "packages/*/dist/**", "agents/*/dist/**", "node_modules/**"],
   },
 });

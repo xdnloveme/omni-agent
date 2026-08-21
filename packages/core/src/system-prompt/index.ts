@@ -1,7 +1,6 @@
 export {
   agentsMdContributor,
   createSkillsContributor,
-  defaultContributors,
   type SystemPromptContributor,
 } from "./contributors";
 export { RuntimePromptComposer } from "./runtime-prompt-composer";

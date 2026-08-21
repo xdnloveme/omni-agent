@@ -4,6 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { builtinModules, createRequire } from "node:module";
 import { build, type Metafile, type Plugin } from "esbuild";
+import { parseAgentManifest } from "../packages/app/src/assembly/agent-manifest-validator";
 
 const scriptDirectory = dirname(fileURLToPath(import.meta.url));
 const repositoryRoot = resolve(scriptDirectory, "..");
@@ -31,6 +32,7 @@ export async function buildCliDistribution(): Promise<{
       "tree-sitter-bash",
     ),
   };
+  const builtinAgents = await loadBuiltinAgentMetadata();
 
   await rm(outputDirectory, { recursive: true, force: true });
   const binDirectory = join(outputDirectory, "bin");
@@ -47,6 +49,10 @@ export async function buildCliDistribution(): Promise<{
     target: "node22.19",
     format: "esm",
     bundle: true,
+    define: {
+      __OMNI_BUILTIN_AGENT_MANIFESTS__: JSON.stringify(builtinAgents.manifests),
+      __OMNI_BUILTIN_AGENT_PACKAGE_VERSIONS__: JSON.stringify(builtinAgents.versions),
+    },
     splitting: true,
     sourcemap: true,
     metafile: true,
@@ -97,6 +103,30 @@ export async function buildCliDistribution(): Promise<{
     }
   }
   return { outputDirectory, version: cliPackage.version };
+}
+
+export async function loadBuiltinAgentMetadata(): Promise<{
+  readonly manifests: Readonly<Record<string, string>>;
+  readonly versions: Readonly<Record<string, string>>;
+}> {
+  const manifests: Record<string, string> = {};
+  const versions: Record<string, string> = {};
+  for (const agentId of ["coding", "financial-analysis"]) {
+    const directory = join(repositoryRoot, "agents", agentId);
+    const manifestPath = join(directory, "agent.yaml");
+    const raw = await readFile(manifestPath, "utf8");
+    const manifest = parseAgentManifest(raw, manifestPath);
+    if (manifest.metadata.id !== agentId) {
+      throw new Error(`Built-in Agent manifest id mismatch: ${agentId}`);
+    }
+    const metadata = await readJson(join(directory, "package.json"));
+    if (metadata.name !== `@omni-agent/agent-${agentId}` || typeof metadata.version !== "string") {
+      throw new Error(`Built-in Agent package metadata is invalid: ${agentId}`);
+    }
+    manifests[agentId] = raw;
+    versions[agentId] = metadata.version;
+  }
+  return { manifests, versions };
 }
 
 async function buildBrowserAssets(outputDirectory: string): Promise<void> {

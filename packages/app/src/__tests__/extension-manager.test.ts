@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AgentExtension } from "../extensions/types";
-import { ExtensionManager } from "../extensions/extension-manager";
+import {
+  ExtensionActivationRollbackError,
+  ExtensionManager,
+} from "../extensions/extension-manager";
 import {
   ModelRuntime,
   VendorRegistry,
@@ -147,14 +150,35 @@ describe("ExtensionManager", () => {
       throw new Error("cleanup failed");
     };
 
-    await expect(manager.register(broken)).rejects.toThrow("activation failed");
-    expect(manager.diagnostics).toContainEqual(
-      expect.objectContaining({
-        extensionId: "cleanup-broken",
-        source: "activation-rollback",
-        message: "cleanup failed",
-      }),
-    );
+    const failure = await manager.register(broken).catch((error) => error);
+    expect(failure).toBeInstanceOf(ExtensionActivationRollbackError);
+    expect(failure).toMatchObject({
+      extensionId: "cleanup-broken",
+      activationError: { message: "activation failed" },
+      cleanupError: { message: "cleanup failed" },
+    });
+    expect(manager.list()).toEqual([]);
+  });
+
+  it("attempts every extension disposal and aggregates normal shutdown failures", async () => {
+    const manager = new ExtensionManager({ cwd: process.cwd() });
+    const disposed: string[] = [];
+    const first = extension("dispose-first");
+    first.dispose = async () => {
+      disposed.push("first");
+      throw new Error("first cleanup failed");
+    };
+    const second = extension("dispose-second");
+    second.dispose = async () => {
+      disposed.push("second");
+      throw new Error("second cleanup failed");
+    };
+    await manager.register(first);
+    await manager.register(second);
+
+    await expect(manager.dispose()).rejects.toBeInstanceOf(AggregateError);
+    expect(disposed).toEqual(["second", "first"]);
+    expect(manager.list()).toEqual([]);
   });
 
   it("rejects an agent that exposes an unknown tool before registration", async () => {

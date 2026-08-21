@@ -4,11 +4,12 @@ import {
   createModelService,
   resolveWorkspaceContext,
 } from "@omni-agent/app";
-import { loadAgentBlueprint } from "../agents/agent-blueprint-loader";
+import { loadAgentPackage } from "../agents/agent-package-loader";
 import { createCommandRegistry, HOST_COMMAND_NAMES } from "../commands/index";
 import type { CliHostServices, HostTermination } from "../host-services";
 import { persistOnboardingSelection, runOnboarding } from "../onboarding";
 import { SkillCliController } from "../skills";
+import { ActiveAgentRun } from "../runtime/active-agent-run";
 import { parseSlashCommandInput } from "./slash-command-input";
 
 const INITIAL_HISTORY_TURNS = 10;
@@ -18,16 +19,27 @@ export async function runAgentMode(
   host: CliHostServices,
   options: { readonly trace: boolean } = { trace: false },
 ): Promise<HostTermination> {
-  const workspace = await resolveWorkspaceContext(process.cwd());
-  const blueprint = await loadAgentBlueprint(agentId);
-  const configService = new ConfigService({ cwd: workspace.root });
+  const workspace = await resolveWorkspaceContext(host.runtime.cwd);
+  const agentPackage = await loadAgentPackage(agentId, {
+    resolutionBase: host.runtime.cliEntry,
+    agentPackagesDirectory: host.runtime.agentPackagesDirectory,
+  });
+  const configService = new ConfigService({
+    cwd: workspace.root,
+    globalDirectory: host.runtime.globalDirectory,
+  });
   const resolvedConfiguration = await configService.resolveModelConfiguration(agentId);
   const selection = resolvedConfiguration?.selection ?? null;
   for (const diagnostic of configService.diagnostics) {
-    console.warn(host.text.warning(`Configuration ${diagnostic.code}: ${diagnostic.message}`));
+    host.output.stderr(
+      `${host.text.warning(`Configuration ${diagnostic.code}: ${diagnostic.message}`)}\n`,
+    );
   }
 
-  const modelService = await createModelService({ cwd: workspace.root });
+  const modelService = await createModelService({
+    cwd: workspace.root,
+    globalDirectory: host.runtime.globalDirectory,
+  });
   try {
     let configured = false;
     if (selection) {
@@ -49,24 +61,25 @@ export async function runAgentMode(
     }
 
     const consoleView = host.createAgentConsole({ workspaceRoot: workspace.root });
+    const activeRun = new ActiveAgentRun();
     let instance: Awaited<ReturnType<AgentFactory["create"]>> | undefined;
     try {
       instance = await new AgentFactory({
         workspace,
+        globalDirectory: host.runtime.globalDirectory,
         configService,
         modelService,
-        interactionSurface: consoleView.interactionSurface,
-        approvalBroker: consoleView.approvalBroker,
-        reservedCommandNames: HOST_COMMAND_NAMES,
-      }).create(blueprint);
+        host: {
+          interactionSurface: consoleView.interactionSurface,
+          approvalBroker: consoleView.approvalBroker,
+          reservedCommandNames: HOST_COMMAND_NAMES,
+        },
+      }).create(agentPackage);
       const app = instance.application;
       const skillCapability = instance.capabilities.skills;
       if (options.trace) instance.trace?.control.start();
 
       const registry = createCommandRegistry(app, host, instance.trace);
-      let activeAbort: AbortController | null = null;
-      let running = false;
-
       registry.register({
         name: "new",
         description: "Start a new conversation session",
@@ -100,8 +113,6 @@ export async function runAgentMode(
       else consoleView.setCommandCatalog(registry.list());
 
       async function runUserInput(displayInput: string, modelInput: string): Promise<void> {
-        running = true;
-        activeAbort = new AbortController();
         consoleView.appendUserMessage(displayInput);
         consoleView.setStatus({ text: "thinking...", tone: "active" });
         consoleView.setActivity("Thinking…");
@@ -109,7 +120,7 @@ export async function runAgentMode(
           skills: Boolean(skillController),
         });
         try {
-          await app.run(modelInput, presentation.callbacks(), activeAbort.signal);
+          await activeRun.run((signal) => app.run(modelInput, presentation.callbacks(), signal));
         } catch (error) {
           if (!(error instanceof Error && error.name === "AbortError")) {
             consoleView.writeNotice(
@@ -120,22 +131,19 @@ export async function runAgentMode(
         } finally {
           presentation.cancelPending();
           consoleView.setActivity(null);
-          running = false;
-          activeAbort = null;
           consoleView.setStatus({ text: "omni-agent | Ctrl+C to exit", tone: "neutral" });
         }
       }
 
       consoleView.bindHandlers({
         onInterrupt() {
-          if (!running || !activeAbort) return false;
-          activeAbort.abort();
+          if (!activeRun.interrupt()) return false;
           consoleView.writeNotice("(aborted)", "warning");
           consoleView.setStatus({ text: "aborting...", tone: "neutral" });
           return true;
         },
         async onSubmit(input) {
-          if (running) return;
+          if (activeRun.state === "running") return;
           const slashInput = parseSlashCommandInput(input);
           if (!slashInput) {
             await runUserInput(input, input);
@@ -192,10 +200,25 @@ export async function runAgentMode(
       } else {
         consoleView.showWelcome({ id: instance.id });
       }
-      return await consoleView.start();
+      const termination = await consoleView.start();
+      await activeRun.close();
+      return termination;
     } finally {
-      consoleView.dispose();
-      await instance?.dispose();
+      const failures: unknown[] = [];
+      for (const cleanup of [
+        () => activeRun.close(),
+        () => instance?.dispose(),
+        () => consoleView.dispose(),
+      ]) {
+        try {
+          await cleanup();
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      if (failures.length > 0) {
+        throw new AggregateError(failures, "Failed to close Agent conversation resources");
+      }
     }
   } finally {
     await modelService.dispose();

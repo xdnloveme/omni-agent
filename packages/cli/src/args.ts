@@ -5,6 +5,12 @@ export type CliCommand =
   | { readonly kind: "trace-preview"; readonly agentId: string }
   | { readonly kind: "trace-clear"; readonly agentId: string; readonly confirmed: boolean }
   | { readonly kind: "doctor" }
+  | {
+      readonly kind: "agent-inspection";
+      readonly action: "describe" | "validate" | "plan";
+      readonly agentId: string;
+      readonly json: boolean;
+    }
   | { readonly kind: "help" }
   | { readonly kind: "version" };
 
@@ -25,6 +31,7 @@ export function parseCliArgs(args: readonly string[]): CliCommand {
     return noTrailingArgs(positional, { kind: "version" });
   }
   if (command === "doctor") return noTrailingArgs(positional, { kind: "doctor" });
+  if (command === "agent") return agentInspectionCommand(positional.slice(1));
   if (command === "trace") {
     const action = positional[1];
     const agentId = positional[2];
@@ -56,6 +63,20 @@ export function parseCliArgs(args: readonly string[]): CliCommand {
     throw new CliUsageError(`Unexpected argument: ${agentArguments[1]}`);
   }
   return runCommand(agentId, traceArguments.length === 1);
+}
+
+function agentInspectionCommand(args: readonly string[]): CliCommand {
+  const jsonArguments = args.filter((argument) => argument === "--json");
+  if (jsonArguments.length > 1) throw new CliUsageError("Duplicate option: --json");
+  const values = args.filter((argument) => argument !== "--json");
+  const action = values[0];
+  if (action !== "describe" && action !== "validate" && action !== "plan") {
+    throw new CliUsageError("Usage: omni agent describe|validate|plan <agent-id> [--json]");
+  }
+  const agentId = values[1];
+  if (!agentId || !isAgentId(agentId)) throw new CliUsageError(`Invalid agent id: ${agentId}`);
+  if (values[2] !== undefined) throw new CliUsageError(`Unexpected argument: ${values[2]}`);
+  return { kind: "agent-inspection", action, agentId, json: jsonArguments.length === 1 };
 }
 
 function runCommand(agentId: string, trace: boolean): CliCommand {

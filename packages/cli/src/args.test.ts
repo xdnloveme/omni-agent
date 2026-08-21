@@ -23,6 +23,23 @@ describe("parseCliArgs", () => {
       { kind: "trace-clear", agentId: "coding", confirmed: true },
     ],
     [["doctor"], { kind: "doctor" }],
+    [
+      ["agent", "describe", "coding"],
+      { kind: "agent-inspection", action: "describe", agentId: "coding", json: false },
+    ],
+    [
+      ["agent", "--json", "validate", "coding"],
+      { kind: "agent-inspection", action: "validate", agentId: "coding", json: true },
+    ],
+    [
+      ["agent", "plan", "financial-analysis", "--json"],
+      {
+        kind: "agent-inspection",
+        action: "plan",
+        agentId: "financial-analysis",
+        json: true,
+      },
+    ],
     [["--help"], { kind: "help" }],
     [["-h"], { kind: "help" }],
     [["--version"], { kind: "version" }],
@@ -38,6 +55,10 @@ describe("parseCliArgs", () => {
     ["--trace", "run"],
     ["trace", "preview", "../coding"],
     ["trace", "unknown", "coding"],
+    ["agent", "inspect", "coding"],
+    ["agent", "plan", "../coding"],
+    ["agent", "plan", "coding", "--json", "--json"],
+    ["agent", "plan", "coding", "extra"],
   ])("rejects invalid input %j as a usage error", (...input) => {
     expect(() => parseCliArgs(input)).toThrow(CliUsageError);
   });

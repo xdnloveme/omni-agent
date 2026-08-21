@@ -16,7 +16,7 @@ import {
   type TranscriptMessage,
   type ModelRuntimePort,
 } from "@omni-agent/core";
-import { AgentApplication } from "../application/agent-application";
+import { AgentApplication, AgentApplicationDisposalError } from "../application/agent-application";
 import type { ConfigService } from "../config/config-service";
 import type { ExtensionManager } from "../extensions/extension-manager";
 import type { ModelService } from "../models/model-service";
@@ -24,6 +24,7 @@ import type { ModelCacheLeaseController } from "../models/cache/model-cache-leas
 import { createPermissionRuntime } from "../permissions/create-permission-runtime";
 import { AgentScopedTraceRuntime } from "../tracing/agent-scoped-trace-runtime";
 import { TraceQueryService } from "../tracing/trace-query-service";
+import { AgentAssemblyEvidence } from "../assembly/agent-assembly-evidence";
 
 const directories: string[] = [];
 
@@ -84,12 +85,31 @@ async function fixture(withTrace = false) {
     forget: vi.fn(),
   } as unknown as ModelCacheLeaseController;
   let currentDate = "2026-08-17";
+  const assemblyEvidence = new AgentAssemblyEvidence({
+    agentId: "test",
+    packageName: "@omni-agent/agent-test",
+    packageVersion: "1.0.0",
+    manifestApiVersion: "omni-agent/v2",
+    blueprintApiVersion: 2,
+    workspaceId: "workspace",
+    model: selection,
+    extensions: [],
+    composition: {
+      promptProfileId: "test.default",
+      promptContributorIds: [],
+      toolComponentIds: [],
+      capabilityIds: [],
+    },
+    toolNames: [],
+    systemPromptDigest: "prompt",
+  });
   const traceRuntime = withTrace
     ? new AgentScopedTraceRuntime({
         globalDirectory: root,
         agentId: "test",
         workspaceId: "workspace",
         cwd: root,
+        assembly: () => assemblyEvidence.snapshot(),
       })
     : undefined;
   return {
@@ -134,8 +154,10 @@ async function fixture(withTrace = false) {
       }),
       cacheLeases,
       runObservation: traceRuntime,
+      assemblyEvidence,
     }),
     configService,
+    extensions,
     dispose,
     isConfigured,
     sessions,
@@ -143,6 +165,7 @@ async function fixture(withTrace = false) {
     cacheLeases,
     traceRuntime,
     runtime,
+    assemblyEvidence,
     setCurrentDate(value: string) {
       currentDate = value;
     },
@@ -151,7 +174,7 @@ async function fixture(withTrace = false) {
 
 describe("AgentApplication model selection", () => {
   it("persists an Agent override before activating it", async () => {
-    const { app, configService } = await fixture();
+    const { app, configService, assemblyEvidence } = await fixture();
     const next = { vendorId: "next", connectionId: "regional", modelId: "next-model" };
     vi.mocked(configService.resolveModel).mockResolvedValueOnce(next);
 
@@ -161,6 +184,7 @@ describe("AgentApplication model selection", () => {
       scope: "global",
     });
     expect(app.modelSelection).toEqual(next);
+    expect(assemblyEvidence.snapshot().model).toEqual(next);
   });
 
   it("keeps the current model when authentication fails", async () => {
@@ -206,12 +230,76 @@ describe("AgentApplication model selection", () => {
     await app.dispose();
     expect(dispose).toHaveBeenCalledOnce();
   });
+
+  it("refuses partial disposal while a run is active and closes after settlement", async () => {
+    const { app, runtime, dispose } = await fixture();
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => (entered = resolve));
+    const blocked = new Promise<void>((resolve) => (release = resolve));
+    runtime.stream = async function* () {
+      entered();
+      await blocked;
+      yield {
+        type: "done",
+        message: { role: "assistant", content: [{ type: "text", text: "done" }] },
+        stopReason: "end_turn",
+      } as never;
+    };
+
+    const running = app.run("hello", {});
+    await started;
+    await expect(app.dispose()).rejects.toMatchObject({ code: "agent_application_busy" });
+    expect(dispose).not.toHaveBeenCalled();
+    release();
+    await running;
+    await app.dispose();
+    await expect(app.run("later", {})).rejects.toMatchObject({
+      code: "agent_application_closed",
+    });
+  });
+});
+
+describe("AgentApplication assembly evidence", () => {
+  it("refreshes the effective prompt evidence with the Agent configuration", async () => {
+    const { app, extensions, assemblyEvidence } = await fixture();
+    vi.mocked(extensions.agents.get).mockReturnValue({
+      definition: { id: "test", description: "test", instructions: "refreshed prompt" },
+      tools: { include: [] },
+    });
+    const previousDigest = assemblyEvidence.snapshot().digest;
+
+    await app.refreshInstructions();
+
+    expect(app.agentConfig.systemPrompt).toBe("refreshed prompt");
+    expect(assemblyEvidence.snapshot().digest).not.toBe(previousDigest);
+  });
+});
+
+describe("AgentApplication disposal", () => {
+  it("identifies every resource that failed to dispose", async () => {
+    const { app, dispose } = await fixture();
+    dispose.mockRejectedValueOnce(new Error("extension cleanup failed"));
+
+    const failure = await app.dispose().catch((error) => error);
+
+    expect(failure).toBeInstanceOf(AgentApplicationDisposalError);
+    expect(failure).toMatchObject({
+      code: "agent_application_disposal_failed",
+      failures: [{ resource: "extensions" }],
+    });
+    await expect(app.dispose()).resolves.toBeUndefined();
+    expect(dispose).toHaveBeenCalledOnce();
+  });
 });
 
 describe("AgentApplication session persistence", () => {
   it("records one complete local run without changing Session persistence", async () => {
-    const { app, traceRuntime, sessions, runtime } = await fixture(true);
+    const { app, configService, traceRuntime, sessions, runtime } = await fixture(true);
     traceRuntime!.control.start();
+    const nextModel = { vendorId: "next", connectionId: "regional", modelId: "next-model" };
+    vi.mocked(configService.resolveModel).mockResolvedValueOnce(nextModel);
+    await app.setAgentModel(nextModel);
     runtime.stream = async function* () {
       yield { type: "text_delta", delta: "hello" };
       yield {
@@ -232,6 +320,11 @@ describe("AgentApplication session persistence", () => {
     const [session] = await query.sessions();
     const [run] = await query.runs(session!.sessionId);
     expect(run).toMatchObject({ status: "completed", sessionId: sessions.snapshot().sessionId });
+    expect(run?.assembly).toMatchObject({
+      packageName: "@omni-agent/agent-test",
+      toolNames: [],
+      model: nextModel,
+    });
     const spans = await query.spans(run!.sessionId, run!.runId);
     expect(spans.map((span) => span.name)).toEqual([
       "agent.run",

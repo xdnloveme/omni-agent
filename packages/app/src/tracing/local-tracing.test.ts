@@ -17,6 +17,7 @@ import { readJsonLinesChunk } from "./jsonl-reader";
 import { LocalTraceControl } from "./local-trace-control";
 import { TraceQueryService } from "./trace-query-service";
 import { isPathWithin } from "./trace-storage-layout";
+import { createAgentAssemblySnapshot } from "../assembly/assembly-digest";
 
 const directories: string[] = [];
 
@@ -43,6 +44,57 @@ async function fixture(agentId = "coding", writeQueueCapacity?: number) {
 }
 
 describe("local tracing", () => {
+  it("pins assembly evidence at Run start", async () => {
+    const root = await mkdtemp(join(tmpdir(), "omni-trace-evidence-"));
+    directories.push(root);
+    const facts = {
+      agentId: "coding",
+      packageName: "@omni-agent/agent-coding",
+      packageVersion: "1.0.0",
+      manifestApiVersion: "omni-agent/v2",
+      blueprintApiVersion: 2,
+      workspaceId: "workspace",
+      model: { vendorId: "first", connectionId: "default", modelId: "first" },
+      extensions: [],
+      composition: {
+        promptProfileId: "coding.default",
+        promptContributorIds: [],
+        toolComponentIds: [],
+        capabilityIds: [],
+      },
+      toolNames: [],
+      systemPromptDigest: "prompt",
+    } as const;
+    let assembly = createAgentAssemblySnapshot(facts);
+    const runtime = new AgentScopedTraceRuntime({
+      globalDirectory: root,
+      agentId: "coding",
+      workspaceId: "workspace",
+      cwd: root,
+      assembly: () => assembly,
+    });
+    runtime.control.start();
+    const scope = await runtime.beginRun("session", "first-run");
+    if (!scope) throw new Error("Trace scope was not created");
+    assembly = createAgentAssemblySnapshot({
+      ...facts,
+      model: { vendorId: "second", connectionId: "default", modelId: "second" },
+    });
+
+    await runtime.completeRun(scope, "completed");
+    const nextScope = await runtime.beginRun("session", "second-run");
+    if (!nextScope) throw new Error("Second Trace scope was not created");
+    await runtime.completeRun(nextScope, "completed");
+
+    const query = new TraceQueryService(runtime.store);
+    await expect(query.run("session", "first-run")).resolves.toMatchObject({
+      assembly: { model: facts.model },
+    });
+    await expect(query.run("session", "second-run")).resolves.toMatchObject({
+      assembly: { model: assembly.model },
+    });
+  });
+
   it("keeps capture off until the host explicitly enables it", async () => {
     const control = new LocalTraceControl();
 

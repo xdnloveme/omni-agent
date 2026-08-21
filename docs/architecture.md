@@ -33,6 +33,30 @@ Agents, load Blueprints, persist configuration, or branch on Agent identity.
 Domain tools stay with their owning agent; only
 domain-neutral tools may be promoted to `packages/tools`.
 
+## Process and interaction lifecycle
+
+`apps/omni` is the only process owner. It owns argv/cwd/home resolution, stdout and stderr,
+exit-code mapping, SIGINT/SIGTERM registration, and the bounded graceful-shutdown deadline.
+CLI returns use-case results and must not access `process` or `console` directly. UI owns prompt
+and TUI lifecycles but receives termination through injected Host services.
+
+A process termination is recorded once and propagated through both channels:
+
+```text
+SIGINT / SIGTERM
+  -> ProcessTerminationController
+       +-> AbortSignal -> onboarding/auth/confirmation prompts
+       +-> subscription -> active or subsequently-created Agent Console
+  -> ActiveAgentRun.close -> Application.dispose -> resource cleanup
+```
+
+The Console lifecycle is `created -> running -> closed`; termination before `start()` is retained
+and returned without starting the terminal. Normal completion cancels the Host deadline. A second
+signal, or expiry of the five-second graceful window, restores the first OS signal's default
+termination behavior. This last boundary is required for native operations such as keychain calls
+that cannot cooperate with JavaScript cancellation; App, CLI, and UI must not implement their own
+force-exit paths.
+
 ## Models and providers
 
 Core exposes only the stable `ModelRuntimePort`, `ModelContextMessage`, and `ModelEvent`
@@ -194,10 +218,78 @@ an extension removes both middleware kinds in reverse registration order. Runtim
 middleware accepts only its current declared members; Context mutation belongs solely to
 `contextMiddleware.transform`.
 
-Each installed Agent exports an `AgentBlueprint`. The application-scoped
-`AgentFactory` is the only assembly entry point: it validates the blueprint,
-builds and registers its extension, resolves the effective model, restores the
-Agent's Session, and creates an isolated `AgentApplication`.
+Each installed Agent exports a strict `agent.yaml` Manifest and an `AgentBlueprint`. The CLI
+validates Manifest identity, API compatibility, and the Blueprint descriptor shape before
+normalizing both sources into `LoadedAgentPackage`. Manifest v2 owns static identity and the
+declarative composition recipe. The Blueprint descriptor declares available components, while its
+builder owns executable implementations and Agent-scoped resources. Neither Blueprint nor Module
+may declare a second Agent ID.
+
+`AgentFactory` remains the only public assembly entry point. Internally, assembly is explicit:
+
+```text
+LoadedAgentPackage
+  -> AssemblyInputResolver
+  -> immutable ResolvedAgentAssemblyPlan (data only)
+  +  AgentAssemblyEnvironment (live dependencies only)
+  -> AgentRuntimeAssembler + AssemblyTransaction
+  -> AgentAssemblyEvidence -> per-Run frozen AgentAssemblySnapshot
+  -> AgentApplication
+```
+
+The Resolver resolves effective model and source configuration. `AgentCompositionPlanner` is the
+sole owner of composition semantics: it matches Recipe IDs to the Blueprint descriptor, expands
+the ordered mixture of Tool bundles and individual Tools, validates ordering, duplicates, and
+dependencies, and emits `ResolvedAgentComposition`. `AgentAssemblyPlanner` combines that value
+with the resolved Runtime inputs. The resulting Plan contains frozen values and no Blueprint,
+service, Host, loader, registry, or disposer. The Loader
+validates descriptor shape but never interprets Recipe semantics. Live dependencies travel
+separately in `AgentAssemblyEnvironment` and are consumed only by the Assembler. Runtime assembly
+mechanics remain behind `AgentFactory`; the data-only `AgentCompositionPlanner` is exported only so
+CLI inspection and package-author tooling can validate composition without creating resources.
+
+Agent packages keep each component's data-only Descriptor beside its package-private Factory. The
+public Blueprint Descriptor is derived from that Catalog; default selection remains exclusively in
+`agent.yaml`. Bundles are explicit ordered lists, never discovery rules. CLI inspection reuses the
+same Loader and `AgentCompositionPlanner` for `describe`, `validate`, and `plan` without calling
+`Blueprint.build()` or creating Runtime resources.
+
+This is Omni Agent's deliberately bounded adaptation of DeepSeek Harness composition: declarative
+configuration corresponds to the Recipe, stable Ports remain capability seams,
+`AssemblyTransaction` provides reversible ownership transfer, and Assembly Evidence exposes the
+effective facts. Omni Agent does not adopt an everything-is-a-plugin kernel, configuration patches,
+hot loading, or a general dependency injection container.
+
+The Assembler passes the validated Manifest and resolved composition, plus injected `cwd` and
+interaction, to the Blueprint. It never passes the original YAML source or asks the Blueprint to
+interpret the Recipe. It verifies that the contributed Agent ID, Tool names and order, Skills
+capability, and Artifact Recovery capability match the Plan.
+Concrete Agents do not set `maxTurns`; long Runs end through cancellation, process signals, and the
+existing Model/Tool timeout boundaries. The Assembler registers every acquired disposer immediately.
+Failure rolls all acquired resources back in reverse order; normal ownership transfers to `AgentApplication`. Structured assembly errors
+identify the Agent and failing stage while retaining the original cause. Rollback and application
+disposal errors additionally identify each resource whose cleanup failed. Sources may discover and
+load extensions, but only `ExtensionManager` may register runtime contributions.
+
+`ExtensionSourceLoader` is an independent Assembly Source Port, not a Host Runtime capability.
+Source adapters translate ordered source references into candidates and diagnostics; they cannot
+access registries. Required source failures stop assembly, while optional failures remain diagnostic.
+
+Extension source identity and runtime identity are intentionally different facts. A source origin
+identifies where code was loaded for diagnostics and assembly evidence. Tool identity is derived
+from the stable extension manifest ID and tool name, so moving identical extension code between
+global and workspace sources cannot change permission scope. The source origin never reaches a
+runtime registry.
+
+`AgentAssemblyEvidence` is the single owner of the current effective model, composition IDs,
+Prompt digest, extensions, and exposed tools. Model changes and instruction refreshes update that evidence through
+the same configuration transition that updates `AgentConfig`. Each Run captures one frozen snapshot
+at start and uses it for both its running and completed Trace manifests; later configuration changes
+cannot rewrite an earlier Run's evidence.
+
+Assembly Snapshot and digest are audit-only facts. They never enter model-cache scope, fingerprint,
+policy, or Provider cache keys; the cache remains derived from Agent/Session/Model identity and the
+actual model request semantics.
 
 The App-owned Workspace module canonicalizes the CLI launch directory, selects
 the nearest Git root when present, and derives a stable path-based workspace ID.
@@ -288,12 +380,12 @@ storage-version marker owned by the CLI; that marker is not part of the project
 configuration contract.
 The default CLI preserves the existing command, tool, event, and TUI behavior.
 
-Agent packages expose an `agentBlueprint` from their package root. The CLI keeps
+Agent packages expose `./agent.yaml` and an `agentBlueprint` from their package root. The CLI keeps
 static loaders only for built-in Agents so the distribution bundler can discover
 them; other IDs resolve `@omni-agent/agent-<id>` through standard Node module
 resolution, first from the CLI installation and then from the package-manager-neutral
 `~/.omni-agent/agents/node_modules` root. The CLI requests only the exact package name;
-it does not scan packages or maintain an Agent registry. Every blueprint passes to the single `AgentFactory`. `pnpm dev`
+it does not scan packages or maintain an Agent registry. Every validated package passes to the single `AgentFactory`. `pnpm dev`
 selects `coding` by default, while `pnpm run dev -- run <id>` selects another
 installed Agent package through the same run runtime.
 
@@ -633,9 +725,10 @@ Loop protection is created per `runAgentLoop` call and covers every tool routed 
 the coordinator, including extension tools and structured validation or authorization
 errors. It uses stable result signatures and trailing batch-cycle rules without knowing
 concrete tool names. A hard halt waits for the full tool batch, emits a structured error,
-and returns all produced messages for persistence. Coding has no fixed model-turn limit;
-`maxTurns` is unlimited when omitted and remains available to Agents such as financial
-analysis that deliberately configure a finite bound.
+and returns all produced messages for persistence. Concrete built-in Agents have no fixed
+model-turn limit; long Runs end through explicit cancellation, process signals, and existing
+Model/Tool timeout boundaries. Core retains its generic loop contract without exposing a turn
+limit through the Agent Manifest recipe.
 
 Keytar is the credential source of truth. Its non-secret credential index is
 derived state; writes use provider-scoped serialization and compensation, while a

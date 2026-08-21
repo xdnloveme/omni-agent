@@ -46,7 +46,7 @@ export function createConfigCommand(
         }
         updated = true;
       } catch (error) {
-        console.error(
+        ctx.interaction.line(
           text.error(
             `Configuration failed: ${error instanceof Error ? error.message : String(error)}`,
           ),

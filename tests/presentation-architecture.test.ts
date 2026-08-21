@@ -18,7 +18,7 @@ describe("stream presentation architecture", () => {
     expect(uiSources).not.toMatch(
       /@omni-agent\/cli|agents\/|agent-coding|agent-financial-analysis/,
     );
-    expect(uiSources).not.toMatch(/AgentFactory|loadAgentBlueprint|saveAgentModel|saveSharedModel/);
+    expect(uiSources).not.toMatch(/AgentFactory|loadAgentPackage|saveAgentModel|saveSharedModel/);
     expect(hostSources).toMatch(/@omni-agent\/cli/);
     expect(hostSources).toMatch(/@omni-agent\/ui/);
   });

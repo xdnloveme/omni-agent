@@ -1,10 +1,9 @@
 import { constants } from "node:fs";
 import { access, stat } from "node:fs/promises";
-import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname } from "node:path";
 import { createRequire } from "node:module";
 import { ConfigService, resolveWorkspaceContext } from "@omni-agent/app";
-import { loadAgentBlueprint } from "../agents/agent-blueprint-loader";
+import { loadAgentPackage } from "../agents/agent-package-loader";
 
 interface DoctorCheck {
   readonly name: string;
@@ -15,17 +14,25 @@ export interface DoctorOptions {
   readonly cwd?: string;
   readonly globalDirectory?: string;
   readonly nodeVersion?: string;
+  readonly resolutionBase?: string;
+  readonly agentPackagesDirectory?: string;
   readonly write?: (text: string) => void;
   readonly checks?: readonly DoctorCheck[];
 }
 
 export async function runDoctor(options: DoctorOptions = {}): Promise<boolean> {
-  const cwd = options.cwd ?? process.cwd();
-  const globalDirectory = options.globalDirectory ?? join(homedir(), ".omni-agent");
+  const cwd = options.cwd ?? ".";
+  const globalDirectory = options.globalDirectory ?? ".omni-agent";
   const checks =
     options.checks ??
-    createDoctorChecks(cwd, globalDirectory, options.nodeVersion ?? process.versions.node);
-  const write = options.write ?? ((text: string) => process.stdout.write(text));
+    createDoctorChecks(
+      cwd,
+      globalDirectory,
+      options.nodeVersion ?? "unknown",
+      options.resolutionBase,
+      options.agentPackagesDirectory,
+    );
+  const write = options.write ?? (() => undefined);
   const results = await Promise.all(
     checks.map(async (check) => {
       try {
@@ -51,6 +58,8 @@ function createDoctorChecks(
   cwd: string,
   globalDirectory: string,
   nodeVersion: string,
+  resolutionBase?: string,
+  agentPackagesDirectory?: string,
 ): readonly DoctorCheck[] {
   let workspacePromise: ReturnType<typeof resolveWorkspaceContext> | undefined;
   const workspace = () => (workspacePromise ??= resolveWorkspaceContext(cwd));
@@ -93,7 +102,7 @@ function createDoctorChecks(
     {
       name: "Coding agent",
       async run() {
-        await loadAgentBlueprint("coding");
+        await loadAgentPackage("coding", { resolutionBase, agentPackagesDirectory });
         return "available";
       },
     },

@@ -1,21 +1,20 @@
-import type { AgentExtension } from "@omni-agent/app";
-import type { InteractionSurfacePort } from "@omni-agent/core";
-import { createRequestUserInputTool } from "@omni-agent/tools/user-input";
-import { financialAnalysisAgent } from "./agents/financial-analysis-agent";
-import { computeTechnicalIndicatorsTool } from "./tools/compute-indicators";
+import type { AgentExtension, AgentManifest } from "@omni-agent/app";
+import type { AgentToolDefinition } from "@omni-agent/core";
+import { createFinancialAnalysisAgent } from "./agents/financial-analysis-agent";
 
 export function createFinancialAnalysisExtension(
-  interaction: InteractionSurfacePort,
+  manifest: AgentManifest,
+  tools: readonly AgentToolDefinition[],
+  prompt: string,
 ): AgentExtension {
-  const requestUserInput = createRequestUserInputTool(interaction);
   return {
-    manifest: { id: "financial-analysis", version: "0.0.1", apiVersion: 1 },
+    manifest: { id: manifest.metadata.id, version: "0.0.1", apiVersion: 1 },
     contributions: {
-      tools: [computeTechnicalIndicatorsTool, requestUserInput],
+      tools: [...tools],
       agents: [
         {
-          definition: financialAnalysisAgent,
-          tools: { include: [computeTechnicalIndicatorsTool.name, requestUserInput.name] },
+          definition: createFinancialAnalysisAgent(manifest, prompt),
+          tools: { include: tools.map(({ name }) => name) },
         },
       ],
     },

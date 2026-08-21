@@ -1,9 +1,13 @@
-export { AgentApplication } from "./application/agent-application";
+export {
+  AgentApplication,
+  AgentApplicationDisposalError,
+  AgentApplicationLifecycleError,
+} from "./application/agent-application";
 export { NodeRuntimeEnvironmentProvider } from "./environment/index";
 export type { NodeRuntimeEnvironmentProviderOptions } from "./environment/index";
 export type {
-  AgentApplicationDependencies,
-  ContextSessionStorage,
+  AgentApplicationState,
+  AgentResourceDisposalFailure,
 } from "./application/agent-application";
 export type {
   AgentRunObservationPort,
@@ -17,25 +21,56 @@ export {
   ContextCheckpointRepository,
   RuntimeContextSummaryGenerator,
 } from "./context/index";
-export { AgentFactory, AgentModelNotConfiguredError } from "./application/agent-factory";
+export { AgentFactory } from "./application/agent-factory";
+export {
+  AgentAssemblyError,
+  AgentModelNotConfiguredError,
+  AssemblyRollbackError,
+} from "./assembly/errors";
 export type {
+  AgentAssemblyFailure,
+  AgentAssemblyStage,
+  ResourceCleanupFailure,
+} from "./assembly/errors";
+export type { AgentFactoryOptions, AgentInstance } from "./application/agent-factory";
+export {
+  parseAgentManifest,
+  AgentManifestError,
+  MAX_AGENT_MANIFEST_BYTES,
+} from "./assembly/agent-manifest-validator";
+export { validateAgentBlueprintDescriptor } from "./assembly/agent-blueprint-descriptor-validator";
+export {
+  AgentCompositionPlanner,
+  AgentCompositionPlanningError,
+} from "./assembly/agent-composition-planner";
+export type { AgentCompositionErrorCode } from "./assembly/agent-composition-planner";
+export type {
+  AgentBlueprintDescriptor,
+  AgentCompositionRecipe,
+  AgentAssemblySnapshot,
   AgentBlueprint,
   AgentBlueprintContext,
   AgentCapabilities,
-  AgentFactoryOptions,
-  AgentInstance,
+  AgentHostDependencies,
+  AgentManifest,
   AgentModule,
+  ComponentDescriptor,
+  DependentComponentDescriptor,
+  ExtensionSourceLoader,
+  ExtensionSourceLoadResult,
+  ExtensionSourceReference,
+  ExtensionCandidate,
+  LoadedAgentPackage,
+  ResolvedAgentComposition,
   SkillCapability,
-} from "./application/agent-factory";
+  ToolBundleDescriptor,
+  ToolComponentDescriptor,
+  ToolRecipeEntry,
+} from "./assembly/contracts";
 export { AgentRegistry } from "./registry/agent-registry";
 export { ToolRegistry } from "./registry/tool-registry";
 export { CommandRegistry } from "./registry/command-registry";
-export { ExtensionManager } from "./extensions/extension-manager";
-export { loadAgentExtensions } from "./extensions/agent-extension-loader";
-export type {
-  AgentExtensionLoaderOptions,
-  AgentExtensionLoadResult,
-} from "./extensions/agent-extension-loader";
+export { ExtensionActivationRollbackError, ExtensionManager } from "./extensions/extension-manager";
 export type {
   AgentContribution,
   AgentExtension,

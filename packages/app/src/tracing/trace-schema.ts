@@ -4,6 +4,7 @@ import type {
   TraceRunIdentity,
   TraceStatus,
 } from "@omni-agent/core";
+import type { AgentAssemblySnapshot } from "../assembly/contracts";
 
 export const LOCAL_TRACE_SCHEMA_VERSION = 1;
 
@@ -14,6 +15,7 @@ export interface TraceRunManifest extends TraceRunIdentity {
   readonly startedAt: number;
   readonly completedAt?: number;
   readonly status: "running" | "completed" | "error" | "cancelled";
+  readonly assembly?: AgentAssemblySnapshot;
   readonly summary?: {
     readonly usage?: unknown;
     readonly failure?: unknown;

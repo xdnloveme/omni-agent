@@ -37,8 +37,6 @@ export const agentsMdContributor: SystemPromptContributor = async (cwd) => {
   return section;
 };
 
-export const defaultContributors: SystemPromptContributor[] = [agentsMdContributor];
-
 export function createSkillsContributor(registry: SkillRegistry): SystemPromptContributor {
   return async () => {
     const prompt = registry.renderPromptIndex();

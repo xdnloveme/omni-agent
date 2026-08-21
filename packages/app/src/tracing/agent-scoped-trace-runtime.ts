@@ -22,12 +22,14 @@ import type {
   AgentRunObservationRequest,
 } from "../application/agent-run-observation";
 import { AgentRunTrace } from "./agent-run-trace";
+import type { AgentAssemblySnapshot } from "../assembly/contracts";
 
 export interface AgentScopedTraceRuntimeOptions {
   readonly globalDirectory: string;
   readonly agentId: string;
   readonly workspaceId: string;
   readonly cwd: string;
+  readonly assembly?: () => AgentAssemblySnapshot;
   readonly writeQueueCapacity?: number;
   readonly onDiagnostic?: (diagnostic: TraceStoreDiagnostic) => void;
 }
@@ -35,6 +37,7 @@ export interface AgentScopedTraceRuntimeOptions {
 export interface TraceRunScope {
   readonly identity: TraceRunIdentity;
   readonly startedAt: number;
+  readonly assembly?: AgentAssemblySnapshot;
 }
 
 export interface AgentTraceInspection {
@@ -98,10 +101,11 @@ export class AgentScopedTraceRuntime implements AgentRunObservationPort {
       traceId: randomUUID(),
     };
     const startedAt = Date.now();
-    if (!(await this.store.beginRun(this.manifest(identity, startedAt, "running")))) {
+    const assembly = this.options.assembly?.();
+    if (!(await this.store.beginRun(this.manifest(identity, startedAt, "running", assembly)))) {
       return undefined;
     }
-    return { identity, startedAt };
+    return { identity, startedAt, assembly };
   }
 
   async observe(
@@ -160,7 +164,7 @@ export class AgentScopedTraceRuntime implements AgentRunObservationPort {
     };
     const sanitizedSummary = sanitizeTracePayload(completeSummary) as TraceRunManifest["summary"];
     await this.store.completeRun({
-      ...this.manifest(scope.identity, scope.startedAt, status),
+      ...this.manifest(scope.identity, scope.startedAt, status, scope.assembly),
       completedAt: Date.now(),
       ...(Object.keys(completeSummary).length > 0 ? { summary: sanitizedSummary } : {}),
     });
@@ -181,12 +185,14 @@ export class AgentScopedTraceRuntime implements AgentRunObservationPort {
     identity: TraceRunIdentity,
     startedAt: number,
     status: TraceRunManifest["status"],
+    assembly: AgentAssemblySnapshot | undefined,
   ): TraceRunManifest {
     return {
       version: 1,
       ...identity,
       workspaceId: this.options.workspaceId,
       cwd: this.options.cwd,
+      ...(assembly ? { assembly } : {}),
       startedAt,
       status,
     };

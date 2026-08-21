@@ -18,6 +18,21 @@ export interface ExtensionManagerOptions {
   modelProviders?: VendorPluginManager;
 }
 
+export class ExtensionActivationRollbackError extends AggregateError {
+  constructor(
+    readonly extensionId: string,
+    readonly activationError: unknown,
+    readonly cleanupError: unknown,
+  ) {
+    super(
+      [activationError, cleanupError],
+      `Extension ${extensionId} activation and rollback failed`,
+      { cause: activationError },
+    );
+    this.name = "ExtensionActivationRollbackError";
+  }
+}
+
 export class ExtensionManager {
   readonly agents: AgentRegistry;
   readonly tools: ToolRegistry;
@@ -52,8 +67,8 @@ export class ExtensionManager {
     this.reservedCommandNames = new Set(options.reservedCommandNames);
   }
 
-  async register(extension: AgentExtension, originId = extension.manifest.id): Promise<void> {
-    this.validate(extension, originId);
+  async register(extension: AgentExtension, toolOriginId = extension.manifest.id): Promise<void> {
+    this.validate(extension, toolOriginId);
     const registeredAgents: string[] = [];
     const registeredTools: string[] = [];
     const registeredCommands: string[] = [];
@@ -68,7 +83,7 @@ export class ExtensionManager {
         registeredProviders.push(provider.manifest.id);
       }
       for (const tool of extension.contributions.tools ?? []) {
-        this.tools.register(tool, originId);
+        this.tools.register(tool, toolOriginId);
         registeredTools.push(tool.name);
       }
       for (const agent of extension.contributions.agents ?? []) {
@@ -110,20 +125,30 @@ export class ExtensionManager {
       for (const id of [...registeredAgents].reverse()) this.agents.unregister(id);
       for (const name of [...registeredTools].reverse()) this.tools.unregister(name);
       for (const id of registeredProviders.reverse()) await this.modelProviders?.unregister(id);
-      await this.disposeExtension(extension, "activation-rollback");
+      try {
+        await extension.dispose?.();
+      } catch (cleanupError) {
+        throw new ExtensionActivationRollbackError(extension.manifest.id, error, cleanupError);
+      }
       throw error;
     }
   }
 
-  async registerOptional(extension: AgentExtension, source: string): Promise<void> {
+  async registerOptional(
+    extension: AgentExtension,
+    source: string,
+    toolOriginId = extension.manifest.id,
+  ): Promise<boolean> {
     try {
-      await this.register(extension);
+      await this.register(extension, toolOriginId);
+      return true;
     } catch (error) {
       this.diagnostics.push({
         extensionId: extension.manifest.id,
         source,
         message: error instanceof Error ? error.message : String(error),
       });
+      return false;
     }
   }
 
@@ -142,14 +167,24 @@ export class ExtensionManager {
     for (const name of [...entry.tools].reverse()) this.tools.unregister(name);
     for (const id of [...entry.providers].reverse()) await this.modelProviders?.unregister(id);
     this.active.delete(extensionId);
-    await this.disposeExtension(entry.extension, "unregister");
+    await entry.extension.dispose?.();
   }
 
   async dispose(): Promise<void> {
-    for (const extensionId of [...this.active.keys()].reverse()) await this.unregister(extensionId);
+    const failures: unknown[] = [];
+    for (const extensionId of [...this.active.keys()].reverse()) {
+      try {
+        await this.unregister(extensionId);
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+    if (failures.length > 0) {
+      throw new AggregateError(failures, "Failed to dispose Agent extensions");
+    }
   }
 
-  private validate(extension: AgentExtension, originId: string): void {
+  private validate(extension: AgentExtension, toolOriginId: string): void {
     const { id, version, apiVersion } = extension.manifest;
     if (!isToolOriginId(id)) {
       throw new Error(`Invalid extension id: ${id}`);
@@ -160,7 +195,7 @@ export class ExtensionManager {
 
     const toolNames = new Set<string>();
     for (const tool of extension.contributions.tools ?? []) {
-      this.tools.validate(tool, originId);
+      this.tools.validate(tool, toolOriginId);
       if (toolNames.has(tool.name) || this.tools.has(tool.name)) {
         throw new Error(`Tool already registered: ${tool.name}`);
       }
@@ -267,18 +302,6 @@ export class ExtensionManager {
     for (const stage of entries) {
       const index = this.contextPolicyStages.lastIndexOf(stage);
       if (index >= 0) this.contextPolicyStages.splice(index, 1);
-    }
-  }
-
-  private async disposeExtension(extension: AgentExtension, source: string): Promise<void> {
-    try {
-      await extension.dispose?.();
-    } catch (error) {
-      this.diagnostics.push({
-        extensionId: extension.manifest.id,
-        source,
-        message: error instanceof Error ? error.message : String(error),
-      });
     }
   }
 }

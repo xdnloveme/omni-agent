@@ -1,0 +1,21 @@
+# yaml-language-server: $schema=../../schemas/agent-manifest-v2.schema.json
+# Declarative, non-executable Agent package contract.
+# Trading and order execution are intentionally outside this package.
+apiVersion: omni-agent/v2
+kind: Agent
+metadata:
+  id: financial-analysis
+  displayName: Financial Analysis Agent
+runtime:
+  blueprintApiVersion: 2
+description: >-
+  Read-only financial analysis agent focused on deterministic technical indicators.
+composition:
+  prompt:
+    profile: financial-analysis.default
+    contributors: []
+  tools:
+    sequence:
+      - bundle: financial-analysis.readonly
+      - tool: interaction.request-user-input
+  capabilities: {}

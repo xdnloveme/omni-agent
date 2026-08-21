@@ -2,6 +2,7 @@ packages:
   - "apps/*"
   - "packages/*"
   - "agents/*"
+  - "examples/*"
 
 allowBuilds:
   "@google/genai": true

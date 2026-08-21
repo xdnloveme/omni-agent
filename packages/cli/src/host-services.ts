@@ -101,11 +101,30 @@ export interface OnboardingInteractionPort {
 }
 
 export interface CliHostServices {
+  readonly runtime: CliRuntimeContext;
+  readonly output: CliOutputPort;
   readonly text: TextPresentationPort;
   createAgentConsole(options: { workspaceRoot: string }): AgentConsolePort;
   createOnboardingInteraction(): OnboardingInteractionPort;
   runTracePreview(agentId: string): Promise<void>;
   confirm(message: string): Promise<boolean>;
+}
+
+export interface CliRuntimeContext {
+  readonly cwd: string;
+  readonly cliEntry: string;
+  readonly globalDirectory: string;
+  readonly agentPackagesDirectory: string;
+  readonly nodeVersion: string;
+}
+
+export interface CliOutputPort {
+  stdout(text: string): void;
+  stderr(text: string): void;
+}
+
+export interface CliExecutionResult {
+  readonly exitCode: number;
 }
 
 export interface TextPresentationPort {

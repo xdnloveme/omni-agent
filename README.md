@@ -105,13 +105,16 @@ Contributing to Omni Agent itself, or want to run it without installing? See
 ```bash
 omni                    # start the coding agent
 omni run [agent-id]     # start an agent (default: coding)
+omni agent describe <agent-id>       # list the package's available components
+omni agent validate <agent-id>       # validate the recipe without building runtime resources
+omni agent plan <agent-id> [--json]  # show the immutable resolved composition
 omni doctor             # read-only runtime diagnostics
 omni --help, -h         # usage
 omni --version, -v      # CLI version
 ```
 
 `omni doctor` never mutates state. It reports eight checks: Node.js version, resolved workspace
-root and ID, global directory accessibility, configuration validity, coding-agent blueprint
+root and ID, global directory accessibility, configuration validity, coding Agent package
 availability, and the resolvability of the `keytar`, `tree-sitter`, and `tree-sitter-bash` native
 modules.
 
@@ -358,28 +361,84 @@ inside a tool, and honor `context.signal` wherever work can block.
 
 ### Package an agent
 
-An agent package exports an `agentBlueprint` from its root. The CLI resolves
+Start with the executable [five-minute tutorial](docs/build-an-agent-in-five-minutes.md) and
+[`examples/minimal-agent`](examples/minimal-agent). The checked-in
+[`agent-manifest-v2.schema.json`](schemas/agent-manifest-v2.schema.json) provides YAML completion
+and immediate structural feedback in compatible editors.
+
+An agent package exports `./agent.yaml` plus an `agentBlueprint` from its root. The CLI validates
+the non-executable Manifest before importing package code and resolves
 `@omni-agent/agent-<id>` by convention, so no CLI branch is needed to add one.
+
+```yaml
+apiVersion: omni-agent/v2
+kind: Agent
+metadata:
+  id: example
+  displayName: Example Agent
+runtime:
+  blueprintApiVersion: 2
+description: An example agent.
+composition:
+  prompt:
+    profile: example.default
+    contributors: []
+  tools:
+    sequence:
+      - tool: example.tool
+  capabilities: {}
+```
 
 ```ts
 import type { AgentBlueprint, AgentBlueprintContext } from "@omni-agent/app";
 import { defineAgent } from "@omni-agent/core";
 
+// Package-private Catalog: the Descriptor and Factory have one owner.
+const toolComponents = [
+  {
+    descriptor: {
+      id: "example.tool",
+      displayName: "Example tool",
+      description: "Does one specific thing.",
+      toolName: myTool.name,
+    },
+    create: () => myTool,
+  },
+] as const;
+const toolComponentsById = new Map(
+  toolComponents.map((component) => [component.descriptor.id, component]),
+);
+
 export const agentBlueprint = {
-  id: "example",
+  descriptor: {
+    promptProfiles: [
+      {
+        id: "example.default",
+        displayName: "Default example prompt",
+        description: "Core instructions for the example agent.",
+      },
+    ],
+    promptContributors: [],
+    toolBundles: [],
+    tools: toolComponents.map(({ descriptor }) => descriptor),
+    capabilities: { skills: [], artifactRecovery: [] },
+  },
   build(context: AgentBlueprintContext) {
-    const tools = [myTool];
+    const tools = context.composition.tools.componentIds.map((id) => {
+      const component = toolComponentsById.get(id);
+      if (!component) throw new Error(`Unknown Tool component: ${id}`);
+      return component.create();
+    });
     return {
-      id: "example",
       extension: {
-        manifest: { id: "example", version: "1.0.0", apiVersion: 1 },
+        manifest: { id: context.manifest.metadata.id, version: "1.0.0", apiVersion: 1 },
         contributions: {
           tools,
           agents: [
             {
               definition: defineAgent({
-                id: "example",
-                description: "An example agent.",
+                id: context.manifest.metadata.id,
+                description: context.manifest.description,
                 instructions: `You are an example agent working in ${context.cwd}.`,
               }),
               tools: { include: tools.map((tool) => tool.name) },
@@ -393,10 +452,11 @@ export const agentBlueprint = {
 } satisfies AgentBlueprint;
 ```
 
-`AgentBlueprintContext` is `{ cwd: string; interaction: InteractionSurfacePort }`. `instructions`
-may be a string or a `(context) => string | Promise<string>` function, and `maxTurns` is optional
-(unlimited when omitted). An extension registered through `AgentFactory` must contribute exactly
-one agent whose id matches the blueprint id.
+`AgentBlueprintContext` contains `{ manifest, composition, cwd, interaction }`. The immutable
+composition is resolved by App's Planner from the Manifest recipe and Blueprint descriptor. Agent
+packages do not declare a turn limit. An extension registered through `AgentFactory` must contribute exactly
+one agent whose ID matches the Manifest ID. The package must export `./agent.yaml`; package version
+comes only from `package.json`.
 
 Install an external agent into the package-manager-neutral resolution root:
 
@@ -546,18 +606,18 @@ must never import the CLI, UI, or another agent package.
 
 ### Runtime contracts
 
-| Type                          | Role                                                                                |
-| ----------------------------- | ----------------------------------------------------------------------------------- |
-| `ModelRuntimePort`            | Core's only model contract; receives prepared context messages and tool specs       |
-| `AgentRunner`                 | Per-agent execution loop, constructed with exactly one `ModelRuntimePort`           |
-| `ToolCallCoordinator`         | The agent loop's only tool entry: schema validation, domain preflight, routing      |
-| `ToolAuthorizationRouter`     | Admits `trusted` tools directly; delegates everything else to the gate              |
-| `PermissionGate`              | Permission decision point for non-trusted tools                                     |
-| `ToolInvocationRunner`        | Executes authorized calls only; runs middleware after authorization                 |
-| `ExecutionDeadlineSupervisor` | Owns linked cancellation, deadline timers, and late-settlement observation          |
-| `AgentFactory`                | The only assembly entry point: validates blueprint, resolves model, builds instance |
-| `AgentBlueprint`              | The `agentBlueprint` value each agent package exports                               |
-| `AgentExtension`              | Declarative contribution unit; validated and rolled back atomically                 |
+| Type                          | Role                                                                                     |
+| ----------------------------- | ---------------------------------------------------------------------------------------- |
+| `ModelRuntimePort`            | Core's only model contract; receives prepared context messages and tool specs            |
+| `AgentRunner`                 | Per-agent execution loop, constructed with exactly one `ModelRuntimePort`                |
+| `ToolCallCoordinator`         | The agent loop's only tool entry: schema validation, domain preflight, routing           |
+| `ToolAuthorizationRouter`     | Admits `trusted` tools directly; delegates everything else to the gate                   |
+| `PermissionGate`              | Permission decision point for non-trusted tools                                          |
+| `ToolInvocationRunner`        | Executes authorized calls only; runs middleware after authorization                      |
+| `ExecutionDeadlineSupervisor` | Owns linked cancellation, deadline timers, and late-settlement observation               |
+| `AgentFactory`                | The only runtime assembly entry: resolves a package into one immutable Plan and instance |
+| `AgentBlueprint`              | The `agentBlueprint` value each agent package exports                                    |
+| `AgentExtension`              | Declarative contribution unit; validated and rolled back atomically                      |
 
 The tool call path:
 
@@ -582,7 +642,7 @@ omni-agent/
 │   ├── core/     Agent loop, tool coordination, permissions, context engine, ports
 │   ├── models/   Model runtime, vendor plugins, catalogs, credentials, cache
 │   ├── app/      Lifecycle, registries, extension host, sessions, config, workspaces
-│   ├── tools/    Filesystem, shell, search, web, user-input tools and toolsets
+│   ├── tools/    Filesystem, shell, search, web, and user-input tools
 │   ├── ui/       Browser and terminal presentation, interaction adapters, delivery
 │   └── cli/      Arg parsing, commands, Agent run and onboarding orchestration
 ├── apps/
@@ -601,6 +661,9 @@ omni-agent/
 | Document                                                                                           | Contents                                                               |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | [`docs/architecture.md`](docs/architecture.md)                                                     | Layers, dependency rules, contracts, composition, and subsystem design |
+| [`docs/agent-package.md`](docs/agent-package.md)                                                   | Manifest v2, Blueprint, composition, package loading, and ownership    |
+| [`docs/build-an-agent-in-five-minutes.md`](docs/build-an-agent-in-five-minutes.md)                 | Executable minimal Agent tutorial and dynamic YAML assembly            |
+| [`docs/tracing.md`](docs/tracing.md)                                                               | Runtime Observation, Assembly Evidence, local Trace, and replay        |
 | [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | Authoritative tool authorization, execution, cancellation, sandbox     |
 | [`docs/context-engineering.md`](docs/context-engineering.md)                                       | Context pipeline, compression, checkpointing                           |
 | [`docs/model-cache.md`](docs/model-cache.md)                                                       | Prompt cache intent, scopes, fingerprints, lease state                 |
@@ -618,6 +681,9 @@ pnpm dev                           # coding agent (default)
 pnpm run dev:coding                # coding agent, explicitly
 pnpm run dev:financial-analysis    # read-only financial analysis agent
 pnpm run dev -- run <agent-id>     # any installed agent package
+pnpm run dev -- agent describe coding
+pnpm run dev -- agent validate coding
+pnpm run dev -- agent plan coding --json
 ```
 
 Verification and build:

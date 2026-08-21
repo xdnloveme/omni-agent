@@ -1,6 +1,7 @@
 import { input, password, select } from "@inquirer/prompts";
 import chalk from "chalk";
 import type { ModelAuthInteraction } from "@omni-agent/app";
+import { normalizePromptResult } from "./prompt-result";
 
 export function createAuthInteraction(signal?: AbortSignal): ModelAuthInteraction {
   return {
@@ -8,27 +9,31 @@ export function createAuthInteraction(signal?: AbortSignal): ModelAuthInteractio
     async prompt(prompt) {
       const context = { signal: prompt.signal ?? signal };
       if (prompt.type === "select") {
-        return select(
-          {
-            message: prompt.message,
-            choices: prompt.options.map((option) => ({
-              name: option.label,
-              value: option.id,
-              description: option.description,
-            })),
-          },
-          context,
+        return normalizePromptResult(
+          select(
+            {
+              message: prompt.message,
+              choices: prompt.options.map((option) => ({
+                name: option.label,
+                value: option.id,
+                description: option.description,
+              })),
+            },
+            context,
+          ),
         );
       }
       if (prompt.type === "secret") {
-        return password({ message: prompt.message, mask: "*" }, context);
+        return normalizePromptResult(password({ message: prompt.message, mask: "*" }, context));
       }
-      return input(
-        {
-          message: prompt.message,
-          default: prompt.placeholder,
-        },
-        context,
+      return normalizePromptResult(
+        input(
+          {
+            message: prompt.message,
+            default: prompt.placeholder,
+          },
+          context,
+        ),
       );
     },
     notify(event) {

@@ -1,22 +1,22 @@
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { createLocalTraceMaintenance } from "@omni-agent/app";
 
 export async function runTraceClear(
   agentId: string,
   confirmed: boolean,
+  globalDirectory: string,
   confirm: (message: string) => Promise<boolean>,
+  write: (text: string) => void,
 ): Promise<void> {
-  const trace = createLocalTraceMaintenance(join(homedir(), ".omni-agent"), agentId);
+  const trace = createLocalTraceMaintenance(globalDirectory, agentId);
   const bytes = await trace.diskUsage();
   const accepted =
     confirmed || (await confirm(`Clear ${formatBytes(bytes)} of local Trace data for ${agentId}?`));
   if (!accepted) {
-    process.stdout.write("Trace clear cancelled.\n");
+    write("Trace clear cancelled.\n");
     return;
   }
   await trace.clear();
-  process.stdout.write(`Cleared local Trace data for ${agentId}.\n`);
+  write(`Cleared local Trace data for ${agentId}.\n`);
 }
 
 function formatBytes(bytes: number): string {

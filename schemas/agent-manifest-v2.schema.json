@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://omni-agent.dev/schemas/agent-manifest-v2.schema.json",
+  "title": "Omni Agent Manifest v2",
+  "description": "Declarative Agent component selection and ordering. Runtime policy and implementation paths are intentionally outside this contract.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["apiVersion", "kind", "metadata", "runtime", "description", "composition"],
+  "properties": {
+    "apiVersion": { "const": "omni-agent/v2" },
+    "kind": { "const": "Agent" },
+    "metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "displayName"],
+      "properties": {
+        "id": { "$ref": "#/$defs/agentId", "description": "Stable Agent package identity." },
+        "displayName": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "runtime": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["blueprintApiVersion"],
+      "properties": { "blueprintApiVersion": { "const": 2 } }
+    },
+    "description": { "$ref": "#/$defs/nonEmptyString" },
+    "composition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["prompt", "tools", "capabilities"],
+      "properties": {
+        "prompt": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["profile", "contributors"],
+          "properties": {
+            "profile": { "$ref": "#/$defs/componentId" },
+            "contributors": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/componentId" },
+              "description": "Final Prompt Contributor order."
+            }
+          }
+        },
+        "tools": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["sequence"],
+          "properties": {
+            "sequence": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/toolSequenceEntry" },
+              "description": "Bundles and individual Tools may be interleaved; declaration order is preserved after Bundle expansion."
+            }
+          }
+        },
+        "capabilities": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "skills": { "$ref": "#/$defs/componentId" },
+            "context": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "artifactRecovery": { "$ref": "#/$defs/componentId" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "agentId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:-[a-z0-9]+)*$"
+    },
+    "componentId": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(?:[._-][a-z0-9]+)*$"
+    },
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": ".*\\S.*"
+    },
+    "toolSequenceEntry": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["bundle"],
+          "properties": { "bundle": { "$ref": "#/$defs/componentId" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tool"],
+          "properties": { "tool": { "$ref": "#/$defs/componentId" } }
+        }
+      ]
+    }
+  }
+}

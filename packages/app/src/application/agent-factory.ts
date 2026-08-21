@@ -1,68 +1,29 @@
-import { homedir } from "node:os";
-import { join, resolve } from "node:path";
-import {
-  AgentSessionRepository,
-  isAgentId,
-  ToolAuthorizationRouter,
-  ToolCallCoordinator,
-  ToolInvocationRunner,
-  ToolInputValidator,
-  EnvironmentContextController,
-  RejectingInteractionSurface,
-  type AgentConfig,
-  type ContextCapability,
-  type ApprovalBroker,
-  type LateToolSettlementEvent,
-  type PermissionObserver,
-  type SandboxRunnerPort,
-  type SkillRuntime,
-  type RuntimeEnvironmentProviderPort,
-  type InteractionSurfacePort,
-} from "@omni-agent/core";
-import { AgentApplication } from "./agent-application";
-import type { ConfigService } from "../config/config-service";
-import { loadAgentExtensions } from "../extensions/agent-extension-loader";
-import { ExtensionManager } from "../extensions/extension-manager";
-import type { AgentExtension } from "../extensions/types";
-import type { ModelService } from "../models/model-service";
-import { createPermissionRuntime } from "../permissions/create-permission-runtime";
-import { ToolRegistry } from "../registry/tool-registry";
-import { createContextRuntime } from "../context/contextRuntime";
-import { ContextSidecarLayout } from "../context/sidecarLayout";
-import { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
-import { ModelCacheLeaseRepository } from "../models/cache/model-cache-lease-repository";
+import { resolve } from "node:path";
+import { AgentAssemblyPlanner } from "../assembly/agent-assembly-planner";
+import { AgentRuntimeAssembler } from "../assembly/agent-runtime-assembler";
+import { AssemblyInputResolver } from "../assembly/assembly-input-resolver";
+import { LocalExtensionSourceLoader } from "../assembly/extension-source-loader";
+import { toAgentAssemblyError } from "../assembly/errors";
 import { NodeRuntimeEnvironmentProvider } from "../environment";
+import type {
+  AgentAssemblySnapshot,
+  AgentCapabilities,
+  AgentHostDependencies,
+  AgentManifest,
+  ExtensionSourceLoader,
+  LoadedAgentPackage,
+  ResolvedAgentAssemblyPlan,
+} from "../assembly/contracts";
+import type { ConfigService } from "../config/config-service";
+import type { ModelService } from "../models/model-service";
 import type { AgentTraceControlCapability } from "../tracing";
-import { WorkspaceStorageLayout, type WorkspaceContext } from "../workspaces/index";
-import { AgentScopedTraceRuntime } from "../tracing";
-
-export interface SkillCapability {
-  readonly runtime: SkillRuntime;
-}
-
-export interface AgentCapabilities {
-  readonly skills?: SkillCapability;
-  readonly context?: ContextCapability;
-}
-
-export interface AgentBlueprintContext {
-  readonly cwd: string;
-  readonly interaction: InteractionSurfacePort;
-}
-
-export interface AgentModule {
-  readonly id: string;
-  readonly extension: AgentExtension;
-  readonly capabilities: AgentCapabilities;
-}
-
-export interface AgentBlueprint {
-  readonly id: string;
-  build(context: AgentBlueprintContext): AgentModule | Promise<AgentModule>;
-}
+import type { WorkspaceContext } from "../workspaces";
+import type { AgentApplication } from "./agent-application";
 
 export interface AgentInstance {
   readonly id: string;
+  readonly manifest: AgentManifest;
+  readonly assembly: AgentAssemblySnapshot;
   readonly application: AgentApplication;
   readonly capabilities: AgentCapabilities;
   readonly trace?: AgentTraceControlCapability;
@@ -72,196 +33,59 @@ export interface AgentInstance {
 export interface AgentFactoryOptions {
   readonly workspace: WorkspaceContext;
   readonly workspaceRoots?: readonly string[];
-  readonly environmentProvider?: RuntimeEnvironmentProviderPort;
-  readonly globalDirectory?: string;
+  readonly globalDirectory: string;
   readonly configService: ConfigService;
   readonly modelService: ModelService;
-  readonly loadExtensions?: boolean;
-  readonly reservedCommandNames?: readonly string[];
-  readonly approvalBroker?: ApprovalBroker;
-  readonly interactionSurface?: InteractionSurfacePort;
-  readonly permissionObserver?: PermissionObserver;
-  readonly sandboxRunner?: SandboxRunnerPort;
-  readonly onLateToolSettlement?: (event: LateToolSettlementEvent) => void | Promise<void>;
+  readonly host: AgentHostDependencies;
+  readonly extensionSourceLoader?: ExtensionSourceLoader;
 }
 
 export class AgentFactory {
-  private readonly cwd: string;
-  private readonly globalDirectory: string;
+  constructor(private readonly options: AgentFactoryOptions) {}
 
-  constructor(private readonly options: AgentFactoryOptions) {
-    this.cwd = options.workspace.root;
-    this.globalDirectory = options.globalDirectory ?? join(homedir(), ".omni-agent");
-  }
-
-  async create(blueprint: AgentBlueprint): Promise<AgentInstance> {
-    assertAgentId(blueprint.id);
-    const selection = await this.options.configService.resolveModel(blueprint.id);
-    if (!selection) throw new AgentModelNotConfiguredError(blueprint.id);
-    const resolvedModel = await this.options.modelService.resolve(selection);
-    if (!(await this.options.modelService.isConfigured(resolvedModel.providerId))) {
-      throw new Error(`Provider is not configured: ${resolvedModel.providerId}`);
-    }
-
-    const interaction = this.options.interactionSurface ?? new RejectingInteractionSurface();
-    const pendingTraceDiagnostics: { operation: string; message: string }[] = [];
-    let reportTraceDiagnostic = (diagnostic: { operation: string; message: string }) => {
-      pendingTraceDiagnostics.push(diagnostic);
-    };
-    const traceRuntime = new AgentScopedTraceRuntime({
-      globalDirectory: this.globalDirectory,
-      agentId: blueprint.id,
-      workspaceId: this.options.workspace.id,
-      cwd: this.cwd,
-      onDiagnostic: (diagnostic) => reportTraceDiagnostic(diagnostic),
-    });
-    const module = await blueprint.build({
-      cwd: this.cwd,
-      interaction,
-    });
-    validateModule(blueprint.id, module);
-    const toolInputValidator = new ToolInputValidator();
-    const manager = new ExtensionManager({
-      cwd: this.cwd,
-      modelProviders: this.options.modelService.providerPlugins,
-      tools: new ToolRegistry(toolInputValidator),
-      reservedCommandNames: this.options.reservedCommandNames,
-    });
-    reportTraceDiagnostic = (diagnostic) => {
-      manager.diagnostics.push({
-        extensionId: "builtin-tracing",
-        source: diagnostic.operation,
-        message: diagnostic.message,
-      });
-    };
-    for (const diagnostic of pendingTraceDiagnostics) reportTraceDiagnostic(diagnostic);
-
-    try {
-      await manager.register(module.extension, `builtin-${blueprint.id}`);
-      if (this.options.loadExtensions !== false) {
-        const loaded = await loadAgentExtensions({
-          cwd: this.cwd,
-          globalDirectory: this.globalDirectory,
-        });
-        manager.diagnostics.push(...loaded.diagnostics);
-        for (const entry of loaded.extensions) {
-          await manager.registerOptional(entry.extension, entry.source);
-        }
-      }
-
-      const contribution = manager.agents.get(blueprint.id);
-      if (!contribution) throw new Error(`Agent not registered: ${blueprint.id}`);
-      const instructions = contribution.definition.instructions;
-      const systemPrompt =
-        typeof instructions === "function" ? await instructions({ cwd: this.cwd }) : instructions;
-      const agentConfig: AgentConfig = {
-        model: resolvedModel,
-        systemPrompt,
-        tools: manager.tools.resolve(contribution.tools),
-        middleware: manager.middleware,
-        maxTurns: contribution.definition.maxTurns,
-        toolLifecycleAdapters: module.capabilities.skills?.runtime.lifecycleAdapters(),
-      };
-      const workspaceStorage = new WorkspaceStorageLayout(this.globalDirectory);
-      await workspaceStorage.ensureInitialized(this.options.workspace);
-      const sessionsRoot = workspaceStorage.sessionsRoot(this.options.workspace.id);
-      const sessions = new AgentSessionRepository({
-        agentId: blueprint.id,
-        sessionsRoot,
-      });
-      await sessions.restoreLatestOrCreate();
-      const sidecarLayout = new ContextSidecarLayout(join(sessionsRoot, blueprint.id, "context"));
-      const cacheDiagnostic = (message: string) => {
-        manager.diagnostics.push({
-          extensionId: "builtin-model-cache",
-          source: "model-cache-sidecar",
-          message,
-        });
-      };
-      const cacheLeases = new ModelCacheLeaseController(
-        this.options.modelService.runtime,
-        new ModelCacheLeaseRepository(sidecarLayout, cacheDiagnostic),
-        cacheDiagnostic,
-      );
-      await cacheLeases.hydrate(sessions.snapshot().sessionId);
-      const { contextEngine, contextStorage } = createContextRuntime({
-        layout: sidecarLayout,
-        agentConfig,
-        artifactRecovery: module.capabilities.context?.artifactRecovery,
-        policyStages: [
-          ...(module.capabilities.context?.policyStages ?? []),
-          ...manager.contextPolicyStages,
-        ],
-        skillStrategies: module.capabilities.skills?.runtime.contextProjectionStrategies(),
-        modelRuntime: this.options.modelService.runtime,
-        cacheLeaseAdvisor: this.options.modelService.runtime.leaseAdvisor,
-        onDiagnostic: (message) => {
-          manager.diagnostics.push({
-            extensionId: "builtin-context",
-            source: "context-sidecar",
-            message,
-          });
-        },
-      });
-      const permissions = createPermissionRuntime({
-        globalDirectory: this.globalDirectory,
-        approvalBroker: this.options.approvalBroker,
-        observer: this.options.permissionObserver,
-      });
-      const toolCallCoordinator = new ToolCallCoordinator({
-        authorizer: new ToolAuthorizationRouter(permissions.permissionGate),
-        invocationRunner: new ToolInvocationRunner({
-          sandboxRunner: this.options.sandboxRunner,
-          onLateSettlement: this.options.onLateToolSettlement,
+  async create(agentPackage: LoadedAgentPackage): Promise<AgentInstance> {
+    const cwd = this.options.workspace.root;
+    const globalDirectory = this.options.globalDirectory;
+    const extensionSourceLoader =
+      this.options.extensionSourceLoader ?? new LocalExtensionSourceLoader();
+    const workspaceRoots = normalizeWorkspaceRoots(cwd, this.options.workspaceRoots);
+    const host: AgentHostDependencies = {
+      ...this.options.host,
+      environmentProvider:
+        this.options.host.environmentProvider ??
+        new NodeRuntimeEnvironmentProvider({
+          cwd,
+          workspaceRoots,
         }),
-        inputValidator: toolInputValidator,
-      });
-      const environmentContext = new EnvironmentContextController(
-        this.options.environmentProvider ??
-          new NodeRuntimeEnvironmentProvider({
-            cwd: this.cwd,
-            workspaceRoots: normalizeWorkspaceRoots(this.cwd, this.options.workspaceRoots),
-          }),
-      );
-      const application = new AgentApplication({
-        extensions: manager,
-        sessions,
-        agentConfig,
-        agentId: blueprint.id,
-        cwd: this.cwd,
-        modelService: this.options.modelService,
-        modelSelection: selection,
-        configService: this.options.configService,
-        permissionService: permissions.service,
-        toolCallCoordinator,
-        contextEngine,
-        contextMiddleware: manager.contextMiddleware,
-        contextStorage,
-        environmentContext,
-        cacheLeases,
-        runObservation: traceRuntime,
-      });
-      let disposed = false;
-      return {
-        id: blueprint.id,
-        application,
-        capabilities: module.capabilities,
-        trace: traceRuntime.capability,
-        async dispose() {
-          if (disposed) return;
-          disposed = true;
-          await application.dispose();
-        },
-      };
+    };
+    const input = await new AssemblyInputResolver().resolve({
+      agentPackage,
+      workspace: this.options.workspace,
+      workspaceRoots,
+      globalDirectory,
+      configService: this.options.configService,
+      modelService: this.options.modelService,
+      host,
+      extensionSourceLoader,
+    });
+    let plan: ResolvedAgentAssemblyPlan;
+    try {
+      plan = new AgentAssemblyPlanner().plan(input);
     } catch (error) {
-      try {
-        await manager.dispose();
-        await traceRuntime.dispose();
-      } catch (cleanupError) {
-        throw new AggregateError([error, cleanupError], `Failed to create agent ${blueprint.id}`);
-      }
-      throw error;
+      throw toAgentAssemblyError(
+        error,
+        agentPackage.manifest.metadata.id,
+        "planning",
+        agentPackage.packageName,
+      );
     }
+    return new AgentRuntimeAssembler().assemble(plan, {
+      blueprint: agentPackage.blueprint,
+      configService: this.options.configService,
+      modelService: this.options.modelService,
+      host,
+      extensionSourceLoader,
+    });
   }
 }
 
@@ -275,26 +99,4 @@ function normalizeWorkspaceRoots(
       ...(additionalRoots ?? []).map((root) => resolve(workspaceRoot, root)),
     ]),
   ];
-}
-
-export class AgentModelNotConfiguredError extends Error {
-  constructor(readonly agentId: string) {
-    super(`Model is not configured for agent: ${agentId}`);
-  }
-}
-
-function validateModule(expectedId: string, module: AgentModule): void {
-  if (module.id !== expectedId) {
-    throw new Error(`Agent module id mismatch: expected ${expectedId}, received ${module.id}`);
-  }
-  const definitions = module.extension.contributions.agents ?? [];
-  if (definitions.length !== 1 || definitions[0].definition.id !== expectedId) {
-    throw new Error(`Agent extension must contribute exactly one matching agent: ${expectedId}`);
-  }
-}
-
-function assertAgentId(agentId: string): void {
-  if (!isAgentId(agentId)) {
-    throw new Error(`Invalid agent id: ${agentId}`);
-  }
 }

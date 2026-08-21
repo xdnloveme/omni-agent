@@ -1,9 +1,10 @@
 import { defineAgent } from "@omni-agent/core";
+import type { AgentManifest } from "@omni-agent/app";
 
-export function createCodingAgent(instructions: () => Promise<string>) {
+export function createCodingAgent(manifest: AgentManifest, instructions: () => Promise<string>) {
   return defineAgent<{ cwd: string }>({
-    id: "coding",
-    description: "Local coding agent with filesystem, shell, search, web, and skills capabilities.",
+    id: manifest.metadata.id,
+    description: manifest.description,
     instructions,
   });
 }

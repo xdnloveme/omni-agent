@@ -1,4 +1,3 @@
-import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { isAgentId } from "@omni-agent/core";
 import { containsSecretField, type ConfigurationScope } from "@omni-agent/models";
@@ -7,8 +6,8 @@ import type { ModelSelection } from "../models/model-service";
 import type { ConfigDiagnostic, OmniConfig, ResolvedModelConfiguration } from "./types";
 
 export interface ConfigServiceOptions {
-  readonly cwd?: string;
-  readonly globalDirectory?: string;
+  readonly cwd: string;
+  readonly globalDirectory: string;
 }
 
 interface ConfigLayer {
@@ -28,9 +27,8 @@ export class ConfigService {
   private readonly globalPath: string;
   private readonly projectPath: string;
 
-  constructor(options: ConfigServiceOptions = {}) {
-    const cwd = options.cwd ?? process.cwd();
-    const globalDirectory = options.globalDirectory ?? join(homedir(), ".omni-agent");
+  constructor(options: ConfigServiceOptions) {
+    const { cwd, globalDirectory } = options;
     this.globalPath = join(globalDirectory, "config.json");
     this.projectPath = resolve(cwd, PROJECT_CONFIG_FILE);
   }

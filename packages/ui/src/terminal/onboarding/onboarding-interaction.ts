@@ -1,6 +1,7 @@
 import { confirm, input, password, select } from "@inquirer/prompts";
 import chalk from "chalk";
 import { createAuthInteraction } from "./auth-interaction";
+import { normalizePromptResult } from "./prompt-result";
 
 interface Option {
   readonly id: string;
@@ -8,21 +9,26 @@ interface Option {
   readonly description?: string;
 }
 
-export function confirmTerminalAction(message: string): Promise<boolean> {
-  return confirm({ message, default: false });
+export function confirmTerminalAction(message: string, signal?: AbortSignal): Promise<boolean> {
+  return normalizePromptResult(confirm({ message, default: false }, { signal }));
 }
 
-export function createOnboardingInteraction() {
+export function createOnboardingInteraction(signal?: AbortSignal) {
   const choose = (message: string, options: readonly Option[], loop: boolean) =>
-    select({
-      message,
-      choices: options.map((option) => ({
-        name: option.label,
-        value: option.id,
-        description: option.description,
-      })),
-      loop,
-    });
+    normalizePromptResult(
+      select(
+        {
+          message,
+          choices: options.map((option) => ({
+            name: option.label,
+            value: option.id,
+            description: option.description,
+          })),
+          loop,
+        },
+        { signal },
+      ),
+    );
 
   return {
     showWelcome() {
@@ -49,11 +55,16 @@ export function createOnboardingInteraction() {
         default: options.defaultValue,
         validate: options.validate,
       };
-      return options.secret
-        ? password({ message: options.message, mask: "*", validate: options.validate })
-        : input(promptOptions);
+      return normalizePromptResult(
+        options.secret
+          ? password(
+              { message: options.message, mask: "*", validate: options.validate },
+              { signal },
+            )
+          : input(promptOptions, { signal }),
+      );
     },
-    createAuthInteraction,
+    createAuthInteraction: () => createAuthInteraction(signal),
     showConfigurationReady(summary: { provider: string; model: string; credential: string }) {
       console.log();
       console.log(chalk.green("  ✓ Configuration ready."));

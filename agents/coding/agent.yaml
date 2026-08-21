@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=../../schemas/agent-manifest-v2.schema.json
+# Coding Agent's declarative, non-executable assembly recipe.
+# This file owns component selection and order. Implementations, authorization,
+# execution policy, model configuration and lifecycle remain in TypeScript.
+apiVersion: omni-agent/v2
+kind: Agent
+metadata:
+  id: coding
+  displayName: Coding Agent
+runtime:
+  blueprintApiVersion: 2
+description: >-
+  Local coding agent with filesystem, shell, search, web, and skills capabilities.
+composition:
+  prompt:
+    profile: coding.default
+    contributors:
+      - workspace.agents-md
+      - skills.catalog
+  tools:
+    # Bundles and individual Tools can be interleaved. Declaration order is
+    # the final Tool order after the Planner expands each Bundle.
+    sequence:
+      - bundle: coding.workspace
+      - bundle: research.web
+      - tool: interaction.request-user-input
+      - tool: skills.read
+  capabilities:
+    skills: skills.local
+    context:
+      artifactRecovery: context.file-read-recovery

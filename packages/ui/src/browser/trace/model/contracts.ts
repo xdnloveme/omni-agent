@@ -95,6 +95,14 @@ export interface TraceRun {
   readonly startedAt: number;
   readonly completedAt?: number;
   readonly status: TraceStatus;
+  readonly assembly?: {
+    readonly digest: string;
+    readonly packageName: string;
+    readonly packageVersion: string;
+    readonly model: { readonly modelId: string };
+    readonly toolNames: readonly string[];
+    readonly extensions: readonly { readonly id: string; readonly version: string }[];
+  };
   readonly summary?: {
     readonly capture?: { readonly degraded?: boolean; readonly droppedRecords?: number };
     readonly [key: string]: unknown;

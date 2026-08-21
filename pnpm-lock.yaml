@@ -25,7 +25,7 @@ importers:
         version: 5.9.3
       vitest:
         specifier: ^4.1.8
-        version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4))
+        version: 4.1.8(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)(yaml@2.9.0))
 
   agents/coding:
     dependencies:
@@ -84,6 +84,25 @@ importers:
         specifier: ^5.9.2
         version: 5.9.3
 
+  examples/minimal-agent:
+    dependencies:
+      '@omni-agent/app':
+        specifier: workspace:*
+        version: link:../../packages/app
+      '@omni-agent/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+    devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.19.19
+      tsx:
+        specifier: ^4.21.0
+        version: 4.22.4
+      typescript:
+        specifier: ^5.9.2
+        version: 5.9.3
+
   packages/app:
     dependencies:
       '@omni-agent/core':
@@ -92,10 +111,16 @@ importers:
       '@omni-agent/models':
         specifier: workspace:*
         version: link:../models
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@types/node':
         specifier: ^22.10.5
         version: 22.19.19
+      ajv:
+        specifier: 8.20.0
+        version: 8.20.0
       typescript:
         specifier: ^5.9.2
         version: 5.9.3
@@ -250,7 +275,7 @@ importers:
         version: 19.2.4(@types/react@19.2.18)
       '@vitejs/plugin-react':
         specifier: ^6.1.0
-        version: 6.1.0(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4))
+        version: 6.1.0(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)(yaml@2.9.0))
       tsx:
         specifier: ^4.21.0
         version: 4.22.4
@@ -259,7 +284,7 @@ importers:
         version: 5.9.3
       vite:
         specifier: ^8.2.2
-        version: 8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)
+        version: 8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)(yaml@2.9.0)
 
 packages:
 
@@ -2226,6 +2251,11 @@ packages:
     resolution: {integrity: sha512-ghig2TBE/H11aOVgmahA3MhimvkBr6JIYknH/Dhdk10nXwdbIqBJsbfMxpvFPG8bAw77gN29aQWvKpmVoPlvPQ==}
     engines: {node: '>=16.0.0'}
 
+  yaml@2.9.0:
+    resolution: {integrity: sha512-2AvhNX3mb8zd6Zy7INTtSpl1F15HW6Wnqj0srWlkKLcpYl/gMIMJiyuGq2KeI2YFxUPjdlB+3Lc10seMLtL4cA==}
+    engines: {node: '>= 14.6'}
+    hasBin: true
+
   zod-to-json-schema@3.25.2:
     resolution: {integrity: sha512-O/PgfnpT1xKSDeQYSCfRI5Gy3hPf91mKVDuYLUHZJMiDFptvP41MSnWofm8dnCm0256ZNfZIM7DSzuSMAFnjHA==}
     peerDependencies:
@@ -3196,10 +3226,10 @@ snapshots:
   '@types/trusted-types@2.0.7':
     optional: true
 
-  '@vitejs/plugin-react@6.1.0(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4))':
+  '@vitejs/plugin-react@6.1.0(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)(yaml@2.9.0))':
     dependencies:
       '@rolldown/pluginutils': 1.0.1
-      vite: 8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)
+      vite: 8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)(yaml@2.9.0)
 
   '@vitest/expect@4.1.8':
     dependencies:
@@ -3210,13 +3240,13 @@ snapshots:
       chai: 6.2.2
       tinyrainbow: 3.1.0
 
-  '@vitest/mocker@4.1.8(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4))':
+  '@vitest/mocker@4.1.8(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)(yaml@2.9.0))':
     dependencies:
       '@vitest/spy': 4.1.8
       estree-walker: 3.0.3
       magic-string: 0.30.21
     optionalDependencies:
-      vite: 8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)
+      vite: 8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)(yaml@2.9.0)
 
   '@vitest/pretty-format@4.1.8':
     dependencies:
@@ -4032,7 +4062,7 @@ snapshots:
 
   util-deprecate@1.0.2: {}
 
-  vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4):
+  vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)(yaml@2.9.0):
     dependencies:
       lightningcss: 1.33.0
       picomatch: 4.0.5
@@ -4044,11 +4074,12 @@ snapshots:
       esbuild: 0.28.0
       fsevents: 2.3.3
       tsx: 4.22.4
+      yaml: 2.9.0
 
-  vitest@4.1.8(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)):
+  vitest@4.1.8(@opentelemetry/api@1.9.0)(@types/node@22.19.19)(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)(yaml@2.9.0)):
     dependencies:
       '@vitest/expect': 4.1.8
-      '@vitest/mocker': 4.1.8(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4))
+      '@vitest/mocker': 4.1.8(vite@8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)(yaml@2.9.0))
       '@vitest/pretty-format': 4.1.8
       '@vitest/runner': 4.1.8
       '@vitest/snapshot': 4.1.8
@@ -4065,7 +4096,7 @@ snapshots:
       tinyexec: 1.2.4
       tinyglobby: 0.2.17
       tinyrainbow: 3.1.0
-      vite: 8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)
+      vite: 8.2.2(@types/node@22.19.19)(esbuild@0.28.0)(tsx@4.22.4)(yaml@2.9.0)
       why-is-node-running: 2.3.0
     optionalDependencies:
       '@opentelemetry/api': 1.9.0
@@ -4093,6 +4124,8 @@ snapshots:
   xml-naming@0.1.0: {}
 
   xml-naming@0.3.0: {}
+
+  yaml@2.9.0: {}
 
   zod-to-json-schema@3.25.2(zod@4.4.3):
     dependencies:

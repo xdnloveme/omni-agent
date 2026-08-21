@@ -21,6 +21,39 @@ import { ModelService, type ModelSelection } from "../models/model-service";
 import type { PermissionService } from "../permissions/permission-service";
 import type { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
 import { NOOP_AGENT_RUN_OBSERVATION, type AgentRunObservationPort } from "./agent-run-observation";
+import type { AgentModule } from "../assembly/contracts";
+import type { AgentAssemblyEvidence } from "../assembly/agent-assembly-evidence";
+import { AgentConfigurationController } from "./agent-configuration-controller";
+
+export type AgentApplicationState = "ready" | "disposing" | "disposed";
+
+export class AgentApplicationLifecycleError extends Error {
+  constructor(readonly code: "agent_application_closed" | "agent_application_busy") {
+    super(
+      code === "agent_application_busy"
+        ? "Agent application has an active run"
+        : "Agent application is closed",
+    );
+    this.name = "AgentApplicationLifecycleError";
+  }
+}
+
+export interface AgentResourceDisposalFailure {
+  readonly resource: "extensions" | "agent_module" | "run_observation";
+  readonly error: unknown;
+}
+
+export class AgentApplicationDisposalError extends AggregateError {
+  readonly code = "agent_application_disposal_failed";
+
+  constructor(readonly failures: readonly AgentResourceDisposalFailure[]) {
+    super(
+      failures.map(({ error }) => error),
+      "Failed to dispose Agent application",
+    );
+    this.name = "AgentApplicationDisposalError";
+  }
+}
 
 export class AgentApplication {
   readonly runner: AgentRunner;
@@ -31,12 +64,15 @@ export class AgentApplication {
   readonly cwd: string;
   readonly modelService: ModelService;
   readonly permissions: PermissionService;
-  private activeSelection: ModelSelection;
-  private readonly configService: ConfigService;
+  private readonly configuration: AgentConfigurationController;
   private readonly contextStorage: ContextSessionStorage;
   private readonly environmentContext: EnvironmentContextControllerPort;
   private readonly cacheLeases: ModelCacheLeaseController;
   private readonly runObservation: AgentRunObservationPort;
+  private readonly agentModule?: AgentModule;
+  private applicationState: AgentApplicationState = "ready";
+  private activeRunCount = 0;
+  private disposePromise: Promise<void> | undefined;
 
   constructor(dependencies: AgentApplicationDependencies) {
     this.extensions = dependencies.extensions;
@@ -45,12 +81,21 @@ export class AgentApplication {
     this.agentId = dependencies.agentId;
     this.cwd = dependencies.cwd;
     this.modelService = dependencies.modelService;
-    this.activeSelection = dependencies.modelSelection;
-    this.configService = dependencies.configService;
     this.contextStorage = dependencies.contextStorage;
     this.environmentContext = dependencies.environmentContext;
     this.cacheLeases = dependencies.cacheLeases;
     this.runObservation = dependencies.runObservation ?? NOOP_AGENT_RUN_OBSERVATION;
+    this.agentModule = dependencies.agentModule;
+    this.configuration = new AgentConfigurationController({
+      agentId: dependencies.agentId,
+      cwd: dependencies.cwd,
+      agentConfig: dependencies.agentConfig,
+      initialModelSelection: dependencies.modelSelection,
+      extensions: dependencies.extensions,
+      configService: dependencies.configService,
+      modelService: dependencies.modelService,
+      assemblyEvidence: dependencies.assemblyEvidence,
+    });
     this.permissions = dependencies.permissionService;
     this.runner = new AgentRunner(
       dependencies.modelService.runtime,
@@ -63,12 +108,20 @@ export class AgentApplication {
   }
 
   async run(input: string, callbacks: StreamCallbacks, signal?: AbortSignal): Promise<void> {
-    const sessionId = this.requireSessionId();
-    await this.runObservation.observe(
-      { sessionId, input, callbacks, signal },
-      (observation, observedCallbacks) =>
-        this.executeRun(input, observedCallbacks, sessionId, observation, signal),
-    );
+    if (this.applicationState !== "ready") {
+      throw new AgentApplicationLifecycleError("agent_application_closed");
+    }
+    this.activeRunCount += 1;
+    try {
+      const sessionId = this.requireSessionId();
+      await this.runObservation.observe(
+        { sessionId, input, callbacks, signal },
+        (observation, observedCallbacks) =>
+          this.executeRun(input, observedCallbacks, sessionId, observation, signal),
+      );
+    } finally {
+      this.activeRunCount -= 1;
+    }
   }
 
   private async executeRun(
@@ -144,46 +197,23 @@ export class AgentApplication {
   }
 
   async refreshInstructions(): Promise<void> {
-    const contribution = this.extensions.agents.get(this.agentId);
-    if (!contribution) throw new Error(`Agent not found: ${this.agentId}`);
-    const instructions = contribution.definition.instructions;
-    this.agentConfig.systemPrompt =
-      typeof instructions === "function" ? await instructions({ cwd: this.cwd }) : instructions;
+    await this.configuration.refreshInstructions();
   }
 
   async setAgentModel(selection: ModelSelection): Promise<void> {
-    const next = await this.modelService.resolve(selection);
-    const auth = await this.modelService.isConfigured(next.providerId);
-    if (!auth) throw new Error(`Provider is not configured: ${next.providerId}`);
-    await this.configService.saveAgentModel(this.agentId, selection, { scope: "global" });
-    const effective = await this.requireEffectiveModel();
-    this.activateModel(effective.selection, effective.model);
+    await this.configuration.setAgentModel(selection);
   }
 
   async setSharedModel(selection: ModelSelection): Promise<void> {
-    const shared = await this.modelService.resolve(selection);
-    if (!(await this.modelService.isConfigured(shared.providerId))) {
-      throw new Error(`Provider is not configured: ${shared.providerId}`);
-    }
-    await this.configService.saveSharedModel(selection, { scope: "global" });
-    const effective = await this.requireEffectiveModel();
-    this.activateModel(effective.selection, effective.model);
+    await this.configuration.setSharedModel(selection);
   }
 
   async useSharedModel(): Promise<void> {
-    const current = await this.configService.resolveModelConfiguration(this.agentId);
-    if (current?.scope === "project" && current.kind === "agent") {
-      throw new Error(
-        `Cannot remove the project-level override for ${this.agentId}; edit omni.config.json manually`,
-      );
-    }
-    await this.configService.removeAgentModel(this.agentId, { scope: "global" });
-    const effective = await this.requireEffectiveModel();
-    this.activateModel(effective.selection, effective.model);
+    await this.configuration.useSharedModel();
   }
 
   get modelSelection(): ModelSelection {
-    return this.activeSelection;
+    return this.configuration.modelSelection;
   }
 
   getPermissionMode(): Promise<PermissionMode> {
@@ -206,15 +236,37 @@ export class AgentApplication {
     return this.permissions.clearPersistentApprovals(this.agentId);
   }
 
-  async dispose(): Promise<void> {
-    const results = await Promise.allSettled([
-      this.extensions.dispose(),
-      this.runObservation.dispose(),
-    ]);
-    const errors = results
-      .filter((result): result is PromiseRejectedResult => result.status === "rejected")
-      .map((result) => result.reason);
-    if (errors.length > 0) throw new AggregateError(errors, "Failed to dispose Agent application");
+  dispose(): Promise<void> {
+    if (this.disposePromise) return this.disposePromise;
+    if (this.applicationState === "disposed") return Promise.resolve();
+    if (this.activeRunCount > 0) {
+      return Promise.reject(new AgentApplicationLifecycleError("agent_application_busy"));
+    }
+    this.applicationState = "disposing";
+    this.disposePromise = this.disposeOwnedResources();
+    return this.disposePromise;
+  }
+
+  private async disposeOwnedResources(): Promise<void> {
+    const failures: AgentResourceDisposalFailure[] = [];
+    const resources: readonly {
+      readonly resource: AgentResourceDisposalFailure["resource"];
+      readonly dispose: () => void | Promise<void> | undefined;
+    }[] = [
+      { resource: "extensions", dispose: () => this.extensions.dispose() },
+      { resource: "agent_module", dispose: () => this.agentModule?.dispose?.() },
+      { resource: "run_observation", dispose: () => this.runObservation.dispose() },
+    ];
+    for (const resource of resources) {
+      try {
+        await resource.dispose();
+      } catch (error) {
+        failures.push({ resource: resource.resource, error });
+      }
+    }
+    this.applicationState = "disposed";
+    this.disposePromise = undefined;
+    if (failures.length > 0) throw new AgentApplicationDisposalError(failures);
   }
 
   private async persistProduced(
@@ -243,28 +295,11 @@ export class AgentApplication {
     if (!sessionId) throw new Error("Agent session is not initialized");
     return sessionId;
   }
-
-  private activateModel(selection: ModelSelection, model: AgentConfig["model"]): void {
-    this.activeSelection = selection;
-    this.agentConfig.model = model;
-  }
-
-  private async requireEffectiveModel(): Promise<{
-    selection: ModelSelection;
-    model: AgentConfig["model"];
-  }> {
-    const selection = await this.configService.resolveModel(this.agentId);
-    if (!selection) throw new Error(`Model is not configured for agent: ${this.agentId}`);
-    const model = await this.modelService.resolve(selection);
-    if (!(await this.modelService.isConfigured(model.providerId))) {
-      throw new Error(`Provider is not configured: ${model.providerId}`);
-    }
-    return { selection, model };
-  }
 }
 
 export interface AgentApplicationDependencies {
   readonly extensions: ExtensionManager;
+  readonly agentModule?: AgentModule;
   readonly sessions: AgentSessionRepository;
   readonly agentConfig: AgentConfig;
   readonly agentId: string;
@@ -280,6 +315,7 @@ export interface AgentApplicationDependencies {
   readonly environmentContext: EnvironmentContextControllerPort;
   readonly cacheLeases: ModelCacheLeaseController;
   readonly runObservation?: AgentRunObservationPort;
+  readonly assemblyEvidence?: AgentAssemblyEvidence;
 }
 
 export interface ContextSessionStorage {

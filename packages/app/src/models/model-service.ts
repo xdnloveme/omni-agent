@@ -23,10 +23,10 @@ import {
 } from "@omni-agent/models";
 
 export interface ModelServiceOptions {
-  cwd?: string;
+  cwd: string;
   plugins?: VendorPlugin[];
   loadConfiguredProviders?: boolean;
-  globalDirectory?: string;
+  globalDirectory: string;
   credentials?: CredentialStore;
   credentialAliases?: CredentialAliasRegistry;
   credentialIndex?: CredentialIndexReconciler;
@@ -86,8 +86,8 @@ export class ModelService {
   }
 }
 
-export async function createModelService(options: ModelServiceOptions = {}): Promise<ModelService> {
-  const cwd = options.cwd ?? process.cwd();
+export async function createModelService(options: ModelServiceOptions): Promise<ModelService> {
+  const { cwd } = options;
   const credentials = options.credentials ?? new KeytarCredentialStore();
   const runtime = new ModelRuntime({
     cwd,

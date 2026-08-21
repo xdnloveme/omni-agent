@@ -1,27 +1,49 @@
 import type { AgentBlueprint } from "@omni-agent/app";
-import { SkillRuntime } from "@omni-agent/core";
+import {
+  codingArtifactRecoveryDescriptors,
+  codingSkillsCapabilityDescriptors,
+  createCodingCapabilities,
+} from "./components/capability-catalog";
+import {
+  codingPromptContributorDescriptors,
+  codingPromptProfileDescriptors,
+  createCodingSystemPrompt,
+} from "./components/prompt-catalog";
+import { codingToolBundleDescriptors } from "./components/tool-bundles";
+import { codingToolDescriptors, createCodingTools } from "./components/tool-catalog";
 import { createCodingExtension } from "./extension";
 
 export const agentBlueprint = {
-  id: "coding",
+  descriptor: {
+    promptProfiles: codingPromptProfileDescriptors,
+    promptContributors: codingPromptContributorDescriptors,
+    toolBundles: codingToolBundleDescriptors,
+    tools: codingToolDescriptors,
+    capabilities: {
+      skills: codingSkillsCapabilityDescriptors,
+      artifactRecovery: codingArtifactRecoveryDescriptors,
+    },
+  },
   async build(context) {
-    const runtime = new SkillRuntime({ cwd: context.cwd });
-    await runtime.initialize();
-    const coding = createCodingExtension(runtime, context.interaction, context.cwd);
+    const { capabilities, skills } = await createCodingCapabilities(
+      context.composition,
+      context.cwd,
+    );
+    const buildSystemPrompt = createCodingSystemPrompt(
+      context.composition.prompt.profileId,
+      context.composition.prompt.contributorIds,
+      context.cwd,
+      skills,
+    );
+    const tools = createCodingTools(
+      context.composition.tools.componentIds,
+      context.interaction,
+      skills,
+    );
+    const extension = createCodingExtension(context.manifest, tools, buildSystemPrompt);
     return {
-      id: "coding",
-      extension: coding.extension,
-      capabilities: {
-        skills: {
-          runtime,
-        },
-        context: {
-          artifactRecovery: {
-            toolName: "file_read",
-            instruction: "Use file_read on the path when the complete result is needed.",
-          },
-        },
-      },
+      extension: extension.extension,
+      capabilities,
     };
   },
 } satisfies AgentBlueprint;

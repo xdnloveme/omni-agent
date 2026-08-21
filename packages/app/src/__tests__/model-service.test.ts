@@ -52,6 +52,7 @@ describe("ModelService", () => {
 
     const service = await createModelService({
       cwd,
+      globalDirectory: cwd,
       credentials,
       loadConfiguredProviders: false,
     });

@@ -46,8 +46,13 @@ vi.mock("@omni-agent/app", () => ({
   resolveWorkspaceContext: vi.fn(async () => ({ root: "/workspace" })),
 }));
 
-vi.mock("../agents/agent-blueprint-loader", () => ({
-  loadAgentBlueprint: vi.fn(async () => ({ id: "coding" })),
+vi.mock("../agents/agent-package-loader", () => ({
+  loadAgentPackage: vi.fn(async () => ({
+    packageName: "@omni-agent/agent-coding",
+    packageVersion: "0.0.1",
+    manifest: { metadata: { id: "coding" } },
+    blueprint: {},
+  })),
 }));
 
 vi.mock("../onboarding", () => ({
@@ -113,6 +118,14 @@ describe("Agent mode conversation lifecycle", () => {
     } satisfies AgentConsolePort;
     const createAgentConsole = vi.fn((_options: { workspaceRoot: string }) => consoleView);
     const host = {
+      runtime: {
+        cwd: "/workspace",
+        cliEntry: import.meta.filename,
+        globalDirectory: "/global",
+        agentPackagesDirectory: "/agents",
+        nodeVersion: "22.19.0",
+      },
+      output: { stdout: vi.fn(), stderr: vi.fn() },
       createAgentConsole,
       createOnboardingInteraction: vi.fn(),
       runTracePreview: vi.fn(),

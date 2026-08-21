@@ -1,16 +1,6 @@
-import type { AgentExtension } from "@omni-agent/app";
-import {
-  createSkillsContributor,
-  composeStableSystemPrompt,
-  defaultContributors,
-  type SkillRuntime,
-  type SystemPromptContributor,
-  type InteractionSurfacePort,
-} from "@omni-agent/core";
-import { createRequestUserInputTool } from "@omni-agent/tools/user-input";
-import { localCodingToolset, webResearchToolset } from "@omni-agent/tools/toolsets";
+import type { AgentExtension, AgentManifest } from "@omni-agent/app";
+import type { AgentToolDefinition } from "@omni-agent/core";
 import { createCodingAgent } from "./agent";
-import { CODING_SYSTEM_PROMPT } from "./prompt";
 
 export interface CodingExtensionBundle {
   extension: AgentExtension;
@@ -18,33 +8,19 @@ export interface CodingExtensionBundle {
 }
 
 export function createCodingExtension(
-  skillRuntime: SkillRuntime,
-  interaction: InteractionSurfacePort,
-  cwd = process.cwd(),
+  manifest: AgentManifest,
+  tools: readonly AgentToolDefinition[],
+  buildSystemPrompt: () => Promise<string>,
 ): CodingExtensionBundle {
-  const contributors: SystemPromptContributor[] = [
-    ...defaultContributors,
-    createSkillsContributor(skillRuntime.registry),
-  ];
-  const buildSystemPrompt = async () => {
-    const dynamic = await Promise.all(contributors.map((contributor) => contributor(cwd)));
-    return composeStableSystemPrompt(CODING_SYSTEM_PROMPT, dynamic);
-  };
-  const tools = [
-    ...localCodingToolset,
-    ...webResearchToolset,
-    createRequestUserInputTool(interaction),
-    skillRuntime.tool(),
-  ];
   return {
     buildSystemPrompt,
     extension: {
-      manifest: { id: "coding", version: "0.0.1", apiVersion: 1 },
+      manifest: { id: manifest.metadata.id, version: "0.0.1", apiVersion: 1 },
       contributions: {
-        tools,
+        tools: [...tools],
         agents: [
           {
-            definition: createCodingAgent(buildSystemPrompt),
+            definition: createCodingAgent(manifest, buildSystemPrompt),
             tools: { include: tools.map((tool) => tool.name) },
           },
         ],

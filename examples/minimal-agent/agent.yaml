@@ -1,0 +1,18 @@
+# yaml-language-server: $schema=../../schemas/agent-manifest-v2.schema.json
+# Recipe owns selection and order; the Blueprint owns implementations.
+apiVersion: omni-agent/v2
+kind: Agent
+metadata:
+  id: minimal-example
+  displayName: Minimal Example Agent
+runtime:
+  blueprintApiVersion: 2
+description: A minimal executable example for building an Omni Agent package.
+composition:
+  prompt:
+    profile: minimal.default
+    contributors: []
+  tools:
+    sequence:
+      - tool: minimal.echo
+  capabilities: {}

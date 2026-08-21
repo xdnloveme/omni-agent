@@ -273,8 +273,8 @@ usage. Targeted loop protection remains active in either case.
 
 ## Schema Validation
 
-`ToolInputValidator` is the only host-side tool JSON Schema validator. `AgentFactory`
-creates one instance and shares it between `ToolRegistry` definition admission and
+`ToolInputValidator` is the only host-side tool JSON Schema validator. `AgentRuntimeAssembler`
+creates one instance per assembled Agent and shares it between `ToolRegistry` definition admission and
 `ToolCallCoordinator` runtime validation, so the Ajv validator is compiled once per
 schema object.
 
