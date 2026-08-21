@@ -40,6 +40,14 @@ describe("parseCliArgs", () => {
         json: true,
       },
     ],
+    [
+      ["agent", "create", "release-notes", "./release-notes-agent"],
+      {
+        kind: "agent-create",
+        agentId: "release-notes",
+        directory: "./release-notes-agent",
+      },
+    ],
     [["--help"], { kind: "help" }],
     [["-h"], { kind: "help" }],
     [["--version"], { kind: "version" }],
@@ -59,6 +67,9 @@ describe("parseCliArgs", () => {
     ["agent", "plan", "../coding"],
     ["agent", "plan", "coding", "--json", "--json"],
     ["agent", "plan", "coding", "extra"],
+    ["agent", "create", "../coding", "./coding"],
+    ["agent", "create", "coding"],
+    ["agent", "create", "coding", "./coding", "extra"],
   ])("rejects invalid input %j as a usage error", (...input) => {
     expect(() => parseCliArgs(input)).toThrow(CliUsageError);
   });

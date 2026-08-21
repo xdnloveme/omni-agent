@@ -12,6 +12,8 @@ Usage:
                                Validate the Agent recipe without building runtime resources
   omni agent plan <agent> [--json]
                                Show the resolved Prompt, Tool and Capability composition
+  omni agent create <agent-id> <directory>
+                               Create a minimal Manifest-first Agent package
   omni doctor                  Check local runtime readiness
   omni --help                  Show this help
   omni --version               Show the CLI version

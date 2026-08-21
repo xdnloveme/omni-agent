@@ -1,8 +1,18 @@
 # 五分钟构建一个 Agent
 
-本教程使用可执行的 [`examples/minimal-agent`](../examples/minimal-agent) 说明 Omni Agent 的
-Builder Harness。示例没有模型和凭证依赖；它会真实执行 Manifest 解析、Descriptor 验证、
-Composition Planning 和 Blueprint 构建。
+创建自己的包，推荐先运行正式脚手架：
+
+```bash
+omni agent create release-notes ./release-notes-agent
+```
+
+它只生成一个最小单元：一个 Manifest v2 Recipe、一个 Prompt Profile、一个 `echo_text` Tool、
+一个 Blueprint 和必要的包元数据。目标目录必须不存在，命令不会覆盖已有文件；它也不会创建
+“read-only”等业务模板、修改 Workspace 配置或注册第二条 Agent Factory 路径。
+
+本教程继续使用仓库内可执行的 [`examples/minimal-agent`](../examples/minimal-agent) 说明 Omni
+Agent 的 Builder Harness。示例没有模型和凭证依赖；它会真实执行 Manifest 解析、Descriptor
+验证、Composition Planning 和 Blueprint 构建。
 
 ## 1. 运行完整装配链
 
@@ -112,6 +122,10 @@ pnpm dev -- agent plan coding --json
 编辑器通过 [`schemas/agent-manifest-v2.schema.json`](../schemas/agent-manifest-v2.schema.json)
 提供 YAML 补全和结构诊断。Schema 是编辑器辅助合同；Runtime 的安全 Parser/Validator 仍是
 执行时唯一权威。自动化测试使用相同的有效和无效样例防止二者漂移。
+
+脚手架生成的独立包可按其 README 执行 `npm install`、类型检查和构建，再安装到
+`~/.omni-agent/agents`。`agent validate` 与 `agent plan` 总是解析已安装包，因此修改本地源码后
+需要重新构建、重新安装，并启动新的 Agent 进程；这不是运行中热替换。
 
 ## 完成标准
 

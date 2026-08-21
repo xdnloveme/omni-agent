@@ -11,6 +11,11 @@ export type CliCommand =
       readonly agentId: string;
       readonly json: boolean;
     }
+  | {
+      readonly kind: "agent-create";
+      readonly agentId: string;
+      readonly directory: string;
+    }
   | { readonly kind: "help" }
   | { readonly kind: "version" };
 
@@ -31,7 +36,7 @@ export function parseCliArgs(args: readonly string[]): CliCommand {
     return noTrailingArgs(positional, { kind: "version" });
   }
   if (command === "doctor") return noTrailingArgs(positional, { kind: "doctor" });
-  if (command === "agent") return agentInspectionCommand(positional.slice(1));
+  if (command === "agent") return agentCommand(positional.slice(1));
   if (command === "trace") {
     const action = positional[1];
     const agentId = positional[2];
@@ -65,7 +70,15 @@ export function parseCliArgs(args: readonly string[]): CliCommand {
   return runCommand(agentId, traceArguments.length === 1);
 }
 
-function agentInspectionCommand(args: readonly string[]): CliCommand {
+function agentCommand(args: readonly string[]): CliCommand {
+  if (args[0] === "create") {
+    const agentId = args[1];
+    if (!agentId || !isAgentId(agentId)) throw new CliUsageError(`Invalid agent id: ${agentId}`);
+    const directory = args[2];
+    if (!directory) throw new CliUsageError("Usage: omni agent create <agent-id> <directory>");
+    if (args[3] !== undefined) throw new CliUsageError(`Unexpected argument: ${args[3]}`);
+    return { kind: "agent-create", agentId, directory };
+  }
   const jsonArguments = args.filter((argument) => argument === "--json");
   if (jsonArguments.length > 1) throw new CliUsageError("Duplicate option: --json");
   const values = args.filter((argument) => argument !== "--json");

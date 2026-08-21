@@ -102,6 +102,7 @@ omni
 ```bash
 omni                    # 启动编码 Agent
 omni run [agent-id]     # 启动某个 Agent（默认：coding）
+omni agent create <agent-id> <directory>  # 生成一个最小的 Manifest-first 包
 omni agent describe <agent-id>       # 列出 Agent 包可提供的组件
 omni agent validate <agent-id>       # 不创建运行时资源，只验证 Recipe
 omni agent plan <agent-id> [--json]  # 显示解析后的不可变 Composition
@@ -336,7 +337,17 @@ const myTool: AgentToolDefinition = {
 
 ### 打包一个 Agent
 
-建议先运行[五分钟构建教程](docs/build-an-agent-in-five-minutes.md)中的
+无需把包加入当前 monorepo 或改动 Harness，即可生成最小的受支持 Agent Package：
+
+```bash
+omni agent create release-notes ./release-notes-agent
+```
+
+目标目录必须不存在。命令只生成一个 Manifest v2 Recipe、一个 Prompt Profile、一个
+`echo_text` Tool 组件、一个 Blueprint 和包元数据；不提供模板模式、隐藏默认组合或第二条
+Factory 路径。本地安装和验证方式见生成的 README。
+
+然后运行[五分钟构建教程](docs/build-an-agent-in-five-minutes.md)中的
 [`examples/minimal-agent`](examples/minimal-agent)。仓库提供的
 [`agent-manifest-v2.schema.json`](schemas/agent-manifest-v2.schema.json) 可在兼容编辑器中提供
 YAML 补全和即时结构诊断。

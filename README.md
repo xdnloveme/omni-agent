@@ -105,6 +105,7 @@ Contributing to Omni Agent itself, or want to run it without installing? See
 ```bash
 omni                    # start the coding agent
 omni run [agent-id]     # start an agent (default: coding)
+omni agent create <agent-id> <directory>  # generate one minimal Manifest-first package
 omni agent describe <agent-id>       # list the package's available components
 omni agent validate <agent-id>       # validate the recipe without building runtime resources
 omni agent plan <agent-id> [--json]  # show the immutable resolved composition
@@ -361,7 +362,19 @@ inside a tool, and honor `context.signal` wherever work can block.
 
 ### Package an agent
 
-Start with the executable [five-minute tutorial](docs/build-an-agent-in-five-minutes.md) and
+Generate the smallest supported Agent Package without adding it to this monorepo or changing the
+Harness:
+
+```bash
+omni agent create release-notes ./release-notes-agent
+```
+
+The target must not already exist. The command generates one Manifest v2 Recipe, one Prompt
+profile, one `echo_text` Tool component, one Blueprint, and package metadata. It has no template
+mode, hidden default composition, or alternate Factory path. See the generated README for local
+installation and validation commands.
+
+Then follow the executable [five-minute tutorial](docs/build-an-agent-in-five-minutes.md) and
 [`examples/minimal-agent`](examples/minimal-agent). The checked-in
 [`agent-manifest-v2.schema.json`](schemas/agent-manifest-v2.schema.json) provides YAML completion
 and immediate structural feedback in compatible editors.

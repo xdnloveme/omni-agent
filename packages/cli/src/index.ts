@@ -45,6 +45,10 @@ export async function main(
       const { runAgentInspection } = await import("./agent-inspection/controller");
       return runAgentInspection(command.action, command.agentId, command.json, host);
     }
+    case "agent-create": {
+      const { runAgentScaffold } = await import("./agent-scaffold/controller");
+      return runAgentScaffold(command.agentId, command.directory, host);
+    }
     case "trace-preview": {
       await host.runTracePreview(command.agentId);
       return { exitCode: 0 };

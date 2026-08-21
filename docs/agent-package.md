@@ -3,6 +3,16 @@
 第一次创建 Agent，请先完成[五分钟构建教程](build-an-agent-in-five-minutes.md)，并运行仓库中的
 [`examples/minimal-agent`](../examples/minimal-agent)。
 
+正式开发者入口是：
+
+```bash
+omni agent create <agent-id> <directory>
+```
+
+脚手架只生成当前唯一的 Manifest-first 包结构，不提供会形成第二套架构的模板模式。目标目录
+必须不存在；创建失败会清理本次新建的目录，绝不覆盖已有 Agent。生成物只是普通 Agent
+Package，后续仍由同一个 Loader、Planner、Blueprint 和 Assembler 主链处理。
+
 An Agent package consists of one declarative Manifest and one executable Blueprint:
 
 ```text

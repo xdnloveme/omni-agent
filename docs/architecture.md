@@ -248,6 +248,13 @@ separately in `AgentAssemblyEnvironment` and are consumed only by the Assembler.
 mechanics remain behind `AgentFactory`; the data-only `AgentCompositionPlanner` is exported only so
 CLI inspection and package-author tooling can validate composition without creating resources.
 
+`omni agent create` is a CLI-owned code-generation use case, not another Runtime construction
+path. Its pure template renderer emits the smallest supported Manifest-first Package; its
+filesystem transaction creates only a previously absent target and cleans up a failed write. The
+generated Package subsequently enters the same Loader, Planner, Blueprint, and Assembler chain as
+every other external Agent. The scaffolder must not register an Agent, edit Workspace configuration,
+invent template-specific capabilities, or introduce a second Factory API.
+
 Agent packages keep each component's data-only Descriptor beside its package-private Factory. The
 public Blueprint Descriptor is derived from that Catalog; default selection remains exclusively in
 `agent.yaml`. Bundles are explicit ordered lists, never discovery rules. CLI inspection reuses the
