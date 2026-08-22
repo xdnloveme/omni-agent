@@ -1,4 +1,3 @@
-import path from "node:path";
 import {
   createAbortError,
   isAbortError,
@@ -6,6 +5,7 @@ import {
   type ToolResult,
 } from "@omni-agent/core";
 import { runHostProcess } from "../process/host-process-runner";
+import { resolveAuthorizedOperationPath } from "../security/path/authorized-operation-path";
 import { formatFileSize, loadFileSizes } from "./file-metadata";
 import { createSearchPathPermission } from "./permission/create-search-path-permission";
 import { createSearchPathPreflight } from "./permission/create-search-path-preflight";
@@ -81,16 +81,16 @@ export const grepTool: AgentToolDefinition = {
       return { content: [{ type: "text", text: "Error: regex is required" }], isError: true };
     }
 
-    const searchPath = params.search_path
-      ? path.resolve(context.cwd, params.search_path as string)
-      : context.cwd;
     const maxResults = (params.max_results as number | undefined) ?? DEFAULT_MAX_RESULTS;
     const args = ["--json", "--line-number", "--column", "--color=never"];
     if (params.glob) args.push(`--glob=${params.glob as string}`);
     if (params.ignore_case) args.push("--ignore-case");
-    args.push("--", regex, searchPath);
 
     try {
+      const searchPath = params.search_path
+        ? await resolveAuthorizedOperationPath(params.search_path as string, context.cwd)
+        : context.cwd;
+      args.push("--", regex, searchPath);
       const processResult = await runHostProcess({
         command: "rg",
         args,

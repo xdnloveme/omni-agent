@@ -1,4 +1,3 @@
-import path from "node:path";
 import fg from "fast-glob";
 import {
   createAbortError,
@@ -7,6 +6,7 @@ import {
   type ToolResult,
 } from "@omni-agent/core";
 import { formatFileSize, loadFileSizes } from "./file-metadata";
+import { resolveAuthorizedOperationPath } from "../security/path/authorized-operation-path";
 import { createSearchPathPermission } from "./permission/create-search-path-permission";
 import { createSearchPathPreflight } from "./permission/create-search-path-preflight";
 import type { GlobResultMeta } from "./types";
@@ -76,13 +76,12 @@ export const globTool: AgentToolDefinition = {
       };
     }
 
-    const cwd = params.dir_path
-      ? path.resolve(context.cwd, params.dir_path as string)
-      : context.cwd;
-
     const exclude = (params.exclude as string[] | undefined) ?? [];
 
     try {
+      const cwd = params.dir_path
+        ? await resolveAuthorizedOperationPath(params.dir_path as string, context.cwd)
+        : context.cwd;
       const entries = await fg(pattern, {
         cwd,
         ignore: exclude,

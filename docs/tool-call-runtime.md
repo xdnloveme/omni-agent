@@ -99,6 +99,7 @@ type ToolAuthorizationDescriptor =
     }
   | {
       kind: "dynamic";
+      bindInput?(input, context): Record<string, unknown> | Promise<Record<string, unknown>>;
       assess(input, context): PermissionAssessment | Promise<PermissionAssessment>;
       hiddenInputKeys?: readonly string[];
     };
@@ -299,8 +300,11 @@ authorization.kind == static or dynamic
 ```
 
 `AuthorizedToolCall` is a Core-branded immutable snapshot. The invocation runner only
-accepts this type; ordinary model input cannot be passed to it. Dynamic assessors
-receive an isolated clone so they cannot mutate the execution snapshot.
+accepts this type; ordinary model input cannot be passed to it. A dynamic descriptor may use
+its domain-owned `bindInput` hook to replace unstable input references with the exact value that
+must be assessed and executed. Core invokes the hook on an isolated clone before creating the
+snapshot. The assessor then receives another clone of that bound snapshot, so neither hook can
+mutate caller input or the execution value. Static and trusted descriptors cannot bind input.
 
 Current first-party routing:
 
@@ -436,8 +440,12 @@ Bash. Sensitive writes, virtual system paths, and devices never receive persiste
 keeps `.env`, credential directories, system paths, and symlink targets subject to fresh
 sensitive-path classification before any stored grant is considered.
 
-Assessment and execution must use the same injected `cwd`. Tool implementations must
-not resolve operation paths with their own `process.cwd()`.
+Assessment and execution must use the same injected `cwd`. File and search descriptors bind an
+explicit path to its canonical target before assessment; that bound target, rather than the
+original alias, is stored in `AuthorizedToolCall` and consumed by execution. Execution canonicalizes
+the bound target again and fails when it now resolves elsewhere. The shared binder and verifier
+remain tools-layer path semantics; Core only transports the immutable bound value. Tool
+implementations must not resolve operation paths with their own `process.cwd()`.
 
 Web assessors classify HTTP and HTTPS reads as `external_read`. Invalid URLs and
 non-HTTP(S) protocols are hard denied. Bash `curl` and `wget` remain command execution
@@ -598,9 +606,11 @@ Direct writing intentionally does not use a temporary file, rename, fsync, backu
 automatic rollback. `fs.writeFile` is not an atomic commit: disk errors, process death,
 or power loss may leave an existing target truncated or partially changed. A rejected
 write reports `write_failed` with `targetState: "unknown"`; callers must read the file
-again. Snapshot checks and the canonical-path/inode mutex reduce cooperative races but
-do not eliminate external-process or symlink TOCTOU races. The permission layer is not
-an OS sandbox, and network filesystems may provide weaker semantics.
+again. Binding prevents an approved path alias from redirecting execution to a different target,
+and execution revalidates the bound canonical path before I/O. Snapshot checks and the
+canonical-path/inode mutex further reduce cooperative races. These checks do not provide an atomic
+OS capability: an external process may still change filesystem state after the final validation,
+and network filesystems may provide weaker semantics. The permission layer is not an OS sandbox.
 
 The in-process file mutex always acquires a canonical path key and additionally
 acquires an inode key for an existing target. The stable path key preserves exclusion

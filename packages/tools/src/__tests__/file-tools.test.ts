@@ -5,7 +5,7 @@ import os from "node:os";
 import { fileReadTool } from "../filesystem/file-read";
 import { fileEditTool } from "../filesystem/file-edit";
 import { fileWriteTool } from "../filesystem/file-write";
-import { invokeToolImplementation } from "./tool-test-helper";
+import { invokeToolImplementation, invokeUnboundToolImplementation } from "./tool-test-helper";
 import { fileMutex } from "../filesystem/file-mutex";
 import { writeDirectFile } from "../filesystem/io/direct-file-writer";
 import {
@@ -179,7 +179,7 @@ describe("fileReadTool", () => {
   });
 
   it("should return error when file_path is missing", async () => {
-    const result = await invokeToolImplementation(fileReadTool, {});
+    const result = await invokeUnboundToolImplementation(fileReadTool, {});
 
     expect(result).toMatchObject({ isError: true, meta: { code: "read_failed" } });
   });
@@ -342,7 +342,7 @@ describe("fileWriteTool", () => {
   });
 
   it("should error when file_path is missing", async () => {
-    const result = await invokeToolImplementation(fileWriteTool, { content: "x" });
+    const result = await invokeUnboundToolImplementation(fileWriteTool, { content: "x" });
 
     expect(result).toMatchObject({
       isError: true,

@@ -5,7 +5,7 @@ import {
   type ToolResult,
 } from "@omni-agent/core";
 import { fileMutex } from "./file-mutex";
-import { resolveCanonicalOperationPath } from "./io/canonical-operation-path";
+import { resolveAuthorizedOperationPath } from "../security/path/authorized-operation-path";
 import { FileToolError, fileToolErrorResult } from "./io/file-errors";
 import { MAX_FILE_READ_OUTPUT_BYTES, readTextPage } from "./io/streaming-line-reader";
 import { createFilePathPermission } from "./permission/create-file-path-permission";
@@ -95,7 +95,7 @@ export const fileReadTool: AgentToolDefinition = {
     }
 
     try {
-      const path = await resolveCanonicalOperationPath(params.file_path as string, context.cwd);
+      const path = await resolveAuthorizedOperationPath(params.file_path as string, context.cwd);
       const result = await fileMutex.withLock(path, context.signal, () =>
         readTextPage({
           path,

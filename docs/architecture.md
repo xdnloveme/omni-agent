@@ -809,6 +809,12 @@ silently includes `.env`, credential locations, system paths, or symlink targets
 into those locations. Core treats filesystem scope keys as opaque alternatives and does not
 parse paths.
 
+Filesystem and search authorization also bind explicit path input to its canonical target before
+Core creates the immutable authorized call. Assessment and execution therefore consume the same
+target value, and the tools layer rejects execution when that bound target has since resolved
+elsewhere. Core owns only the generic dynamic-input binding seam; canonical path semantics remain
+with the tools package.
+
 Filesystem and search tools use optional domain preflight before authorization to reject
 missing, dangling, special, or wrong-kind targets without presenting an unusable approval.
 The execution implementation repeats the target-state check after approval to protect the

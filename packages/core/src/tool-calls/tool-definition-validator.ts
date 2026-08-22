@@ -177,6 +177,9 @@ function validateAuthorization(tool: AgentToolDefinition): void {
     if (typeof descriptor.assess !== "function") {
       throw new Error(`Dynamic permission assessor is required: ${tool.name}`);
     }
+    if (descriptor.bindInput !== undefined && typeof descriptor.bindInput !== "function") {
+      throw new Error(`Dynamic authorization input binder is invalid: ${tool.name}`);
+    }
   } else {
     throw new Error(`Invalid authorization descriptor: ${tool.name}`);
   }

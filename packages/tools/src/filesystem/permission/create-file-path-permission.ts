@@ -1,4 +1,5 @@
 import type { ToolPermissionDescriptor } from "@omni-agent/core";
+import { bindCanonicalPathInput } from "../../security/path/authorized-operation-path";
 import { assessFilePath, type FileAccess } from "./file-path-assessor";
 
 export interface FilePathPermissionOptions {
@@ -11,6 +12,7 @@ export function createFilePathPermission(
 ): ToolPermissionDescriptor {
   return {
     kind: "dynamic",
+    bindInput: (input, context) => bindCanonicalPathInput(input, options.parameter, context.cwd),
     async assess(input, context) {
       const value = input[options.parameter];
       if (typeof value !== "string") throw new Error(`${options.parameter} must be a string`);

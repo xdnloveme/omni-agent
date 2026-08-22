@@ -66,6 +66,10 @@ export type ToolPermissionDescriptor = (
   | { kind: "static"; risk: "read" | "execute"; reason: string }
   | {
       kind: "dynamic";
+      bindInput?(
+        input: Record<string, unknown>,
+        context: PermissionContext,
+      ): Record<string, unknown> | Promise<Record<string, unknown>>;
       assess(
         input: Record<string, unknown>,
         context: PermissionContext,

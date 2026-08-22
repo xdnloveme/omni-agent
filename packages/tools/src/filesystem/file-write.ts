@@ -8,7 +8,7 @@ import {
   type ToolResult,
 } from "@omni-agent/core";
 import { fileMutex } from "./file-mutex";
-import { resolveCanonicalOperationPath } from "./io/canonical-operation-path";
+import { resolveAuthorizedOperationPath } from "../security/path/authorized-operation-path";
 import { writeDirectFile } from "./io/direct-file-writer";
 import { FileToolError, fileToolErrorResult } from "./io/file-errors";
 import { createFileSnapshot } from "./io/file-snapshot";
@@ -55,11 +55,11 @@ export const fileWriteTool: AgentToolDefinition = {
       throwIfAborted(context.signal);
       const bytes = encodeTextFile(params.content as string);
       assertFileSize(BigInt(bytes.length), MAX_CONTENT_BYTES);
-      const unresolved = path.resolve(context.cwd, requested);
       throwIfAborted(context.signal);
-      await fs.mkdir(path.dirname(unresolved), { recursive: true });
+      const authorized = await resolveAuthorizedOperationPath(requested, context.cwd);
+      await fs.mkdir(path.dirname(authorized), { recursive: true });
       throwIfAborted(context.signal);
-      const canonical = await resolveCanonicalOperationPath(requested, context.cwd);
+      const canonical = await resolveAuthorizedOperationPath(authorized, context.cwd);
       const result = await fileMutex.withLock(canonical, context.signal, async () => {
         const expected = await captureExpectedTarget(canonical);
         return writeDirectFile({

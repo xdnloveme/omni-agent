@@ -6,7 +6,7 @@ import {
   type ToolResult,
 } from "@omni-agent/core";
 import { fileMutex } from "./file-mutex";
-import { resolveCanonicalOperationPath } from "./io/canonical-operation-path";
+import { resolveAuthorizedOperationPath } from "../security/path/authorized-operation-path";
 import { writeDirectFile } from "./io/direct-file-writer";
 import { FileToolError, fileToolErrorResult } from "./io/file-errors";
 import { createFileSnapshot, snapshotsEqual } from "./io/file-snapshot";
@@ -58,7 +58,7 @@ export const fileEditTool: AgentToolDefinition = {
       const newString = params.new_string as string;
       assertTextValue(oldString, MAX_REPLACEMENT_LENGTH);
       assertTextValue(newString, MAX_REPLACEMENT_LENGTH);
-      const path = await resolveCanonicalOperationPath(params.file_path as string, context.cwd);
+      const path = await resolveAuthorizedOperationPath(params.file_path as string, context.cwd);
       const result = await fileMutex.withLock(path, context.signal, async () => {
         const loaded = await loadStableText(path, context.signal);
         if (oldString === newString) {

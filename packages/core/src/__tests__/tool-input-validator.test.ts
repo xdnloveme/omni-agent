@@ -90,4 +90,24 @@ describe("ToolDefinitionValidator", () => {
       "Tool invocation resource must reference a string",
     );
   });
+
+  it("rejects a non-function dynamic authorization input binder", () => {
+    const invalid = tool();
+    invalid.authorization = {
+      kind: "dynamic",
+      bindInput: "invalid",
+      assess: () => ({
+        risk: "read",
+        operationClass: "routine",
+        enforcement: "policy",
+        reasons: ["read"],
+        presentation: { title: "Read", reason: "read" },
+        ruleIds: [],
+      }),
+    } as never;
+
+    expect(() => new ToolDefinitionValidator().validate(invalid)).toThrow(
+      "Dynamic authorization input binder is invalid",
+    );
+  });
 });
