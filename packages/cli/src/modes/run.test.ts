@@ -67,6 +67,9 @@ import { runAgentMode } from "./run";
 describe("Agent mode conversation lifecycle", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    fixture.createAgent.mockResolvedValue(fixture.instance);
+    fixture.instance.dispose.mockResolvedValue(undefined);
+    fixture.modelService.dispose.mockResolvedValue(undefined);
     fixture.application.currentSessionSnapshot.mockReturnValue({
       sessionId: "session-1",
       messages: [],
@@ -85,16 +88,7 @@ describe("Agent mode conversation lifecycle", () => {
       callbacks: () => ({}),
       cancelPending: vi.fn(),
     }));
-    const consoleView = {
-      interactionSurface: { request: vi.fn() },
-      approvalBroker: { request: vi.fn() },
-      commandInteraction: {
-        pause: vi.fn(),
-        resume: vi.fn(),
-        select: vi.fn(),
-        line: vi.fn(),
-        spacer: vi.fn(),
-      },
+    const consoleView = createConsole({
       bindHandlers(value) {
         handlers = value;
       },
@@ -103,42 +97,10 @@ describe("Agent mode conversation lifecycle", () => {
         await handlers?.onSubmit("second turn");
         return { kind: "completed" as const };
       },
-      terminate: vi.fn(),
-      dispose: vi.fn(),
-      setCommandCatalog: vi.fn(),
-      showWelcome: vi.fn(),
-      showSessionHistory: vi.fn(),
-      clearSessionHistory: vi.fn(),
       appendUserMessage,
-      writeNotice: vi.fn(),
-      setStatus: vi.fn(),
-      setActivity: vi.fn(),
-      presentSkillRead: vi.fn(),
       createRunPresentation,
-    } satisfies AgentConsolePort;
-    const createAgentConsole = vi.fn((_options: { workspaceRoot: string }) => consoleView);
-    const host = {
-      runtime: {
-        cwd: "/workspace",
-        cliEntry: import.meta.filename,
-        globalDirectory: "/global",
-        agentPackagesDirectory: "/agents",
-        nodeVersion: "22.19.0",
-      },
-      output: { stdout: vi.fn(), stderr: vi.fn() },
-      createAgentConsole,
-      createOnboardingInteraction: vi.fn(),
-      runTracePreview: vi.fn(),
-      confirm: vi.fn(),
-      text: {
-        heading: String,
-        accent: String,
-        muted: String,
-        success: String,
-        warning: String,
-        error: String,
-      },
-    } satisfies CliHostServices;
+    });
+    const { host, createAgentConsole } = createHost(consoleView);
 
     await expect(runAgentMode("coding", host)).resolves.toEqual({ kind: "completed" });
 
@@ -159,4 +121,126 @@ describe("Agent mode conversation lifecycle", () => {
     expect(fixture.instance.dispose).toHaveBeenCalledOnce();
     expect(fixture.modelService.dispose).toHaveBeenCalledOnce();
   });
+
+  it("preserves the operation error when conversation cleanup also fails", async () => {
+    const operationError = new Error("console failed");
+    const cleanupError = new Error("instance cleanup failed");
+    fixture.instance.dispose.mockRejectedValueOnce(cleanupError);
+    const consoleView = createConsole({
+      start: vi.fn().mockRejectedValue(operationError),
+    });
+    const { host } = createHost(consoleView);
+
+    const failure = await runAgentMode("coding", host).catch((error) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure).toMatchObject({
+      operationError,
+      cleanupFailures: [{ resource: "agent_instance", error: cleanupError }],
+      cause: operationError,
+    });
+    expect(consoleView.dispose).toHaveBeenCalledOnce();
+    expect(fixture.modelService.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("rethrows the original operation error when cleanup succeeds", async () => {
+    const operationError = new Error("console failed");
+    const consoleView = createConsole({
+      start: vi.fn().mockRejectedValue(operationError),
+    });
+    const { host } = createHost(consoleView);
+
+    await expect(runAgentMode("coding", host)).rejects.toBe(operationError);
+    expect(fixture.instance.dispose).toHaveBeenCalledOnce();
+    expect(consoleView.dispose).toHaveBeenCalledOnce();
+    expect(fixture.modelService.dispose).toHaveBeenCalledOnce();
+  });
+
+  it("retains nested conversation failures when ModelService cleanup also fails", async () => {
+    const operationError = new Error("console failed");
+    const instanceCleanupError = new Error("instance cleanup failed");
+    const modelCleanupError = new Error("model cleanup failed");
+    fixture.instance.dispose.mockRejectedValueOnce(instanceCleanupError);
+    fixture.modelService.dispose.mockRejectedValueOnce(modelCleanupError);
+    const consoleView = createConsole({
+      start: vi.fn().mockRejectedValue(operationError),
+    });
+    const { host } = createHost(consoleView);
+
+    const failure = await runAgentMode("coding", host).catch((error) => error);
+
+    expect(failure).toBeInstanceOf(AggregateError);
+    expect(failure).toMatchObject({
+      cleanupFailures: [{ resource: "model_service", error: modelCleanupError }],
+      operationError: {
+        operationError,
+        cleanupFailures: [{ resource: "agent_instance", error: instanceCleanupError }],
+        cause: operationError,
+      },
+    });
+  });
 });
+
+function createConsole(overrides: Partial<AgentConsolePort>): AgentConsolePort {
+  return {
+    interactionSurface: { request: vi.fn() },
+    approvalBroker: { request: vi.fn() },
+    commandInteraction: {
+      pause: vi.fn(),
+      resume: vi.fn(),
+      select: vi.fn(),
+      line: vi.fn(),
+      spacer: vi.fn(),
+    },
+    bindHandlers: vi.fn(),
+    start: vi.fn(async () => ({ kind: "completed" as const })),
+    terminate: vi.fn(),
+    dispose: vi.fn(),
+    setCommandCatalog: vi.fn(),
+    showWelcome: vi.fn(),
+    showSessionHistory: vi.fn(),
+    clearSessionHistory: vi.fn(),
+    appendUserMessage: vi.fn(),
+    writeNotice: vi.fn(),
+    setStatus: vi.fn(),
+    setActivity: vi.fn(),
+    presentSkillRead: vi.fn(),
+    createRunPresentation: vi.fn(() => ({
+      callbacks: () => ({}),
+      cancelPending: vi.fn(),
+    })),
+    ...overrides,
+  };
+}
+
+function createHost(consoleView: AgentConsolePort): {
+  host: CliHostServices;
+  createAgentConsole: ReturnType<typeof vi.fn>;
+} {
+  const createAgentConsole = vi.fn((_options: { workspaceRoot: string }) => consoleView);
+  return {
+    createAgentConsole,
+    host: {
+      runtime: {
+        cwd: "/workspace",
+        cliEntry: import.meta.filename,
+        globalDirectory: "/global",
+        agentPackagesDirectory: "/agents",
+        nodeVersion: "22.19.0",
+      },
+      output: { stdout: vi.fn(), stderr: vi.fn() },
+      createAgentConsole,
+      createOnboardingInteraction: vi.fn(),
+      runTracePreview: vi.fn(),
+      confirm: vi.fn(),
+      text: {
+        heading: String,
+        accent: String,
+        muted: String,
+        success: String,
+        warning: String,
+        error: String,
+      },
+    },
+  };
+}

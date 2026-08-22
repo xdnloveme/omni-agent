@@ -40,7 +40,7 @@ export async function runAgentMode(
     cwd: workspace.root,
     globalDirectory: host.runtime.globalDirectory,
   });
-  try {
+  return runAgentModeScope(async () => {
     let configured = false;
     if (selection) {
       try {
@@ -63,7 +63,7 @@ export async function runAgentMode(
     const consoleView = host.createAgentConsole({ workspaceRoot: workspace.root });
     const activeRun = new ActiveAgentRun();
     let instance: Awaited<ReturnType<AgentFactory["create"]>> | undefined;
-    try {
+    return runAgentModeScope(async () => {
       instance = await new AgentFactory({
         workspace,
         globalDirectory: host.runtime.globalDirectory,
@@ -203,24 +203,67 @@ export async function runAgentMode(
       const termination = await consoleView.start();
       await activeRun.close();
       return termination;
-    } finally {
-      const failures: unknown[] = [];
-      for (const cleanup of [
-        () => activeRun.close(),
-        () => instance?.dispose(),
-        () => consoleView.dispose(),
-      ]) {
-        try {
-          await cleanup();
-        } catch (error) {
-          failures.push(error);
-        }
-      }
-      if (failures.length > 0) {
-        throw new AggregateError(failures, "Failed to close Agent conversation resources");
-      }
-    }
-  } finally {
-    await modelService.dispose();
+    }, [
+      { resource: "active_run", cleanup: () => activeRun.close() },
+      { resource: "agent_instance", cleanup: () => instance?.dispose() },
+      { resource: "console", cleanup: () => consoleView.dispose() },
+    ]);
+  }, [{ resource: "model_service", cleanup: () => modelService.dispose() }]);
+}
+
+interface AgentModeCleanupFailure {
+  readonly resource: string;
+  readonly error: unknown;
+}
+
+class AgentModeScopeError extends AggregateError {
+  constructor(
+    readonly operationError: unknown | undefined,
+    readonly cleanupFailures: readonly AgentModeCleanupFailure[],
+  ) {
+    super(
+      [
+        ...(operationError === undefined ? [] : [operationError]),
+        ...cleanupFailures.map(({ error }) => error),
+      ],
+      operationError === undefined
+        ? "Failed to close Agent mode resources"
+        : "Agent mode operation and cleanup failed",
+      operationError === undefined ? undefined : { cause: operationError },
+    );
+    this.name = "AgentModeScopeError";
   }
+}
+
+async function runAgentModeScope<T>(
+  operation: () => Promise<T>,
+  resources: readonly {
+    readonly resource: string;
+    readonly cleanup: () => void | Promise<void> | undefined;
+  }[],
+): Promise<T> {
+  let result: T | undefined;
+  let operationError: unknown;
+  let operationFailed = false;
+  try {
+    result = await operation();
+  } catch (error) {
+    operationFailed = true;
+    operationError = error;
+  }
+
+  const cleanupFailures: AgentModeCleanupFailure[] = [];
+  for (const resource of resources) {
+    try {
+      await resource.cleanup();
+    } catch (error) {
+      cleanupFailures.push({ resource: resource.resource, error });
+    }
+  }
+
+  if (cleanupFailures.length > 0) {
+    throw new AgentModeScopeError(operationFailed ? operationError : undefined, cleanupFailures);
+  }
+  if (operationFailed) throw operationError;
+  return result as T;
 }
