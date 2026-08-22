@@ -277,6 +277,9 @@ Failure rolls all acquired resources back in reverse order; normal ownership tra
 identify the Agent and failing stage while retaining the original cause. Rollback and application
 disposal errors additionally identify each resource whose cleanup failed. Sources may discover and
 load extensions, but only `ExtensionManager` may register runtime contributions.
+`ExtensionManager` also completes every fallible Provider and Extension cleanup operation even when
+an earlier cleanup fails. Activation rollback retains the activation error as its cause and reports
+all cleanup failures by resource; normal unregistration uses the same cleanup semantics.
 
 `ExtensionSourceLoader` is an independent Assembly Source Port, not a Host Runtime capability.
 Source adapters translate ordered source references into candidates and diagnostics; they cannot

@@ -479,8 +479,8 @@ interface VendorPlugin {
 ## 特性
 
 **扩展系统。** `AgentExtension` 可贡献 Agent、工具、命令、运行时中间件、上下文中间件、上下文策略阶段
-以及模型 Vendor 插件，注册与回滚都是原子的。可选的本地扩展失败只会产生诊断信息，不会阻止默认 Agent
-启动。
+以及模型 Vendor 插件。所有贡献在注册前完成校验；激活失败和正常注销都按逆序清理，单项失败不会阻断后续
+清理，并按资源报告全部清理失败。可选的本地扩展失败只会产生诊断信息，不会阻止默认 Agent 启动。
 
 **工具授权管线。** 每个工具都必须显式声明 `authorization` 策略（`trusted` / `static` / `dynamic`）、
 彼此独立的 `execution` 策略（`host` / `sandbox_eligible`）以及超时策略（`none` / `fixed` / 绑定 schema

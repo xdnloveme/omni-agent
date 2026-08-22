@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { AgentExtension } from "../extensions/types";
 import {
   ExtensionActivationRollbackError,
+  ExtensionCleanupError,
   ExtensionManager,
 } from "../extensions/extension-manager";
 import {
@@ -37,6 +38,25 @@ function extension(id: string, activate?: () => void): AgentExtension {
     },
     activate,
   };
+}
+
+function vendor(id: string) {
+  return defineVendor({
+    id,
+    displayName: id,
+    connections: [
+      compatibleConnection({
+        id: "default",
+        displayName: id,
+        providerId: id,
+        providerName: id,
+        baseUrl: `https://${id}.test/v1`,
+        envVars: [`${id.toUpperCase().replaceAll("-", "_")}_API_KEY`],
+        protocol: "openai-completions",
+        models: [{ id: `${id}-model`, contextWindow: 32_000, maxTokens: 4_096 }],
+      }),
+    ],
+  });
 }
 
 describe("ExtensionManager", () => {
@@ -155,8 +175,71 @@ describe("ExtensionManager", () => {
     expect(failure).toMatchObject({
       extensionId: "cleanup-broken",
       activationError: { message: "activation failed" },
-      cleanupError: { message: "cleanup failed" },
+      cleanupFailures: [{ resource: "extension", error: { message: "cleanup failed" } }],
     });
+    expect(manager.list()).toEqual([]);
+  });
+
+  it("attempts every rollback cleanup when provider and extension cleanup fail", async () => {
+    const providerCleanup = new Error("provider cleanup failed");
+    const extensionCleanup = new Error("extension cleanup failed");
+    const unregisterProvider = vi.fn(async (providerId: string) => {
+      if (providerId === "vendor.cleanup-second") throw providerCleanup;
+    });
+    const providers = {
+      register: vi.fn().mockResolvedValue(undefined),
+      unregister: unregisterProvider,
+    } as unknown as import("@omni-agent/models").VendorPluginManager;
+    const manager = new ExtensionManager({ cwd: process.cwd(), modelProviders: providers });
+    const broken = extension("provider-cleanup-broken", () => {
+      throw new Error("activation failed");
+    });
+    broken.contributions.providers = [vendor("cleanup-first"), vendor("cleanup-second")];
+    broken.dispose = vi.fn().mockRejectedValue(extensionCleanup);
+
+    const failure = await manager.register(broken).catch((error) => error);
+
+    expect(failure).toBeInstanceOf(ExtensionActivationRollbackError);
+    expect(failure).toMatchObject({
+      extensionId: "provider-cleanup-broken",
+      activationError: { message: "activation failed" },
+      cleanupFailures: [
+        { resource: "provider:vendor.cleanup-second", error: providerCleanup },
+        { resource: "extension", error: extensionCleanup },
+      ],
+    });
+    expect(unregisterProvider.mock.calls).toEqual([
+      ["vendor.cleanup-second"],
+      ["vendor.cleanup-first"],
+    ]);
+    expect(broken.dispose).toHaveBeenCalledOnce();
+    expect(manager.agents.has("provider-cleanup-broken_agent")).toBe(false);
+    expect(manager.tools.has("provider-cleanup-broken_tool")).toBe(false);
+    expect(manager.list()).toEqual([]);
+  });
+
+  it("attempts extension disposal when provider cleanup fails during unregister", async () => {
+    const providerCleanup = new Error("provider cleanup failed");
+    const providers = {
+      register: vi.fn().mockResolvedValue(undefined),
+      unregister: vi.fn().mockRejectedValue(providerCleanup),
+    } as unknown as import("@omni-agent/models").VendorPluginManager;
+    const manager = new ExtensionManager({ cwd: process.cwd(), modelProviders: providers });
+    const contribution = extension("unregister-cleanup-broken");
+    contribution.contributions.providers = [vendor("unregister-vendor")];
+    contribution.dispose = vi.fn().mockResolvedValue(undefined);
+    await manager.register(contribution);
+
+    const failure = await manager.unregister(contribution.manifest.id).catch((error) => error);
+
+    expect(failure).toBeInstanceOf(ExtensionCleanupError);
+    expect(failure).toMatchObject({
+      extensionId: "unregister-cleanup-broken",
+      cleanupFailures: [{ resource: "provider:vendor.unregister-vendor", error: providerCleanup }],
+    });
+    expect(contribution.dispose).toHaveBeenCalledOnce();
+    expect(manager.agents.has("unregister-cleanup-broken_agent")).toBe(false);
+    expect(manager.tools.has("unregister-cleanup-broken_tool")).toBe(false);
     expect(manager.list()).toEqual([]);
   });
 
@@ -271,24 +354,7 @@ describe("ExtensionManager", () => {
     const broken = extension("provider-broken", () => {
       throw new Error("activation failed");
     });
-    broken.contributions.providers = [
-      defineVendor({
-        id: "example-vendor",
-        displayName: "Example",
-        connections: [
-          compatibleConnection({
-            id: "default",
-            displayName: "Example",
-            providerId: "example-vendor",
-            providerName: "Example",
-            baseUrl: "https://example.test/v1",
-            envVars: ["EXAMPLE_API_KEY"],
-            protocol: "openai-completions",
-            models: [{ id: "example-model", contextWindow: 32_000, maxTokens: 4_096 }],
-          }),
-        ],
-      }),
-    ];
+    broken.contributions.providers = [vendor("example-vendor")];
     await expect(manager.register(broken)).rejects.toThrow("activation failed");
     expect(providers.hasProvider("example-vendor")).toBe(false);
     expect(providers.vendors.get("example-vendor")).toBeUndefined();

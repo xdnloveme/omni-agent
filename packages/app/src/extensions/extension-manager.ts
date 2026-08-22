@@ -18,19 +18,53 @@ export interface ExtensionManagerOptions {
   modelProviders?: VendorPluginManager;
 }
 
+export interface ExtensionCleanupFailure {
+  readonly resource: string;
+  readonly error: unknown;
+}
+
 export class ExtensionActivationRollbackError extends AggregateError {
   constructor(
     readonly extensionId: string,
     readonly activationError: unknown,
-    readonly cleanupError: unknown,
+    readonly cleanupFailures: readonly ExtensionCleanupFailure[],
   ) {
     super(
-      [activationError, cleanupError],
+      [activationError, ...cleanupFailures.map(({ error }) => error)],
       `Extension ${extensionId} activation and rollback failed`,
       { cause: activationError },
     );
     this.name = "ExtensionActivationRollbackError";
   }
+}
+
+export class ExtensionCleanupError extends AggregateError {
+  constructor(
+    readonly extensionId: string,
+    readonly cleanupFailures: readonly ExtensionCleanupFailure[],
+  ) {
+    super(
+      cleanupFailures.map(({ error }) => error),
+      `Extension ${extensionId} cleanup failed`,
+    );
+    this.name = "ExtensionCleanupError";
+  }
+}
+
+interface ActiveExtension {
+  readonly extension: AgentExtension;
+  readonly agents: readonly string[];
+  readonly tools: readonly string[];
+  readonly commands: readonly string[];
+  readonly providers: readonly string[];
+  readonly middleware: readonly RuntimeMiddleware[];
+  readonly contextMiddleware: readonly ContextMiddlewarePort[];
+  readonly contextPolicyStages: readonly ContextPolicyStagePort[];
+}
+
+interface ExtensionCleanupOperation {
+  readonly resource: string;
+  readonly cleanup: () => void | Promise<void>;
 }
 
 export class ExtensionManager {
@@ -42,19 +76,7 @@ export class ExtensionManager {
   readonly contextPolicyStages: ContextPolicyStagePort[] = [];
   readonly diagnostics: ExtensionDiagnostic[] = [];
   private readonly cwd: string;
-  private readonly active = new Map<
-    string,
-    {
-      extension: AgentExtension;
-      agents: string[];
-      tools: string[];
-      commands: string[];
-      providers: string[];
-      middleware: RuntimeMiddleware[];
-      contextMiddleware: ContextMiddlewarePort[];
-      contextPolicyStages: ContextPolicyStagePort[];
-    }
-  >();
+  private readonly active = new Map<string, ActiveExtension>();
   private readonly modelProviders?: VendorPluginManager;
   private readonly reservedCommandNames: ReadonlySet<string>;
 
@@ -118,17 +140,22 @@ export class ExtensionManager {
         contextPolicyStages: registeredContextPolicyStages,
       });
     } catch (error) {
-      this.removeContextPolicyStages([...registeredContextPolicyStages].reverse());
-      this.removeContextMiddleware([...registeredContextMiddleware].reverse());
-      this.removeMiddleware([...registeredMiddleware].reverse());
-      for (const name of [...registeredCommands].reverse()) this.commands.unregister(name);
-      for (const id of [...registeredAgents].reverse()) this.agents.unregister(id);
-      for (const name of [...registeredTools].reverse()) this.tools.unregister(name);
-      for (const id of registeredProviders.reverse()) await this.modelProviders?.unregister(id);
-      try {
-        await extension.dispose?.();
-      } catch (cleanupError) {
-        throw new ExtensionActivationRollbackError(extension.manifest.id, error, cleanupError);
+      this.removeLocalContributions({
+        extension,
+        agents: registeredAgents,
+        tools: registeredTools,
+        commands: registeredCommands,
+        providers: registeredProviders,
+        middleware: registeredMiddleware,
+        contextMiddleware: registeredContextMiddleware,
+        contextPolicyStages: registeredContextPolicyStages,
+      });
+      const cleanupFailures = await settleCleanup([
+        ...this.createProviderCleanupOperations(registeredProviders),
+        createExtensionDisposeOperation(extension),
+      ]);
+      if (cleanupFailures.length > 0) {
+        throw new ExtensionActivationRollbackError(extension.manifest.id, error, cleanupFailures);
       }
       throw error;
     }
@@ -159,15 +186,20 @@ export class ExtensionManager {
   async unregister(extensionId: string): Promise<void> {
     const entry = this.active.get(extensionId);
     if (!entry) return;
-    this.removeContextPolicyStages([...entry.contextPolicyStages].reverse());
-    this.removeContextMiddleware([...entry.contextMiddleware].reverse());
-    this.removeMiddleware([...entry.middleware].reverse());
-    for (const name of [...entry.commands].reverse()) this.commands.unregister(name);
-    for (const id of [...entry.agents].reverse()) this.agents.unregister(id);
-    for (const name of [...entry.tools].reverse()) this.tools.unregister(name);
-    for (const id of [...entry.providers].reverse()) await this.modelProviders?.unregister(id);
-    this.active.delete(extensionId);
-    await entry.extension.dispose?.();
+    this.removeLocalContributions(entry);
+    const cleanupFailures = await settleCleanup([
+      ...this.createProviderCleanupOperations(entry.providers),
+      {
+        resource: "active_extension",
+        cleanup: () => {
+          this.active.delete(extensionId);
+        },
+      },
+      createExtensionDisposeOperation(entry.extension),
+    ]);
+    if (cleanupFailures.length > 0) {
+      throw new ExtensionCleanupError(extensionId, cleanupFailures);
+    }
   }
 
   async dispose(): Promise<void> {
@@ -304,6 +336,45 @@ export class ExtensionManager {
       if (index >= 0) this.contextPolicyStages.splice(index, 1);
     }
   }
+
+  private removeLocalContributions(entry: ActiveExtension): void {
+    this.removeContextPolicyStages([...entry.contextPolicyStages].reverse());
+    this.removeContextMiddleware([...entry.contextMiddleware].reverse());
+    this.removeMiddleware([...entry.middleware].reverse());
+    for (const name of [...entry.commands].reverse()) this.commands.unregister(name);
+    for (const id of [...entry.agents].reverse()) this.agents.unregister(id);
+    for (const name of [...entry.tools].reverse()) this.tools.unregister(name);
+  }
+
+  private createProviderCleanupOperations(
+    providerIds: readonly string[],
+  ): ExtensionCleanupOperation[] {
+    return [...providerIds].reverse().map((id) => ({
+      resource: `provider:${id}`,
+      cleanup: () => this.modelProviders?.unregister(id),
+    }));
+  }
+}
+
+function createExtensionDisposeOperation(extension: AgentExtension): ExtensionCleanupOperation {
+  return {
+    resource: "extension",
+    cleanup: () => extension.dispose?.(),
+  };
+}
+
+async function settleCleanup(
+  operations: readonly ExtensionCleanupOperation[],
+): Promise<ExtensionCleanupFailure[]> {
+  const failures: ExtensionCleanupFailure[] = [];
+  for (const operation of operations) {
+    try {
+      await operation.cleanup();
+    } catch (error) {
+      failures.push({ resource: operation.resource, error });
+    }
+  }
+  return failures;
 }
 
 function assertOptionalFunction(value: object, key: string, extensionId: string): void {

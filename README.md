@@ -508,9 +508,10 @@ a genuinely new wire protocol needs a `ModelTransport` implementation.
 ## Features
 
 **Extension system.** `AgentExtension` contributes agents, tools, commands, runtime middleware,
-context middleware, context policy stages, and model vendor plugins, with atomic registration and
-rollback. Optional local extensions that fail produce diagnostics without preventing the default
-agent from starting.
+context middleware, context policy stages, and model vendor plugins. Contributions are validated
+before registration; failed activation and normal unregistration clean up in reverse order, attempt
+every fallible cleanup, and report all cleanup failures by resource. Optional local extensions that
+fail produce diagnostics without preventing the default agent from starting.
 
 **Tool authorization pipeline.** Every tool declares an explicit `authorization` strategy
 (`trusted` / `static` / `dynamic`), an independent `execution` strategy (`host` /

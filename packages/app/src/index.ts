@@ -70,7 +70,12 @@ export type {
 export { AgentRegistry } from "./registry/agent-registry";
 export { ToolRegistry } from "./registry/tool-registry";
 export { CommandRegistry } from "./registry/command-registry";
-export { ExtensionActivationRollbackError, ExtensionManager } from "./extensions/extension-manager";
+export {
+  ExtensionActivationRollbackError,
+  ExtensionCleanupError,
+  ExtensionManager,
+  type ExtensionCleanupFailure,
+} from "./extensions/extension-manager";
 export type {
   AgentContribution,
   AgentExtension,
