@@ -155,7 +155,7 @@ export class AgentRuntimeAssembler {
       stage = "runtime_composition";
       source = "tool-call-runtime";
       const toolCallCoordinator = new ToolCallCoordinator({
-        authorizer: new ToolAuthorizationRouter(permissions.permissionGate),
+        authorizer: new ToolAuthorizationRouter(permissions.permissionGate, toolInputValidator),
         invocationRunner: new ToolInvocationRunner({
           sandboxRunner: environment.host.sandboxRunner,
           onLateSettlement: environment.host.onLateToolSettlement,

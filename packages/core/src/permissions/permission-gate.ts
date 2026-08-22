@@ -1,5 +1,4 @@
 import type { RegisteredAgentTool, ToolResult } from "../types";
-import { assertJsonObject } from "../data";
 import { throwIfAborted, type AuthorizedToolCall } from "../execution";
 import { createAuthorizedToolCall } from "../execution/authorized-tool-call";
 import type {
@@ -63,16 +62,7 @@ export class PermissionGate {
   async authorize(request: PermissionGateRequest): Promise<PermissionGateResult> {
     const startedAt = Date.now();
     throwIfAborted(request.context.signal);
-    const binder =
-      request.tool.authorization.kind === "dynamic"
-        ? request.tool.authorization.bindInput
-        : undefined;
-    const boundInput = binder
-      ? await binder(structuredClone(request.input) as Record<string, unknown>, request.context)
-      : request.input;
-    assertJsonObject(boundInput, `Dynamic authorization input for ${request.tool.name}`);
-    throwIfAborted(request.context.signal);
-    const candidateCall = createAuthorizedToolCall(request.tool, boundInput, {
+    const candidateCall = createAuthorizedToolCall(request.tool, request.input, {
       cwd: request.context.cwd,
       signal: request.context.signal,
     });

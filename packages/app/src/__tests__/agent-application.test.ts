@@ -112,6 +112,7 @@ async function fixture(withTrace = false) {
         assembly: () => assemblyEvidence.snapshot(),
       })
     : undefined;
+  const inputValidator = new ToolInputValidator();
   return {
     app: new AgentApplication({
       extensions,
@@ -124,9 +125,9 @@ async function fixture(withTrace = false) {
       configService,
       permissionService: permissions.service,
       toolCallCoordinator: new ToolCallCoordinator({
-        authorizer: new ToolAuthorizationRouter(permissions.permissionGate),
+        authorizer: new ToolAuthorizationRouter(permissions.permissionGate, inputValidator),
         invocationRunner: new ToolInvocationRunner(),
-        inputValidator: new ToolInputValidator(),
+        inputValidator,
       }),
       contextEngine: new DefaultContextEngine(
         new ContextPolicyPipeline(

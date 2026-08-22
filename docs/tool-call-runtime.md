@@ -302,9 +302,11 @@ authorization.kind == static or dynamic
 `AuthorizedToolCall` is a Core-branded immutable snapshot. The invocation runner only
 accepts this type; ordinary model input cannot be passed to it. A dynamic descriptor may use
 its domain-owned `bindInput` hook to replace unstable input references with the exact value that
-must be assessed and executed. Core invokes the hook on an isolated clone before creating the
-snapshot. The assessor then receives another clone of that bound snapshot, so neither hook can
-mutate caller input or the execution value. Static and trusted descriptors cannot bind input.
+must be assessed and executed. `ToolAuthorizationRouter` invokes the hook on an isolated clone,
+then uses the runtime's shared `ToolInputValidator` to verify the derived input against the same
+Tool Schema before permission assessment or snapshot creation. The assessor receives another clone
+of that bound snapshot, so neither hook can mutate caller input or the execution value. Static and
+trusted descriptors cannot bind input.
 
 Current first-party routing:
 

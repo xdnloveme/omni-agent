@@ -48,62 +48,6 @@ describe("PermissionGate", () => {
     expect(broker.request).toHaveBeenCalledOnce();
   });
 
-  it("binds dynamic authorization input before assessment and execution", async () => {
-    const assess = vi.fn(() => ({
-      risk: "read" as const,
-      operationClass: "routine" as const,
-      enforcement: "policy" as const,
-      reasons: ["read"],
-      ruleIds: [],
-      presentation: { title: "Read", reason: "read" },
-    }));
-    const gate = new PermissionGate({
-      policy: { evaluate: () => ({ outcome: "allow", reason: "read" }) },
-      grants: grants(),
-      broker: { request: vi.fn(async () => "deny" as const) },
-    });
-    const input = { path: "relative.txt" };
-
-    const result = await gate.authorize({
-      tool: tool({
-        kind: "dynamic",
-        bindInput: (value) => ({ ...value, path: "/canonical/relative.txt" }),
-        assess,
-      }),
-      input,
-      context: context(),
-    });
-
-    expect(result).toMatchObject({
-      outcome: "allowed",
-      call: { input: { path: "/canonical/relative.txt" } },
-    });
-    expect(assess).toHaveBeenCalledWith({ path: "/canonical/relative.txt" }, context());
-    expect(input).toEqual({ path: "relative.txt" });
-  });
-
-  it("rejects invalid dynamic authorization binder output", async () => {
-    const gate = new PermissionGate({
-      policy: { evaluate: () => ({ outcome: "allow", reason: "read" }) },
-      grants: grants(),
-      broker: { request: vi.fn(async () => "deny" as const) },
-    });
-
-    await expect(
-      gate.authorize({
-        tool: tool({
-          kind: "dynamic",
-          bindInput: () => null as never,
-          assess: () => {
-            throw new Error("assessment must not run");
-          },
-        }),
-        input: {},
-        context: context(),
-      }),
-    ).rejects.toThrow("Dynamic authorization input for test_tool must be a JSON object");
-  });
-
   it("enforces hard deny before policy and broker", async () => {
     const policy = { evaluate: vi.fn(() => ({ outcome: "allow" as const, reason: "test" })) };
     const broker = { request: vi.fn(async () => "allow_once" as const) };

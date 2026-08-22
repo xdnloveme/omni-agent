@@ -3,6 +3,8 @@ import os from "node:os";
 import path from "node:path";
 import {
   PermissionGate,
+  ToolAuthorizationRouter,
+  ToolInputValidator,
   ToolInvocationRunner,
   type PermissionControlledTool,
 } from "@omni-agent/core";
@@ -197,7 +199,10 @@ describe("filesystem permission assessment", () => {
         },
       },
     });
-    const authorization = await gate.authorize({
+    const authorization = await new ToolAuthorizationRouter(
+      gate,
+      new ToolInputValidator(),
+    ).authorize({
       tool,
       input: { file_path: path.join(link, "proof.txt"), content: "proof" },
       context: {

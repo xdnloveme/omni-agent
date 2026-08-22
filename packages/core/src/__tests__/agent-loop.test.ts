@@ -135,6 +135,7 @@ function createContextEngine(): ContextEnginePort {
 }
 
 function createCoordinator() {
+  const inputValidator = new ToolInputValidator();
   const permissionGate = new PermissionGate({
     policy: { evaluate: () => ({ outcome: "allow", reason: "test" }) },
     grants: {
@@ -153,9 +154,9 @@ function createCoordinator() {
     },
   });
   return new ToolCallCoordinator({
-    authorizer: new ToolAuthorizationRouter(permissionGate),
+    authorizer: new ToolAuthorizationRouter(permissionGate, inputValidator),
     invocationRunner: new ToolInvocationRunner(),
-    inputValidator: new ToolInputValidator(),
+    inputValidator,
   });
 }
 

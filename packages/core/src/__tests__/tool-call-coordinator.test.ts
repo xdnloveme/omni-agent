@@ -54,7 +54,8 @@ function fixture(options: { allow?: boolean } = {}) {
       },
     },
   });
-  const authorizer = new ToolAuthorizationRouter(gate);
+  const inputValidator = new ToolInputValidator();
+  const authorizer = new ToolAuthorizationRouter(gate, inputValidator);
   return {
     order,
     execute,
@@ -66,7 +67,7 @@ function fixture(options: { allow?: boolean } = {}) {
     coordinator: new ToolCallCoordinator({
       authorizer,
       invocationRunner: new ToolInvocationRunner(),
-      inputValidator: new ToolInputValidator(),
+      inputValidator,
     }),
   };
 }
@@ -112,6 +113,55 @@ describe("ToolCallCoordinator", () => {
     });
     expect(value.execute).not.toHaveBeenCalled();
     expect(value.order).toEqual([]);
+  });
+
+  it("validates and executes the input produced by dynamic authorization binding", async () => {
+    const value = fixture();
+    const assess = vi.fn(() => ({
+      risk: "read" as const,
+      operationClass: "routine" as const,
+      enforcement: "policy" as const,
+      reasons: ["read"],
+      ruleIds: [],
+      presentation: { title: "Read", reason: "read" },
+    }));
+    value.tool.authorization = {
+      kind: "dynamic",
+      bindInput: (input) => ({ ...input, value: String(input.value).toUpperCase() }),
+      assess,
+    };
+    const input = { value: "bound" };
+
+    const result = await events(value, input);
+
+    expect(result.at(-1)).toMatchObject({ result: { isError: false } });
+    expect(assess).toHaveBeenCalledWith(
+      { value: "BOUND" },
+      expect.objectContaining({ toolCallId: "call-1" }),
+    );
+    expect(value.execute).toHaveBeenCalledWith(
+      { value: "BOUND" },
+      expect.objectContaining({ cwd: "/workspace" }),
+    );
+    expect(input).toEqual({ value: "bound" });
+  });
+
+  it("rejects bound input that no longer matches the tool schema", async () => {
+    const value = fixture();
+    const assess = vi.fn();
+    value.tool.authorization = {
+      kind: "dynamic",
+      bindInput: (input) => ({ ...input, value: 42 }),
+      assess,
+    };
+
+    const result = await events(value, { value: "valid-before-binding" });
+
+    expect(result.at(-1)).toMatchObject({
+      result: { isError: true, meta: { code: "tool_authorization_failed" } },
+    });
+    expect(assess).not.toHaveBeenCalled();
+    expect(value.execute).not.toHaveBeenCalled();
   });
 
   it("carries descriptor-hidden input keys into Tool Replay", async () => {
