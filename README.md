@@ -32,7 +32,7 @@ read-only financial analysis agent, or your own.
 ## Background
 
 Most agent frameworks couple the execution loop to a product. Omni Agent inverts that: the kernel
-owns execution, tool authorization, cancellation, and context assembly, while agents are
+owns execution, tool access, cancellation, and context assembly, while agents are
 declarative extensions registered explicitly at composition time.
 
 Three constraints follow, and the codebase enforces them:
@@ -123,15 +123,15 @@ modules.
 
 Typed at the prompt during a session:
 
-| Command        | Effect                                                 |
-| -------------- | ------------------------------------------------------ |
-| `/config`      | Reconfigure vendor, connection, and model              |
-| `/permissions` | Change permission mode and revoke persistent approvals |
-| `/new`         | Start a new conversation session                       |
-| `/clear`       | Clear the current session history                      |
-| `/help`        | List available commands                                |
-| `/skills`      | List and manage available skills — see note below      |
-| `/trace`       | Control local Trace capture for the current Agent      |
+| Command        | Effect                                                        |
+| -------------- | ------------------------------------------------------------- |
+| `/config`      | Reconfigure vendor, connection, and model                     |
+| `/permissions` | Manage execution mode, controlled network, and approved roots |
+| `/new`         | Start a new conversation session                              |
+| `/clear`       | Clear the current session history                             |
+| `/help`        | List available commands                                       |
+| `/skills`      | List and manage available skills — see note below             |
+| `/trace`       | Control local Trace capture for the current Agent             |
 
 `/skills` is registered conditionally: the CLI only builds the skill controller when the started
 agent exposes a `skills` capability. Agents without it never see the command. User-invocable
@@ -169,40 +169,31 @@ remains strictly read-only.
 
 ### Built-in tools
 
-| Tool                 | Purpose                                                | Authorization              |
-| -------------------- | ------------------------------------------------------ | -------------------------- |
-| `file_read`          | Bounded, version-consistent paginated UTF-8 read       | `dynamic` (path-scoped)    |
-| `file_write`         | Create or fully overwrite a UTF-8 text file            | `dynamic` (path-scoped)    |
-| `file_edit`          | One exact, whitespace-sensitive replacement            | `dynamic` (path-scoped)    |
-| `glob`               | Fast file discovery by name or path pattern            | `dynamic` (path-scoped)    |
-| `grep`               | ripgrep content search with structured match locations | `dynamic` (path-scoped)    |
-| `bash`               | Execute Bash from the injected execution `cwd`         | `dynamic` (shell analysis) |
-| `web_fetch`          | Fetch a URL and return readable text                   | `dynamic` (URL-scoped)     |
-| `web_search`         | Web search via DuckDuckGo                              | `dynamic` (query-scoped)   |
-| `request_user_input` | Collect 1–3 structured decision answers                | `trusted`                  |
-| `skill_read`         | Load full instructions for a named skill               | `trusted`                  |
+| Tool                 | Purpose                                                | Access / execution          |
+| -------------------- | ------------------------------------------------------ | --------------------------- |
+| `file_read`          | Bounded, version-consistent paginated UTF-8 read       | dynamic / in-process        |
+| `file_write`         | Create or fully overwrite a UTF-8 text file            | dynamic / in-process        |
+| `file_edit`          | One exact, whitespace-sensitive replacement            | dynamic / in-process        |
+| `glob`               | Fast file discovery by name or path pattern            | dynamic / in-process        |
+| `grep`               | ripgrep content search with structured match locations | dynamic / sandboxed process |
+| `bash`               | Execute Bash from the injected execution `cwd`         | dynamic / sandboxed process |
+| `web_fetch`          | Fetch a URL and return readable text                   | dynamic / in-process        |
+| `web_search`         | Web search via DuckDuckGo                              | dynamic / in-process        |
+| `request_user_input` | Collect 1–3 structured decision answers                | internal / in-process       |
+| `skill_read`         | Load full instructions for a named skill               | internal / in-process       |
 
-`request_user_input` is trusted because it only asks the current user a question — it grants no
-authority and has no external side effect. `bash` is the only tool marked `sandbox_eligible` and
-the only one accepting a caller-supplied timeout (`timeout_ms`).
+`request_user_input` is internal because it only asks the current user a question. Bash and grep
+are Process Tools; controlled and autonomous calls run through the formal Rust Seatbelt launcher.
+Bash accepts a caller-supplied timeout (`timeout_ms`).
 
-### Permission modes
+### Execution modes
 
-`standard` (default) permits routine workspace reads and writes plus routine external reads, and
-asks before shell execution and higher-risk operations. `supervised` tightens both: it also asks
-before writes and before routine external reads. Every call is reassessed before its scope
-candidates are consulted, and invalid state fails closed to supervised behavior with no automatic
-approvals.
-
-Approvals persist to `~/.omni-agent/permissions.json` under the granting agent, and their reuse
-boundary depends on the scope kind:
-
-- **Agent-scoped, shared across tools** — `filesystem_read_directory`, `filesystem_read_file`, and
-  `filesystem_write_directory`. A directory read grant is honored by `file_read`, `glob`, and
-  `grep` alike; a directory write grant by `file_write` and `file_edit`. Read grants never
-  authorize writes or shell execution.
-- **Tool-scoped** — `tool_routine` and `bash_executable`, keyed by the specific tool identity, so
-  approving one tool's routine operations says nothing about another's.
+`controlled` is the default: Process Tools run under Seatbelt, access stays in the workspace or
+user-approved filesystem roots, and network access requires one workspace-level enable decision.
+Approved roots distinguish read from read/write and can be revoked with `/permissions`.
+`autonomous` keeps Seatbelt but lets the Agent declare bounded per-call path and network scope.
+`unrestricted` requires explicit mode confirmation and runs Process Tools directly on the host
+while retaining Runtime stability checks.
 
 ## Configuration
 
@@ -212,17 +203,17 @@ to global.
 
 The "Written by" column describes current behavior, not a guaranteed invariant.
 
-| File                             | Scope   | Purpose                                  | Written by |
-| -------------------------------- | ------- | ---------------------------------------- | ---------- |
-| `omni.config.json`               | project | Shared model + per-agent model overrides | you        |
-| `omni.providers.json`            | project | Custom vendor and connection definitions | you        |
-| `omni.extensions.mjs`            | project | Local ESM extensions                     | you        |
-| `.env`                           | project | Fallback environment credentials         | you        |
-| `~/.omni-agent/config.json`      | global  | CLI-selected model                       | the CLI    |
-| `~/.omni-agent/providers.json`   | global  | Interactively defined custom providers   | the CLI    |
-| `~/.omni-agent/extensions.mjs`   | global  | Global local extensions                  | you        |
-| `~/.omni-agent/permissions.json` | global  | Persistent tool approvals                | the CLI    |
-| `~/.omni-agent/.env`             | global  | Global fallback environment credentials  | you        |
+| File                                    | Scope   | Purpose                                  | Written by |
+| --------------------------------------- | ------- | ---------------------------------------- | ---------- |
+| `omni.config.json`                      | project | Shared model + per-agent model overrides | you        |
+| `omni.providers.json`                   | project | Custom vendor and connection definitions | you        |
+| `omni.extensions.mjs`                   | project | Local ESM extensions                     | you        |
+| `.env`                                  | project | Fallback environment credentials         | you        |
+| `~/.omni-agent/config.json`             | global  | CLI-selected model                       | the CLI    |
+| `~/.omni-agent/providers.json`          | global  | Interactively defined custom providers   | the CLI    |
+| `~/.omni-agent/extensions.mjs`          | global  | Global local extensions                  | you        |
+| `~/.omni-agent/execution-settings.json` | global  | Workspace mode, network, approved roots  | the CLI    |
+| `~/.omni-agent/.env`                    | global  | Global fallback environment credentials  | you        |
 
 Today the CLI only writes the three global files marked above; it reads the project files and
 `.env` files without modifying them.
@@ -318,7 +309,7 @@ sandboxed.
 
 ### Add a tool
 
-Every tool declares authorization, execution, and timeout explicitly. There is no default and no
+Every tool declares access, execution, and timeout explicitly. There is no default and no
 metadata fallback.
 
 ```ts
@@ -334,8 +325,8 @@ const myTool: AgentToolDefinition = {
     properties: { query: { type: "string" } },
   },
   timeout: { kind: "none" },
-  authorization: { kind: "static", risk: "read", reason: "Reads public data" },
-  execution: { kind: "host" },
+  access: { kind: "internal" },
+  execution: { kind: "in_process" },
   async execute(params, context) {
     context.signal?.throwIfAborted();
     return {
@@ -348,10 +339,8 @@ const myTool: AgentToolDefinition = {
 
 - `timeout`: `{ kind: "none" }` | `{ kind: "fixed"; timeoutMs }` |
   `{ kind: "input"; parameter; defaultMs; minMs; maxMs }`
-- `authorization`: `{ kind: "trusted"; reason }` |
-  `{ kind: "static"; risk: "read" | "execute"; reason }` |
-  `{ kind: "dynamic"; assess(input, context) }`
-- `execution`: `{ kind: "host" }` | `{ kind: "sandbox_eligible"; profile }`
+- `access`: `{ kind: "internal" }` | `{ kind: "dynamic"; assess(input, context) }`
+- `execution`: `{ kind: "in_process" }` | `{ kind: "process" }`
 
 `execute` must return a `ToolResult`: `content` is an array of `{ type: "text"; text: string }`
 parts and `isError` is required. Return structured errors with `isError: true` rather than hiding
@@ -513,18 +502,19 @@ before registration; failed activation and normal unregistration clean up in rev
 every fallible cleanup, and report all cleanup failures by resource. Optional local extensions that
 fail produce diagnostics without preventing the default agent from starting.
 
-**Tool authorization pipeline.** Every tool declares an explicit `authorization` strategy
-(`trusted` / `static` / `dynamic`), an independent `execution` strategy (`host` /
-`sandbox_eligible`), and a timeout policy (`none` / `fixed` / schema-bound `input`). There is no
-central `switch (toolName)` — domain assessment stays with the tool owner.
+**Tool access pipeline.** Every Tool declares an explicit access strategy (`internal` / `dynamic`),
+execution strategy (`in_process` / `process`), and timeout policy. Domain assessment stays with
+the Tool owner; Core only evaluates generic access resources and execution modes.
 
-**Structured shell analysis.** Bash authorization is derived from a single Tree-sitter-backed
-analysis pass. Persistent approval is scoped to a literal executable name (not its subcommands);
-compound commands and nested substitutions require every known executable to be granted.
+**Structured shell analysis.** Bash access facts and hard-stops derive from a single
+Tree-sitter-backed analysis pass. Compound commands and nested substitutions use the same parser,
+path analysis, and security-flow aggregation.
 `BASH_ENV`, `ENV`, and exported `BASH_FUNC_*` values are stripped before spawning.
 
-**Path-scoped filesystem grants.** Sensitive files require an exact-file grant, so a directory
-approval never silently covers `.env`, credentials, system paths, or symlinks resolving into them.
+**Rust process sandbox.** Controlled and autonomous Process Tools run under a versioned Rust
+Seatbelt launcher with workspace, approved/per-call path, sensitive-read, network, and resource
+policies. Controlled approvals are shared by file, search, and Bash Tools; only roots needed by the
+current call are projected into the sandbox.
 
 **Context engine.** Model context is assembled per turn through a fixed pipeline: session snapshot
 → working conversation → context draft → context middleware → envelope → policy pipeline →
@@ -552,9 +542,10 @@ bodies load on demand through the trusted `skill_read` tool.
 
 Stated plainly, because they affect how you should deploy this:
 
-- The permission layer is **execution policy, not an OS sandbox**. It cannot fully constrain an
-  untrusted child process or eliminate filesystem race conditions. No OS-level sandbox
-  implementation ships today; `sandbox_eligible` is a marker, not a guarantee.
+- The Rust sandbox is macOS-only and applies to Process Tools. In-process Tools and local
+  extensions remain trusted local code.
+- The sandbox has no overlay filesystem, fake deletion, rollback, strict memory isolation, or
+  process-count isolation.
 - Local ESM extensions (`omni.extensions.mjs`) are **trusted local code** and are not sandboxed.
 - `file_write` / `file_edit` use direct overwrite. This is deliberately not an atomic commit; a
   failed write may leave an unknown target state.
@@ -591,16 +582,16 @@ graph TD
     TOOLS --> CORE
 ```
 
-| Package           | Responsibility                                                                         |
-| ----------------- | -------------------------------------------------------------------------------------- |
-| `packages/core`   | Agent execution kernel: loop, tool coordination, permissions, context, events, ports   |
-| `packages/models` | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence   |
-| `packages/app`    | Application lifecycle, agent/tool/command registries, extension host, sessions, config |
-| `packages/tools`  | Domain-neutral filesystem, shell, search, and web tools                                |
-| `packages/ui`     | Browser and terminal interaction, presentation, adapters, formatting, and delivery     |
-| `packages/cli`    | Commands, Agent creation/use-case orchestration, sessions, and onboarding workflow     |
-| `apps/omni`       | Binary entry, CLI/UI composition, signals, Trace preview lifecycle, and process exit   |
-| `agents/*`        | Independently packaged business agents                                                 |
+| Package           | Responsibility                                                                           |
+| ----------------- | ---------------------------------------------------------------------------------------- |
+| `packages/core`   | Agent execution kernel: loop, tool coordination, access planning, context, events, ports |
+| `packages/models` | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence     |
+| `packages/app`    | Application lifecycle, agent/tool/command registries, extension host, sessions, config   |
+| `packages/tools`  | Domain-neutral filesystem, shell, search, and web tools                                  |
+| `packages/ui`     | Browser and terminal interaction, presentation, adapters, formatting, and delivery       |
+| `packages/cli`    | Commands, Agent creation/use-case orchestration, sessions, and onboarding workflow       |
+| `apps/omni`       | Binary entry, CLI/UI composition, signals, Trace preview lifecycle, and process exit     |
+| `agents/*`        | Independently packaged business agents                                                   |
 
 ### Dependency direction
 
@@ -625,10 +616,11 @@ must never import the CLI, UI, or another agent package.
 | `ModelRuntimePort`            | Core's only model contract; receives prepared context messages and tool specs            |
 | `AgentRunner`                 | Per-agent execution loop, constructed with exactly one `ModelRuntimePort`                |
 | `ToolCallCoordinator`         | The agent loop's only tool entry: schema validation, domain preflight, routing           |
-| `ToolAuthorizationRouter`     | Admits `trusted` tools directly; delegates everything else to the gate                   |
-| `PermissionGate`              | Permission decision point for non-trusted tools                                          |
-| `ToolInvocationRunner`        | Executes authorized calls only; runs middleware after authorization                      |
-| `ExecutionDeadlineSupervisor` | Owns linked cancellation, deadline timers, and late-settlement observation               |
+| `ToolAccessController`        | Evaluates mode, Tool access intent, consent, and the access grant                        |
+| `ProcessExecutionPlanner`     | Resolves invocation/executables and freezes the final process plan                       |
+| `ProcessExecutionRouter`      | Routes controlled/autonomous to Rust Seatbelt and unrestricted to the host               |
+| `ToolInvocationRunner`        | Executes authorized calls only; owns middleware and deadline integration                 |
+| `OperationDeadlineSupervisor` | Owns linked cancellation, deadlines, cleanup, and late-settlement observation            |
 | `AgentFactory`                | The only runtime assembly entry: resolves a package into one immutable Plan and instance |
 | `AgentBlueprint`              | The `agentBlueprint` value each agent package exports                                    |
 | `AgentExtension`              | Declarative contribution unit; validated and rolled back atomically                      |
@@ -637,12 +629,13 @@ The tool call path:
 
 ```text
 AgentLoop
-  -> ToolCallCoordinator        schema validation, domain preflight
-  -> ToolAuthorizationRouter
-       |-> trusted              -> authorized call
-       `-> permission-controlled -> PermissionGate -> authorized call
+  -> ToolCallCoordinator        schema validation, domain preflight, access control
+  -> ToolAccessController       mode, resources, network consent, access grant
+  -> ProcessExecutionPlanner    executable trust, runtime closure, final process plan
   -> lifecycle middleware
-  -> ToolInvocationRunner       host or sandbox-eligible execution
+  -> ToolInvocationRunner
+       |-> in-process Tool
+       `-> ProcessExecutionRouter -> Rust sandbox or direct host
 ```
 
 Full contract: [`docs/architecture.md`](docs/architecture.md) and
@@ -653,7 +646,7 @@ Full contract: [`docs/architecture.md`](docs/architecture.md) and
 ```text
 omni-agent/
 ├── packages/
-│   ├── core/     Agent loop, tool coordination, permissions, context engine, ports
+│   ├── core/     Agent loop, tool coordination, access, execution, context engine, ports
 │   ├── models/   Model runtime, vendor plugins, catalogs, credentials, cache
 │   ├── app/      Lifecycle, registries, extension host, sessions, config, workspaces
 │   ├── tools/    Filesystem, shell, search, web, and user-input tools
@@ -665,6 +658,7 @@ omni-agent/
 │   ├── coding/              Default coding agent (skills, fs, shell, search, web)
 │   └── financial-analysis/  Read-only deterministic indicator agent
 ├── docs/         Architecture and runtime contracts
+├── sandbox/      Formal Rust macOS Seatbelt launcher
 ├── scripts/      Build and packaging scripts
 ├── omni.config.json      Project model configuration
 └── omni.providers.json   Project vendor definitions
@@ -678,7 +672,7 @@ omni-agent/
 | [`docs/agent-package.md`](docs/agent-package.md)                                                   | Manifest v2, Blueprint, composition, package loading, and ownership    |
 | [`docs/build-an-agent-in-five-minutes.md`](docs/build-an-agent-in-five-minutes.md)                 | Executable minimal Agent tutorial and dynamic YAML assembly            |
 | [`docs/tracing.md`](docs/tracing.md)                                                               | Runtime Observation, Assembly Evidence, local Trace, and replay        |
-| [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | Authoritative tool authorization, execution, cancellation, sandbox     |
+| [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | Authoritative Tool access, execution, cancellation, sandbox            |
 | [`docs/context-engineering.md`](docs/context-engineering.md)                                       | Context pipeline, compression, checkpointing                           |
 | [`docs/model-cache.md`](docs/model-cache.md)                                                       | Prompt cache intent, scopes, fingerprints, lease state                 |
 | [`docs/skill-system-architecture.md`](docs/skill-system-architecture.md)                           | Skill discovery, indexing, and loading                                 |
@@ -715,6 +709,19 @@ pnpm run eval:checkpoint     # offline checkpoint-summary evaluation
 pnpm run eval:clarification  # offline clarification-routing evaluation
 ```
 
+### Rust Sandbox
+
+Controlled and autonomous process tools use the formal macOS Seatbelt launcher in `sandbox/`.
+`pnpm dev` and `pnpm run build` build the current-host Rust `1.95.0` binary automatically.
+Use the focused command when working on the sandbox itself:
+
+```bash
+pnpm run build:sandbox
+```
+
+The sandbox is macOS-only and does not provide rollback or fake deletion. See
+`sandbox/README.md` for its protocol and security boundaries.
+
 A husky pre-commit hook runs `format:check`, `typecheck`, and `test`.
 
 ## Contributing
@@ -741,13 +748,12 @@ compatibility. Avoid tests that only mirror implementation details.
 ## Security
 
 Omni Agent executes model-directed shell commands and file writes on your machine. Understand the
-boundary before granting approvals:
+active execution mode before running an Agent:
 
 - **The security model lives in [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)** — the
-  authoritative contract for tool authorization, permission scoping, execution, cancellation, and
-  sandbox boundaries.
-- **Permissions are execution policy, not a sandbox.** See [Non-goals](#non-goals). Do not rely on
-  the permission layer to contain hostile code; run untrusted work in a VM or container.
+  authoritative contract for Tool access, execution, cancellation, and sandbox boundaries.
+- **Controlled and autonomous Process Tools use macOS Seatbelt.** Unrestricted mode bypasses that
+  boundary, and trusted in-process Tools are not contained by it.
 - **Credentials** live in the OS keychain. `.env` files are read-only fallbacks. Never put
   credentials in `omni.config.json` — credential-shaped fields are rejected.
 - **Extensions are trusted code.** `omni.extensions.mjs` executes with full process privileges.

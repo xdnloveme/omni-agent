@@ -41,8 +41,8 @@ concrete agent. Agent packages must not import the CLI or another agent package.
 Concrete agents are registered explicitly through `AgentExtension`.
 
 See `docs/architecture.md` for the detailed architecture contract.
-See `docs/tool-call-runtime.md` for the authoritative tool authorization,
-permission, execution, cancellation, and sandbox-boundary contract.
+See `docs/tool-call-runtime.md` for the authoritative Tool access, execution,
+cancellation, and sandbox-boundary contract.
 
 ## Ownership Rules
 
@@ -80,7 +80,7 @@ stream events, configuration behavior, credential storage, and JSONL session
 format unless a change explicitly requires a migration.
 
 `ModelRuntimePort`, `AgentMessage`, `AgentRunner`, `ToolCallCoordinator`,
-`ToolAuthorizationRouter`, `PermissionGate`, `ToolInvocationRunner`, `AgentFactory`,
+`ToolAccessController`, `ProcessExecutionPlanner`, `ProcessExecutionRouter`, `ToolInvocationRunner`, `AgentFactory`,
 `AgentBlueprint`, and `AgentExtension` are the current architecture. Do not add alternate tool
 execution paths, legacy model execution branches, compatibility overloads,
 global runtime setters, static model registries, or aliases for removed types.
@@ -97,46 +97,49 @@ Local ESM extensions are trusted local code. Do not imply that
 - Optional local extension failures should produce diagnostics and must not stop
   the default coding agent from starting.
 - Tools must support `AbortSignal` where work can block.
-- Every tool must declare an explicit `authorization` strategy (`trusted`,
-  `static`, or `dynamic`) and an independent `execution` strategy (`host` or
-  `sandbox_eligible`), plus an explicit timeout policy (`none`, `fixed`, or
-  schema-bound `input`). There is no metadata fallback.
-- Dynamic authorization must keep operational `risk` separate from `operationClass`.
-  Persistent approvals are Agent/scope specific and default to a tool boundary; filesystem
-  capability scopes are deliberately shared by tools with the same read or write capability.
-  Every call must be reassessed before its opaque scope candidates are consulted, and only
-  policy-eligible assessments may consume a grant.
-- Optional tool preflight validates domain readiness before authorization. It must return a
-  structured domain error without performing permission policy, UI, or execution work; tools
+- Every Tool must declare an explicit access strategy (`internal` or `dynamic`), execution
+  strategy (`in_process` or `process`), and timeout policy (`none`, `fixed`, or schema-bound
+  `input`). There is no metadata fallback.
+- Optional Tool preflight validates domain readiness before access control. It must return a
+  structured domain error without performing access policy, UI, or execution work; tools
   must still revalidate mutable state at execution time.
-- Bash persistent approval is scoped to a literal executable name, not its subcommands.
-  Do not add per-CLI or per-subcommand classifiers merely to control persistence. Commands
-  may expose executable scopes only after generic parser, wrapper, sensitive-path,
-  destructive, privileged, and hard-stop checks succeed. Compound commands and nested
-  substitutions expose one deduplicated requirement per known executable and require all
-  requirements to be granted. Dynamic ordinary arguments do not invalidate a known executable;
-  dynamic executables and unsupported syntax cannot expose persistent scopes.
-- All Bash authorization facts must come from the single `analyzeShellCommand` entry and its
-  Tree-sitter-backed `ShellProgram`. Classifiers, path analysis, wrappers, and executable
-  approval must not reparse raw command text or reconstruct wrapper payloads. Partial syntax
+- All Bash access facts must come from the single `analyzeShellCommand` entry and its
+  Tree-sitter-backed `ShellProgram`. Command semantics, path analysis, wrappers, and executable
+  analysis must not reparse raw command text or reconstruct wrapper payloads. Partial syntax
   must still expose recoverable nested commands to hard-stop analysis.
 - Bash execution must remove `BASH_ENV`, `ENV`, and exported `BASH_FUNC_*` values before spawning
   and Shell analysis must reject non-empty command-local assignments to those names, so runtime
   startup injection cannot invalidate the analyzed command graph. Keep bounded variable security
   effects inside the unified analysis pipeline so assignment and pipeline boundaries cannot erase
   known download, decode, or credential-read flows.
-- Filesystem persistence is path-scoped. Ordinary external files may use a canonical
-  parent-directory read or write grant. A directory grant recursively covers canonical
-  descendants and is shared across `file_read`/`glob`/`grep` for reads or
-  `file_write`/`file_edit` for writes. Sensitive reads may use only an exact-file grant. Reassess
-  sensitivity before matching grants so directory approval never covers `.env`, credentials,
-  system paths, or symlinks resolving into them. Read grants never authorize writes or Bash.
+- Controlled mode limits filesystem access to the canonical workspace plus user-approved
+  filesystem roots stored per workspace and Agent. Ordinary roots are read or read/write
+  capabilities; sensitive reads must be exact, and protected or sensitive writes are denied.
+  Autonomous mode accepts bounded per-call scopes. Unrestricted mode bypasses access boundaries
+  only after explicit mode confirmation.
+- Controlled and autonomous Process Tools must use the Rust Seatbelt runner and must never fall
+  back to host execution. In-process Tools are trusted local code and are not described as
+  running inside Seatbelt.
+- Keep the single Rust package rooted directly at `sandbox/`; do not add a one-crate Cargo
+  workspace layer. `pnpm dev` and `pnpm run build` must build the current-host release binary,
+  while `pnpm run build:cli` owns macOS arm64/x64 cross-build and distribution packaging.
+- Sandboxed Process Tools resolve their primary executable plus statically discovered Shell
+  executables, including each command's effective cwd, against the immutable host PATH captured at
+  startup. `ProcessExecutionPlanner` must finish this work before the authorized call is created;
+  `ProcessExecutionRouter` must not add capabilities. Relative PATH entries are valid only when the
+  canonical executable target is already covered by the call's access policy. Runtime projection may add
+  only bounded, per-call read scopes for lexical executables, canonical package roots, shebang
+  interpreters, and platform-native dependencies. Do not restore global development-directory
+  projections, installer/CLI name tables, shell-based executable lookup, or host fallback.
+  Direct executables and shebang interpreters must resolve. Static command candidates inside a
+  shell script are projected only when present in the immutable PATH; an absent candidate neither
+  broadens lookup nor blocks the shell's own conditional or command-not-found behavior.
 - Keep tool-domain assessment with the tool owner. Do not add a central
   `switch(toolName)` or make App/CLI parse Bash commands or paths.
 - Resolve paths and spawn processes with the injected execution `cwd`; tool
   implementations must not choose their own `process.cwd()`.
 - `ToolCallCoordinator` is the Agent loop's only tool entry. Middleware and
-  lifecycle adapters run only after authorization.
+  lifecycle adapters run only after access control.
 - Use Core's shared sanitizer, abort helpers, schema validator, and
   `InterprocessFileLock`; do not create parallel implementations.
 - Return structured errors instead of hiding failures in successful output.
@@ -145,13 +148,20 @@ Local ESM extensions are trusted local code. Do not imply that
 
 ## Tool Execution And Filesystem Contract
 
-- `ToolCallCoordinator` is the Agent loop's only tool-call entry. Permission
-  decisions belong to `PermissionGate`; authorized execution, middleware order,
+- `ToolCallCoordinator` is the Agent loop's only tool-call entry. Access
+  decisions belong to `ToolAccessController`; final Process plans belong to
+  `ProcessExecutionPlanner`; authorized execution, middleware order,
   and metrics belong to `ToolInvocationRunner`.
-- `ExecutionDeadlineSupervisor` owns linked cancellation, deadline timers,
-  bounded cooperative cleanup, and late-settlement observation. Do not recreate
-  timeout races or cancellation linking in individual tools.
-- Bash and grep share the tools-layer `HostProcessRunner`. Process tools must use
+- A Process Tool's `createProcessInvocation` runs during planning before lifecycle and middleware.
+  Keep it a pure, bounded input-to-arguments mapping; it must not spawn, perform I/O, or read mutable
+  access state.
+- `OperationDeadlineSupervisor` owns linked cancellation, deadline timers,
+  bounded cooperative cleanup, and late-settlement observation for both Tool execution and
+  bounded process-planning inspections. Do not recreate timeout races or cancellation linking in
+  individual tools or platform adapters.
+- Bash and grep share `ProcessExecutionRouter` and the tools-layer `HostProcessRunner`.
+  Controlled/autonomous calls route through the formal Rust sandbox; unrestricted calls route
+  directly to the host. Process tools must use
   the injected execution `cwd` and signal and must preserve exit-code and signal
   termination semantics.
 - Filesystem tools share canonical path resolution, path/inode locking, snapshot

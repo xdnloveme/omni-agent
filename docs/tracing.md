@@ -15,7 +15,7 @@ Runtime authoritative stages
 
 Runtime Observation is a Core-to-Host composition SPI exposed only through
 `@omni-agent/core/host`. The top-level port starts one Run and returns scoped handles for Turn,
-Context, Model, Tool Batch, Tool Call, preflight, authorization, and execution. Each scope exposes
+Context, Model, Tool Batch, Tool Call, preflight, access, and execution. Each scope exposes
 only facts owned by that runtime stage and one terminal transition.
 
 Observation is not a control channel:
@@ -29,7 +29,7 @@ Observation is not a control channel:
 - Composite rejects child creation and event publication after a scope reaches its terminal state.
 
 Runtime Observation remains separate from `StreamSession`, Session JSONL, runtime middleware,
-tool lifecycle adapters, and permission observers. It is not exposed to Agent extensions.
+tool lifecycle adapters, and access control. It is not exposed to Agent extensions.
 
 ## Trace processing
 
@@ -39,7 +39,7 @@ Trace processing is the sole owner of observation semantics:
 - `ReplayRuntimeObserver` maps facts to Replay kinds, payloads, correlation, and ordering.
 - model request capture represents the actual prepared Core invocation context, not a provider
   HTTP request body.
-- tool hidden input keys are supplied by the tool-owned authorization descriptor and sanitized by
+- tool hidden input keys are supplied by the tool-owned access descriptor and sanitized by
   the shared Trace sanitizer before persistence.
 
 Concrete Agent blueprints receive no Trace capability and cannot publish Runtime facts. Host Trace

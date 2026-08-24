@@ -22,7 +22,7 @@ changes owners and dependency direction only. User-visible behavior is intention
 | Thinking            | CLI presentation               | UI presentation                | start/delta/end                                           | same disclosure lifecycle                                  | 50 ms throttle; completion and cancellation clear timer        | migrated presenter/router tests     |
 | Compression         | CLI presentation               | UI presentation                | context progress events                                   | same status, summary and detail                            | no independent resources                                       | migrated presenter tests            |
 | History             | CLI presentation + TUI         | UI presentation + runtime      | transcript, visible turn count                            | header, initial 10 turns, earlier history, resumed divider | load callback retained by UI and removed on clear              | migrated history tests              |
-| Permission          | CLI adapter                    | UI adapter                     | generic ApprovalRequest                                   | persistent approval, Allow once, Deny order                | AbortSignal and shutdown keep existing response semantics      | migrated approval tests             |
+| Execution access    | CLI adapter                    | UI adapter                     | mode settings or controlled access consent                | mode, workspace network, and filesystem-root decisions     | AbortSignal and shutdown close pending access consent          | access and consent tests            |
 | Command interaction | CLI adapter                    | UI adapter                     | CommandSelectionOptions                                   | same InteractionRequest mapping and result validation      | Abort/escape/shutdown mapping unchanged                        | migrated adapter tests              |
 | Skill preload       | CLI flow + renderer            | CLI flow + UI renderer         | resolved preload data                                     | explicit start/end before Agent run                        | read errors remain CLI-owned                                   | full tests + shared console port    |
 | Onboarding          | CLI mixed flow                 | CLI workflow + UI interaction  | provider/model/auth data and explicit list looping        | Provider → Auth → Model → ready summary                    | model login/config persistence remain CLI-owned                | type boundary + onboarding tests    |
@@ -36,7 +36,7 @@ changes owners and dependency direction only. User-visible behavior is intention
 - Disclosure ticker: 1000 ms.
 - Initial restored history: 10 turns.
 - Autocomplete maximum: 10 items.
-- Permission order: persistent approval, Allow once, Deny.
+- Controlled network consent is a workspace-level Enable/Keep disabled decision. Filesystem consent adds a canonical file or folder capability to the current workspace and Agent; neither flow uses a generic command approval modal.
 - Ctrl+C abort and double-press exit behavior is unchanged.
 - Provider, connection, and model lists stop at their boundaries; authentication and configuration
   action lists wrap at their boundaries, matching the previous Inquirer behavior.

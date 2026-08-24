@@ -34,7 +34,7 @@ from `package.json`.
 The Manifest recipe selects one Prompt profile, ordered Prompt contributors, one ordered sequence
 of Tool bundles and individual Tool components, and optional Skills and Artifact Recovery capabilities. Component IDs
 use Core's `isToolOriginId()` syntax and never contain module paths. The Recipe cannot declare
-Prompt text, executable modules, credentials, authorization, execution, timeout, lifecycle, or
+Prompt text, executable modules, credentials, access, execution, timeout, lifecycle, or
 `maxTurns` behavior.
 
 The Blueprint descriptor is a data-only catalog. The Loader validates its shape, but only the
@@ -91,7 +91,7 @@ composition:
 A bundle is only an explicit ordered convenience. A package author can replace it with its
 individual Tool references. There is no exclusion, tag matching, automatic discovery, or hidden
 default selection. Descriptor display names and descriptions support inspection but never affect
-assembly, authorization, caching, policy, or execution.
+assembly, access control, caching, policy, or execution.
 
 Package authors can inspect and validate the effective composition without creating Runtime
 resources:

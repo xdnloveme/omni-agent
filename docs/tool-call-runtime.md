@@ -1,725 +1,203 @@
-# Tool Call Runtime and Permissions
+# Tool Call Runtime, Access, and Sandbox
 
-This document is the authoritative architecture contract for tool registration,
-input validation, authorization, permission assessment, execution, lifecycle events,
-cancellation, and the future sandbox boundary.
+This document is the authoritative contract for Tool validation, access control, execution,
+cancellation, and the macOS process sandbox.
 
-## Design Goals
-
-- One tool-call entry from `AgentLoop`.
-- Authorization, execution, and UI remain independent responsibilities.
-- Tool-domain knowledge stays with the owning tool package.
-- Trusted internal capabilities do not produce unnecessary permission prompts.
-- Permission decisions do not claim to provide an operating-system security boundary.
-- Extensions cannot omit authorization, execution, or timeout metadata and fall into a legacy path.
-
-## Runtime Components
+## Runtime Flow
 
 ```text
-AgentLoop
-  -> LoopProtection              run-scoped repeat/cycle policy and prompt guidance
-  -> ToolCallCoordinator          resolve, validate, events, lifecycle, metrics
-       -> ToolAuthorizationRouter choose trusted or permission-controlled route
-            -> PermissionGate     assessment, policy, grants, approval
-       -> ToolInvocationRunner    middleware, timeout, host/sandbox execution
+LLM Tool Call
+-> ToolCallCoordinator
+   -> resolve registered Tool
+   -> validate JSON Schema
+   -> domain preflight
+   -> ToolAccessController
+      -> load workspace execution settings
+      -> assess ToolAccessIntent
+      -> obtain controlled network or filesystem consent when required
+      -> create access grant and base process policy
+   -> ProcessExecutionPlanner (Process Tools only)
+      -> create ProcessInvocation
+      -> resolve executable provenance and runtime closure
+      -> create final ProcessExecutionPlan
+   -> create AuthorizedToolCall
+   -> lifecycle start
+   -> ToolInvocationRunner
+      -> middleware beforeExecute
+      -> deadline and linked cancellation
+      -> in-process execute or ProcessExecutionRouter
+      -> middleware afterExecute
+   -> lifecycle end
+-> structured ToolResult
 ```
 
-Ownership by package:
+Schema and preflight failures never enter access control, lifecycle, middleware, or execution.
+Access denials never enter lifecycle, middleware, or execution. Deadline timing begins only after
+access control completes.
 
-```text
-packages/core
-  loop-protection/ repeat signatures, rule objects, batch-cycle decisions, prompt policy
-  system-prompt/   stable runtime sections and one-shot prompt overlays
-  tool-calls/   coordinator, authorization router, schema validators, metrics
-  permissions/  contracts, gate, ports, sanitizer
-  execution/    authorized-call capability, runner, abort helpers, sandbox port
-  persistence/  shared inter-process file lock
+## Responsibility Boundaries
 
-packages/tools
-  security/path/         shared path facts
-  filesystem/permission filesystem risk mapping
-  search/permission     search-root risk mapping
-  web/permission        external read and protocol validation
-  shell/permission      parser, classifier chain, path analysis, Bash assessment
+| Owner                     | Responsibility                                                            |
+| ------------------------- | ------------------------------------------------------------------------- |
+| `ToolCallCoordinator`     | Ordering, events, lifecycle, and total metrics                            |
+| `ToolAccessController`    | Mode evaluation, capability matching, consent, and access grant           |
+| `ProcessExecutionPlanner` | Invocation creation, executable trust, runtime closure, and final plan    |
+| Tool domain               | Path, shell, web, and other resource facts                                |
+| `ToolInvocationRunner`    | Authorized execution, middleware, timeout, abort, and late settlement     |
+| `ProcessExecutionRouter`  | Execute an already-final host or sandbox plan without adding capabilities |
+| Rust `omni-sandbox`       | Validate protocol, compile Seatbelt policy, apply limits, and exec target |
+| App settings              | Persist mode, network, and approved roots by workspace and Agent          |
+| UI                        | Render mode management and access consent only                            |
 
-packages/app
-  registry/             registration and stable tool identity
-  permissions/          policy, grants, repository, migration, runtime composition
+Core never parses shell commands or paths. Tools never read settings or render UI. App never
+interprets Tool inputs. The Rust binary knows nothing about Agents, prompts, Tool schemas, or UI.
 
-packages/cli
-  permissions/          ApprovalBroker implementation
-  interaction/tui/      modal selection and rendering
-  commands/permissions  permission-management UI
-```
+## Tool Contract
 
-Core never imports concrete tools, App, or CLI. App does not parse Bash commands or
-tool-specific paths. CLI does not evaluate risk or access the grant repository directly.
-
-## Tool Definition Contract
-
-Every tool contribution uses the final definition API:
+Every Tool declares access, execution, and timeout explicitly. There is no metadata fallback.
 
 ```ts
-interface AgentToolDefinition {
-  name: string;
-  description: string;
-  schema: Record<string, unknown>;
-  strict?: boolean;
-  preflight?: ToolPreflightDescriptor;
-  timeout: ToolTimeoutPolicy;
-  authorization: ToolAuthorizationDescriptor;
-  execution: ToolExecutionStrategy;
-  scheduling?: { batch: "normal" | "turn_barrier" };
-  context?: { retention: "default" | "conversation" };
-  execute(input: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolResult>;
-}
+type ToolAccessDescriptor =
+  | { kind: "internal" }
+  | { kind: "dynamic"; assess(input, context): ToolAccessIntent | Promise<ToolAccessIntent> };
 
-type ToolTimeoutPolicy =
-  | { kind: "none" }
-  | { kind: "fixed"; timeoutMs: number }
-  | {
-      kind: "input";
-      parameter: string;
-      defaultMs: number;
-      minMs: number;
-      maxMs: number;
-    };
+type AgentToolDefinition = InProcessToolDefinition | ProcessToolDefinition;
 ```
 
-Authorization and execution are orthogonal strategies:
+In-process Tools implement `execute`. Process Tools implement `createProcessInvocation` and
+`createToolResult`. Bash and grep are Process Tools. Filesystem, web, Skill, user interaction, and
+pure computation Tools are in-process. In-process Tools are trusted local code and are not inside
+Seatbelt; their declared resources are enforced by `ToolAccessController` before invocation.
+`createProcessInvocation` runs during planning, before lifecycle and middleware. It must be a pure,
+bounded mapping from validated input and execution context to process arguments; it must not start a
+process, access the network, mutate the filesystem, or read mutable permission state.
 
-```ts
-type ToolAuthorizationDescriptor =
-  | { kind: "trusted"; reason: string; hiddenInputKeys?: readonly string[] }
-  | {
-      kind: "static";
-      risk: "read" | "execute";
-      reason: string;
-      hiddenInputKeys?: readonly string[];
-    }
-  | {
-      kind: "dynamic";
-      bindInput?(input, context): Record<string, unknown> | Promise<Record<string, unknown>>;
-      assess(input, context): PermissionAssessment | Promise<PermissionAssessment>;
-      hiddenInputKeys?: readonly string[];
-    };
+Optional preflight validates domain readiness, such as file type or target existence. Execution
+must revalidate mutable state because preflight and execution occur at different times.
+`ToolAccessIntent.denial` reports an invalid or unsupported access request, while `hardStop`
+is reserved for security facts that must override mode-specific access evaluation.
 
-type ToolExecutionStrategy = { kind: "host" } | { kind: "sandbox_eligible"; profile: string };
-```
+## Execution Modes
 
-`trusted` means that the capability is internal, deterministic or otherwise already
-inside the host trust boundary. It bypasses `PermissionGate`, but it does not bypass
-tool resolution, schema validation, lifecycle handling, middleware, cancellation, or
-structured result handling.
+### Controlled
 
-`preflight` is an optional domain validation step for facts that should be checked before
-an approval prompt, such as whether a file exists and is a regular file. It returns either
-`ready` or a structured domain error. It does not assess risk, query grants, render UI, or
-replace the execution-time consistency check.
+Processes run under Seatbelt with workspace and private-call-temp writes. An ordinary external
+path may propose a canonical read or read/write capability for user approval. Approved subtree
+capabilities cover descendants, are shared by file, search, and Bash Tools, and are persisted only
+for the current workspace and Agent. Ordinary subtree capabilities never cover sensitive files;
+sensitive reads require exact-file approval and sensitive writes remain denied. Network starts
+disabled; the first network Tool call asks whether to enable ordinary network access. The setting
+is shared by Bash and web Tools.
 
-`host` and `sandbox_eligible` say where an authorized call may execute. They do not
-grant permission. A permission-controlled host tool still requires authorization; a
-trusted host tool does not. There is currently no sandbox implementation. When no
-`SandboxRunnerPort` is injected, a sandbox-eligible tool executes through its host
-implementation after authorization.
+### Autonomous
 
-Tools cannot provide `originId` or `toolIdentity`. `ToolRegistry` creates a
-`RegisteredAgentTool` and assigns identity as `<originId>:<toolName>`:
+Processes still run under Seatbelt. Bash may declare per-call `sandbox_scope` resources:
+`read_paths`, `write_paths`, and `network`. Ordinary external resources are allowed only for that
+call. Sensitive reads must be exact; protected paths and sensitive writes remain denied. No access
+scope is persisted.
 
-- Coding built-ins: `builtin-coding:<toolName>`.
-- Other Agent built-ins: `builtin-<agentId>:<toolName>`.
-- Extensions: `<manifestId>:<toolName>`.
+### Unrestricted
 
-Missing or malformed authorization, execution, timeout, schema, or execute definitions
-fail extension registration. For `input` timeout policies, the named schema property
-must be an integer whose minimum and maximum exactly match the policy. Core never
-injects that property into an extension schema. There is no `risk`, `approval`,
-unscoped identity, missing descriptor, or timeout fallback.
+After explicit mode confirmation, Process Tools run directly through `HostProcessRunner`.
+Access boundaries and shell hard-stops are skipped, but Schema validation, preflight, timeout,
+abort, output limits, process-group cleanup, file type validation, and file consistency checks
+remain active.
 
-Scheduling and Context metadata are generic policies, never tool-name switches.
-`turn_barrier` means the result may invalidate sibling calls and requires an immediate
-model replan. `conversation` means the result carries durable conversational decisions:
-Artifact projection must not externalize it, and Heavy compression must retain its key
-choices, scope effects, skipped assumptions, and unresolved questions. `skill_read` and
-`request_user_input` are the initial conversation-retention consumers.
+Controlled and autonomous never fall back to host execution. Missing binaries, protocol mismatch,
+policy errors, and launch failures return structured sandbox errors.
 
-## Call Sequence
+## Process Sandbox
 
-The successful path is fixed:
+The formal Rust package lives under `sandbox/`. On macOS, the launcher:
 
 ```text
-resolve registered tool
--> validate input with Ajv
--> emit sanitized tool_start
--> run optional domain preflight
--> authorize through ToolAuthorizationRouter
--> emit lifecycle start events
--> run beforeExecute middleware
--> start execution timeout
--> execute through host or SandboxRunnerPort
--> verify abort state
--> run afterExecute middleware
--> emit lifecycle end events
--> emit tool_end with structured result and metrics
--> let LoopProtection observe the raw result
--> complete the model-produced tool batch
--> append every tool result to the conversation
--> continue with runtime guidance or halt the run
+resolve direct and Shell-internal executables in Node
+-> project bounded read-only runtime dependencies
+-> validate protocol and absolute paths in Rust
+-> apply RLIMIT_NOFILE and RLIMIT_FSIZE
+-> compile a Seatbelt profile
+-> install the Seatbelt profile in the Rust process
+-> exec the target process directly
 ```
 
-Schema errors, preflight errors, and permission denials emit paired `tool_start` and `tool_end` events,
-but do not invoke lifecycle adapters, execution middleware, or tool code. An abort is
-different: it throws `AbortError`, does not create an ordinary denial/tool result, and
-prevents the next model turn.
-
-`ToolCallCoordinator` is the only component called by `AgentLoop`. Do not add a
-default executor, direct tool invocation from the loop, or another host-specific
-execution branch. Its authorizer, invocation runner, and input validator are required
-constructor dependencies and must be supplied by the composition root.
-
-Runtime Observation is a read-only side channel over this same authoritative path.
-`ToolCallCoordinator` creates scoped Tool Call, preflight, and authorization observations;
-`ToolInvocationRunner` receives the scoped execution observation. These handles report typed
-facts only. They cannot validate input, authorize a call, modify a result, choose a backend,
-change timeout/cancellation, or reorder middleware and lifecycle adapters. Span names and Replay
-kinds are owned exclusively by Trace Processing outside these Runtime components.
-Calls deferred by turn-barrier scheduling still publish Tool Call result and terminal facts, but do
-not create preflight, authorization, or execution scopes.
-
-### Turn barrier batches
-
-Before any batch member reaches `ToolCallCoordinator`, the Agent loop scans registered
-tool scheduling metadata. If no barrier exists, the normal sequence applies. If one or
-more barriers exist, only the first barrier in model order reaches the Coordinator.
-Every sibling receives a paired `tool_batch_deferred` result in original call order:
-
-```text
-scan complete batch
--> choose first turn_barrier
--> execute and await only that call
--> do not authorize, preflight, run middleware, lifecycle adapters, or tool code for siblings
--> append one retryable deferred result for every sibling
--> return to the model to replan
-```
-
-Deferred results are errors only in the tool-protocol sense; they report that no action
-occurred and may be reissued if still relevant. This is stricter than an execution mutex:
-it prevents permission prompts and side effects based on assumptions that the barrier
-result may change. Core selects the policy from registered metadata and never checks a
-concrete tool name.
-
-### Structured user-input tool
-
-`request_user_input` is a trusted host tool with no timeout, `turn_barrier` scheduling,
-and `conversation` retention. Its JSON Schema accepts one to three single-select,
-multi-select, or text questions. Domain preflight rejects duplicate or blank IDs,
-invalid option combinations, and invalid Other usage before UI presentation. The tool
-maps the response back to a neutral `ToolResult`; field completion submits without a second
-action menu, while Escape returns a skipped outcome. Single-select confirms with Enter.
-Multi-select uses Space to toggle choices and Enter to confirm; choosing Other then opens
-text input. Submitting an empty required multi-select is treated as skipping the input request.
-Each Agent owns the business policy for when to request input, how to construct domain-specific
-questions, and how to proceed after a skipped outcome.
-
-Direct clarification answers are authoritative refinements of the current task. They
-cannot broaden the original scope, grant permissions, or bypass `PermissionGate`.
-Answers are persisted only through the standard assistant tool-call/tool-result pair.
-
-## Tool Loop Protection And Runtime Guidance
-
-`LoopProtection` is a run-scoped Core interceptor. It observes results only after they
-have crossed resolution, validation, authorization, execution, and lifecycle handling.
-It never invokes a tool, changes authorization, modifies a `ToolResult`, or creates an
-alternate coordinator path.
-
-The result signature is SHA-256 over stable JSON containing the registered
-`toolIdentity`, recursively key-sorted arguments, and the complete LLM-facing result
-content plus `isError`. Array order is preserved, result metadata is excluded, and raw
-arguments/results are never exposed by diagnostics. Batch fingerprints hash sorted
-result signatures, so tool completion order does not affect cycle detection.
-Serialization failures skip loop observation instead of failing the Agent run.
-
-The default rules are:
-
-- an identical result signature in the last ten tool calls warns on occurrences two and
-  three and halts on occurrence four;
-- the same tool returning the same error three times consecutively produces strong
-  guidance and resets that error streak, but does not itself halt;
-- repeated multi-tool batches and alternating two-batch cycles warn after two and three
-  complete cycles and halt after four; single-tool period-one repetition remains owned
-  by the result-signature rule.
-
-Once an alternating cycle is confirmed, its first and second phases are anchored in
-run-scoped state. Generic repeated-result decisions from those member batches are deferred
-until the cycle completes or breaks, so the fourth complete cycle owns the halt and its
-diagnostic. A mismatching batch clears the active cycle and restores normal repeated-result
-enforcement.
-
-A halt is deferred until every tool call from the current assistant response has a
-result. The Agent loop then emits `tool_loop_detected` with the complete `produced`
-messages and skips the next model request. This preserves valid tool-call/result history
-and lets the application persist completed work.
-
-Warnings are not appended to tool output or durable messages. Tool-enabled Agents receive
-a stable runtime loop-policy section, and warnings create a one-shot runtime prompt
-overlay for the next model request. The effective prompt is composed without mutating the
-Agent-owned base prompt and includes the overlay in request token estimation. Once the
-model stream begins successfully, the overlay lease is consumed. Merely constructing an
-async stream does not consume it, so a pre-dispatch cancellation or initialization failure
-leaves the guidance pending.
-
-`maxTurns` is an independent, optional safeguard. An omitted value means unlimited model
-turns; an explicitly configured limit still emits `max_turns_reached` with `produced` and
-usage. Targeted loop protection remains active in either case.
-
-## Schema Validation
-
-`ToolInputValidator` is the only host-side tool JSON Schema validator. `AgentRuntimeAssembler`
-creates one instance per assembled Agent and shares it between `ToolRegistry` definition admission and
-`ToolCallCoordinator` runtime validation, so the Ajv validator is compiled once per
-schema object.
-
-- Every tool call is validated, regardless of `strict`.
-- `strict` only controls model-provider strict schema output.
-- Ajv does not mutate tool input.
-- Invalid schemas reject the complete extension registration transaction.
-- Permission-sensitive built-ins should use bounded strings and
-  `additionalProperties: false`.
-- Extension schemas are validated but not silently rewritten by Core.
-
-## Authorization Routing
-
-`ToolAuthorizationRouter` dispatches from the descriptor kind rather than tool name:
-
-```text
-authorization.kind == trusted
-  -> create AuthorizedToolCall directly
-
-authorization.kind == static or dynamic
-  -> PermissionGate
-```
-
-`AuthorizedToolCall` is a Core-branded immutable snapshot. The invocation runner only
-accepts this type; ordinary model input cannot be passed to it. A dynamic descriptor may use
-its domain-owned `bindInput` hook to replace unstable input references with the exact value that
-must be assessed and executed. `ToolAuthorizationRouter` invokes the hook on an isolated clone,
-then uses the runtime's shared `ToolInputValidator` to verify the derived input against the same
-Tool Schema before permission assessment or snapshot creation. The assessor receives another clone
-of that bound snapshot, so neither hook can mutate caller input or the execution value. Static and
-trusted descriptors cannot bind input.
-
-Current first-party routing:
-
-| Tools                                         | Authorization                    | Execution                         |
-| --------------------------------------------- | -------------------------------- | --------------------------------- |
-| `skill_read`                                  | trusted                          | host                              |
-| deterministic financial indicator computation | trusted                          | host                              |
-| `file_read`, `file_write`, `file_edit`        | dynamic path assessment          | host                              |
-| `glob`, `grep`                                | dynamic search-path assessment   | host                              |
-| `web_search`, `web_fetch`                     | dynamic external-read assessment | host                              |
-| `bash`                                        | dynamic shell assessment         | sandbox eligible, `shell` profile |
-
-Do not make all tools trusted merely because local extensions are trusted code.
-`trusted` is for capabilities whose operation itself should not ask permission. Tool
-code from local extensions still runs in the host process and therefore remains part
-of the local trust boundary.
-
-## Permission Gate
-
-The controlled route is:
-
-```text
-static/dynamic descriptor
--> assessment validation
--> recursive presentation sanitization
--> hard-deny enforcement
--> PermissionPolicy
--> persisted Agent/tool/scope grant lookup when eligible
--> ApprovalBroker when required
--> AuthorizedToolCall or structured denial
-```
-
-Assessments explicitly separate risk from enforcement:
-
-```ts
-interface PermissionAssessment {
-  risk: PermissionRisk;
-  operationClass: "routine" | "sensitive";
-  persistentApprovalRequirements?: readonly PersistentApprovalRequirement[];
-  enforcement: "policy" | "hard_deny";
-  reasons: readonly string[];
-  ruleIds: readonly string[];
-  presentation: PermissionPresentation;
-}
-
-interface PersistentApprovalRequirement {
-  approval: PersistentApprovalScope;
-  satisfiedBy: readonly string[];
-}
-```
-
-`ruleIds` are diagnostic and test data only. Policy must never infer authorization
-semantics from their presence or spelling. `risk` describes operational impact, while
-`operationClass` describes the operation independently from its approval scope. Tool-level
-routine grants consume it, while Bash executable grants deliberately do not distinguish
-subcommands. Security-relevant classifier output uses explicit fields such as
-`enforcement`, `operationClass`, and shell `effects`.
-
-The default policy is:
-
-| Risk                                           | standard | supervised | Persistent grant |
-| ---------------------------------------------- | -------- | ---------- | ---------------- |
-| `read`                                         | allow    | allow      | unnecessary      |
-| `write`                                        | allow    | ask        | allowed          |
-| `execute`                                      | ask      | ask        | allowed          |
-| `external_read` + routine                      | allow    | ask        | allowed          |
-| `external` + routine                           | ask      | ask        | allowed          |
-| `external` + explicit scope                    | ask      | ask        | allowed          |
-| sensitive `external` without an explicit scope | ask      | ask        | forbidden        |
-| `destructive`                                  | ask      | ask        | forbidden        |
-| `privileged`                                   | ask      | ask        | forbidden        |
-| `unknown` + executable scope                   | ask      | ask        | allowed          |
-| other `unknown`                                | ask      | ask        | forbidden        |
-| `enforcement: hard_deny`                       | deny     | deny       | forbidden        |
-
-Persistent approval is scoped to Agent ID and an opaque scope. Most scopes retain the stable tool
-identity boundary; filesystem capability scopes are shared by compatible tools. `approval` is the
-only scope persisted after an Always choice; `satisfiedBy` lists typed scope references that may
-satisfy that one requirement and is never stored. One matching reference satisfies a requirement,
-while multiple independent requirements use all-of matching. Routine scopes answer eligible `write`, `execute`,
-`external_read`, and routine `external` prompts. Bash instead uses one executable scope:
-after approval, eligible calls to the same literal executable can consume it regardless of
-subcommand classification. A compound command identifies each literal executable,
-including through supported wrappers, nested substitutions, and ordinary redirection. Static
-sensitive paths, generic destructive or privileged classifications, unresolved executables,
-unsupported syntax, and hard-deny assessments remain outside that scope. Dynamic arguments do
-not invalidate an otherwise known executable scope; constraining arguments inside an approved
-CLI belongs to the future sandbox.
-
-Compound Bash authorization uses all-of scope matching. The assessor returns one deduplicated
-requirement per executable. `PermissionGate` loads all candidate grants in one call,
-computes the missing set, and automatically approves only when every required scope is present.
-An Always decision saves every missing scope in one repository update; partial persistence
-never authorizes execution.
-
-`ApprovalBroker` receives only the sanitized `ApprovalRequest`. It never receives raw
-tool input. Escape maps to Deny. Ctrl+C, SIGTERM, shutdown, and an aborted signal map
-to `AbortError`, not Deny. A non-interactive host that does not inject a broker uses
-`DenyApprovalBroker`, so requests that require interaction fail closed.
-
-## Domain Assessment
-
-Risk analysis belongs to the tool domain and is attached to the tool definition. Do
-not add a central `switch(toolName)`.
-
-Filesystem and search assessors share `security/path` primitives for:
-
-- absolute normalization using the injected workspace `cwd`;
-- workspace boundary checks and `..` traversal;
-- real paths for existing targets;
-- nearest existing parent resolution for new targets;
-- symlink-aware boundary checks;
-- credential directories and credential filenames;
-- `.env` template exceptions;
-- system paths such as `/etc`, `/proc`, `/sys`, `/dev`, and `/root`.
-- target kinds including regular files, directories, special files, missing targets, and
-  dangling symlinks.
-
-`file_read` and `file_edit` preflight require an existing regular file. `file_write`
-preflight accepts a regular file or an ordinary missing target. `glob` requires a directory,
-while `grep` accepts a regular file or directory. Invalid targets return a domain error before
-the permission gate; execution still rechecks the target because approval introduces a new
-time boundary.
-
-Filesystem and search tools use path-owned persistent scopes after canonicalization. An ordinary
-path outside the workspace proposes one parent-directory read or write scope. A fresh assessment
-matches that scope against the target's canonical ancestor directory keys. Sensitive files,
-including credential files inside the workspace, propose only an exact-file scope and never
-consume a parent-directory grant. A read-directory scope recursively covers descendants and is
-shared across `file_read`, `glob`, and `grep`; a write-directory scope is shared across
-`file_write` and `file_edit`. Read and write capabilities remain distinct and never authorize
-Bash. Sensitive writes, virtual system paths, and devices never receive persistent approval. This
-keeps `.env`, credential directories, system paths, and symlink targets subject to fresh
-sensitive-path classification before any stored grant is considered.
-
-Assessment and execution must use the same injected `cwd`. File and search descriptors bind an
-explicit path to its canonical target before assessment; that bound target, rather than the
-original alias, is stored in `AuthorizedToolCall` and consumed by execution. Execution canonicalizes
-the bound target again and fails when it now resolves elsewhere. The shared binder and verifier
-remain tools-layer path semantics; Core only transports the immutable bound value. Tool
-implementations must not resolve operation paths with their own `process.cwd()`.
-
-Web assessors classify HTTP and HTTPS reads as `external_read`. Invalid URLs and
-non-HTTP(S) protocols are hard denied. Bash `curl` and `wget` remain command execution
-and are classified as `external`, not `external_read`.
-
-Bash assessment is deterministic and local:
-
-```text
-ShellAnalysisInput
--> analyzeShellCommand
--> Tree-sitter Bash AST
--> one internal ShellProgram semantic IR
--> recursive hard-stop, wrapper, command, path, and executable analyzers
--> one ShellAnalysisResult
--> Bash PermissionAssessment
-```
-
-Tree-sitter owns Bash syntax. A tools-local adapter projects only permission-relevant commands,
-pipelines, substitutions, assignments, redirections, heredocs, and source spans into
-`ShellProgram`; it does not copy the complete parser AST. Domain analyzers consume this IR and
-cannot reparse raw command text. A bounded analysis context tracks static cwd, literal variables,
-and security effects carried by known variables. This is limited security-flow propagation, not
-general stdout simulation. The result contains syntax, command, path, uncertainty, effect,
-security, and approval facts; it never contains a policy decision, grant lookup, UI model, or
-executable action.
-
-Analysis is bounded to 4,096 semantic nodes, 16 nested execution levels, and 128 tracked literal
-variables. Exceeding a bound yields a sensitive `unknown` assessment without persistent scopes;
-it never silently skips the remaining syntax.
-
-An eligible command may expose literal-name approval requirements after recursive parsing,
-supported wrapper expansion, assignment handling, and redirection analysis. Sequences,
-pipelines, command substitutions, and process substitutions require one requirement for each
-known executable. The scope deliberately ignores subcommands and dynamic ordinary arguments:
-approving `gh` covers later otherwise eligible `gh ...` calls. A substitution used as the
-executable, static sensitive paths, generic destructive or privileged classifications, and
-hard-stop assessments still take precedence.
-
-Wrappers such as `env`, `command`, `exec`, `nohup`, `time`, `xargs`, and
-`bash/sh/zsh -c` are recursively inspected. Partial parser output is still traversed so a
-recoverable nested hard-stop cannot hide behind malformed outer syntax; incomplete execution
-targets and unsupported expressions become `unknown` and cannot expose persistent scopes.
-Classifier `effects` carry security semantics such as download, decode, interpreter, and
-network transfer; effects consumed from tracked variables continue through compound and pipeline
-aggregation. `ruleIds` remain observational. Command-local non-empty `BASH_ENV`, `ENV`, and
-`BASH_FUNC_*` assignments are hard-denied, and Bash execution removes inherited values with those
-names so startup injection cannot change the analyzed command graph.
-
-## Execution Boundary
-
-`ToolInvocationRunner` only receives `AuthorizedToolCall` and owns:
-
-- abort checks around middleware and execution;
-- `beforeExecute` and `afterExecute` middleware;
-- execution-only timeout accounting;
-- host versus sandbox-eligible dispatch;
-- conversion of non-abort execution failures into `ToolResult` errors.
-
-It does not know permission mode, risk, grants, Agent identity, TUI, or persistence.
-Execution context contains only `cwd` and `signal`; permission context is not exposed
-to tool code.
-
-Middleware runs only after authorization. It must not be moved into `AgentLoop` or
-before schema/permission checks. Lifecycle adapters also wrap only actual execution.
-Each supporting adapter receives an isolated input clone; unsupported adapters do not
-cause unnecessary cloning.
-
-The tool timeout begins after `beforeExecute` middleware and immediately before tool
-invocation, after any user approval wait. `executionMs` still covers both middleware
-and tool execution. `ToolCallMetrics` has stable ownership:
-
-- `authorizationMs`: authorization router/gate.
-- `executionMs`: invocation runner, including execution middleware.
-- `totalMs`: coordinator.
-- `ToolEndEvent.durationMs`: `executionMs`, or zero when execution never started.
-
-Timeout policies distinguish runtime supervision from domain-specific request budgets:
-
-- `none` has no Runner deadline but still responds to user cancellation and shutdown.
-- `fixed` applies a runtime-owned deadline that model input cannot change.
-- `input` lets the model request a bounded budget through a validated schema property.
-- Bash uses `input` with a 120-second default and a 10-minute maximum.
-- File, search, trusted computation, and web tools use `none`. Web tools retain their
-  own HTTP request timeout and report it as a domain error.
-
-At a Runner deadline, the linked execution signal is aborted. The Runner allows up to
-two seconds for cooperative cleanup, then returns `tool_timeout` and observes any
-unsettled Promise in the background. A late success or failure cannot run
-`afterExecute`, emit another result, or enter the conversation. Late rejections are
-consumed and may be sent to an optional diagnostic observer. This observation creates
-no additional keep-alive handle.
-
-The internal `ExecutionDeadlineSupervisor` owns linked cancellation, deadline and
-cleanup timers, and late settlement observation. `ToolInvocationRunner` owns only
-middleware ordering, backend dispatch, execution metrics, and result conversion.
-Cleanup timers are cancelled when a tool settles cooperatively, and asynchronous
-diagnostic observer failures are isolated.
-
-## Cancellation
-
-Core's abort helpers define the single cancellation meaning. Abort is checked at
-coordinator entry, after assessment and policy work, after approval, around middleware,
-after tool completion, and before results enter the next model turn.
-
-Blocking tools must observe `ToolExecutionContext.signal`. Bash passes the injected
-`cwd` and signal to the spawned process, terminates it when aborted, and propagates
-`AbortError`. Do not turn cancellation into a successful result or a permission denial.
-
-Bash and grep share the tools-layer `HostProcessRunner`. On POSIX it starts a detached
-process group, sends `SIGTERM` on cancellation, escalates to `SIGKILL` after 500 ms,
-waits for close, and bounds captured stdout/stderr by bytes. Windows uses the child
-process termination capabilities available through Node and does not claim POSIX
-process-group behavior. This process runner has no knowledge of permissions, schemas,
-the TUI, or sandbox policy. It preserves both numeric exit code and signal termination;
-an unexpected signal exit is an execution error rather than a successful null code.
-
-Web tools keep external cancellation separate from their HTTP timeout signal. User
-cancellation and shutdown propagate `AbortError`; an HTTP budget expiry becomes a
-normal domain timeout result; a future Runner deadline becomes `tool_timeout`.
-
-## Filesystem I/O Contract
-
-`file_read` uses a bounded streaming reader. It defaults to 500 lines, accepts explicit
-limits from 1 through 2,000, and caps the final UTF-8 tool text at 64 KiB including line prefixes and
-the continuation footer. It scans to the requested offset without retaining preceding
-text and does not scan beyond the requested page to calculate a total line count.
-Total lines are known only at EOF.
-
-Every page returns an opaque snapshot version in both `ToolResult.meta.pagination` and
-the LLM-visible footer. Continuations carry that version. A version is a stable SHA-256
-digest of device, inode, size, mtime, and ctime metadata; it is a consistency token,
-not authorization or a signature. The reader compares the open handle and current
-canonical path after reading and discards a page when either changed.
-
-Physical lines larger than the remaining output budget use `line_byte_offset`
-continuations. Offsets are relative to line content bytes, exclude CRLF terminators,
-and must be returned by the tool rather than calculated by the model. Chunks stop on a
-valid UTF-8 boundary and are explicitly marked partial. Grep can locate a line, but
-only `file_read` continuation retrieves its complete oversized content.
-
-Glob and grep provide optional navigation facts rather than hidden prerequisites.
-Glob returns stable sorted paths with file sizes for at most 200 visible results. Grep
-parses `rg --json`, enforces a global matching-line limit, and groups bounded line and
-column previews under each matching file and its size. File metadata is loaded only for
-visible results with bounded concurrency. Required navigation data appears in both
-`ToolResult.meta` and LLM-visible text because result metadata is not part of the model
-message. Search tools never calculate or invoke file-read ranges; the Agent chooses a
-range for the current task, and direct file reads safely use the 500-line default.
-
-`file_edit` reads and validates at most 8 MiB, performs one exact non-overlapping
-replacement in memory, and preserves BOM and existing newline bytes. `file_write`
-also validates and prepares its complete bytes before submission. Both use the shared
-`DirectFileWriter`, which verifies an expected snapshot, performs a final abort check,
-and invokes `fs.writeFile` once. New targets use `wx`; existing targets use direct
-overwrite semantics, preserving inode metadata and hard-link relationships.
-
-Direct writing intentionally does not use a temporary file, rename, fsync, backup, or
-automatic rollback. `fs.writeFile` is not an atomic commit: disk errors, process death,
-or power loss may leave an existing target truncated or partially changed. A rejected
-write reports `write_failed` with `targetState: "unknown"`; callers must read the file
-again. Binding prevents an approved path alias from redirecting execution to a different target,
-and execution revalidates the bound canonical path before I/O. Snapshot checks and the
-canonical-path/inode mutex further reduce cooperative races. These checks do not provide an atomic
-OS capability: an external process may still change filesystem state after the final validation,
-and network filesystems may provide weaker semantics. The permission layer is not an OS sandbox.
-
-The in-process file mutex always acquires a canonical path key and additionally
-acquires an inode key for an existing target. The stable path key preserves exclusion
-while a missing target becomes a file; the inode key serializes hard-link aliases.
-Cancellation only releases keys actually acquired by that operation.
-
-## Events and Safe Presentation
-
-The coordinator owns `tool_start`/`tool_end` ordering. Permission observers own
-requested/resolved diagnostics. Lifecycle adapters own domain event conversion. CLI
-only renders events and approval requests.
-
-Permission observer events contain Agent ID, tool identity/name, risk, rule IDs,
-decision/source, and timestamp only. Observer failures are isolated and cannot change
-an authorization result. The first implementation is diagnostic only and does not
-persist an audit log.
-
-Raw input must not cross presentation or observation boundaries. Core's recursive
-sanitizer is the single implementation used for tool previews and permission
-presentations. It handles nested objects and arrays, ANSI/control characters,
-credential-like keys and values, URL query parameters, depth/field/length limits, and
-descriptor-specific hidden fields such as `file_write.content`.
-
-Do not add a second CLI redaction regex or serialize raw tool input in observers,
-permission storage, or permission errors.
-
-## Permission Persistence
-
-Permission state lives at `~/.omni-agent/permissions.json` in version 3 format:
-
-```json
-{
-  "version": 3,
-  "agents": {
-    "coding": {
-      "mode": "standard",
-      "persistentApprovals": [
-        {
-          "toolIdentity": "builtin-coding:bash",
-          "toolName": "bash",
-          "scopeKey": "bash:executable:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-          "scopeKind": "bash_executable",
-          "label": "Always trust executable: mycli"
-        }
-      ]
-    }
-  }
-}
-```
-
-The repository uses the App package's atomic JSON writer and Core's shared
-`InterprocessFileLock`. The lock records PID, UUID owner, and creation time. Stale
-reclamation requires a dead owner and an exclusive reclaim claim, preventing multiple
-reclaimers from deleting a newly acquired lock. Release verifies owner identity.
-
-Writes are serialized in-process, re-read and merged under the inter-process lock,
-written atomically, and kept at mode `0600`. Invalid configuration fails closed to
-`supervised` with no grants. Legacy version 1 identities are normalized and version 1/2
-tool approvals migrate once to the routine scope; unrecognized identities are dropped
-with diagnostics. Runtime policy, service, and repository logic only understand version 3.
-
-Scope keys are opaque to Core and App. The owning tool creates the scope to persist and the
-transient keys that may satisfy its requirement; Core only performs generic any-of/all-of set matching. Bash
-executable scopes hash the literal
-executable name, not its resolved binary path. A later PATH replacement therefore inherits
-the approval until it is revoked; this is a documented pre-sandbox tradeoff rather than a
-binary-integrity guarantee. Stored labels never include argv or the full command.
-
-## TUI and Application Facade
-
-CLI implements `ApprovalBroker` through the shared `InteractionSurfacePort`, one foreground
-interaction at a time. The TUI control runner owns focus, keyboard listeners, cleanup,
-status transitions, and exactly-once Promise settlement. Permission choices are:
-
-- Persist the current eligible scope, when policy permits it. This option is shown first
-  and may represent routine tool operations, one literal Bash executable, an external read
-  directory, or one exact sensitive file.
-- Allow once.
-- Deny.
-
-`/permissions` accesses permission state through `AgentApplication` methods. The
-command may change mode, list/revoke one scoped grant, or clear Agent grants, and changes take
-effect in the current runtime. CLI must not import the permission repository or
-re-evaluate policy.
-
-## Sandbox Boundary
-
-Permissions answer whether a call may proceed. A future sandbox answers how an
-eligible process is constrained by the operating system.
-
-`SandboxRunnerPort` is intentionally in the execution layer. It receives an already
-authorized tool, immutable input, execution context, and profile. It must not own
-permission modes, grants, approval UI, or persistent policy. Host tools are never sent
-to it. This release provides the port but no OS sandbox, so child processes, trusted
-extension code, and symlink time-of-check/time-of-use races remain residual risks.
-
-## Change Checklist
-
-When adding or changing a tool:
-
-1. Choose an explicit authorization descriptor and execution strategy.
-2. Keep domain assessment beside the tool and reuse shared security facts.
-3. Use injected `cwd` and `AbortSignal` in assessment and execution.
-4. Bound the schema and declare hidden presentation fields.
-5. Add focused tests for schema failure, routing, risk boundaries, abort, and secrets.
-6. Verify denials do not run lifecycle adapters, middleware, or tool code.
-7. Do not introduce another executor, permission switch, sanitizer, or lock.
-
-Before merging runtime changes, run formatting, type checking, tests, build, and a TUI
-smoke test when approval or command interaction changed.
+`pnpm dev` and `pnpm run build` compile the current-host release binary before the TypeScript
+runtime starts or builds. `pnpm run build:cli` owns the separate arm64/x64 cross-build and copies
+both binaries into the standalone distribution.
+
+The wrapper preserves stdio and the process group. `HostProcessRunner` remains the single owner of
+output collection, AbortSignal handling, SIGTERM/SIGKILL escalation, and close/error settlement.
+
+Seatbelt permits required system/runtime reads, workspace/private-temp writes, projected approved
+roots or per-call scopes, and optional network. The Runtime projects only roots needed by the
+current call, not the full approval history. Protocol v3 protects the workspace and projected
+read/write subtree roots from deletion or rename while allowing real changes below those roots.
+The runner verifies the binary's advertised protocol before each launch and fails closed on a
+mismatch. Each launch also carries a random diagnostic token so target stderr cannot be mistaken
+for a Rust startup failure.
+Sensitive directory and filename denials are generated from the shared tools-layer policy
+snapshot. Exact sensitive-read exceptions are represented in the same deny expression so they do
+not rely on rule ordering.
+
+The host PATH, platform, and HOME are captured once by the composition root. Shell analysis,
+controlled/autonomous executable lookup, and the environment passed to Bash consume that immutable
+snapshot. Shell executable requirements retain both their static token and effective cwd, so the
+same relative token used after different `cd` operations is not collapsed. Relative PATH entries
+must resolve to a canonical target already covered by the call's access policy; an in-workspace
+symlink cannot turn them into an external trust source. The direct Process invocation is resolved
+to a canonical executable; Bash source remains unchanged. The resolver follows bounded package or
+installation roots, shebang interpreters, bounded shell shims, and macOS Mach-O dependencies. It
+does not recognize installer or CLI names, open HOME, persist runtime scopes, retry after a deny,
+or fall back to host execution. Lookup always honors the first executable in immutable PATH order;
+it never substitutes a later same-name executable after a trust failure. Runtime-only plugins and other undiscoverable dependencies can
+still fail inside the sandbox.
+
+The first release supports macOS arm64 and x64 source builds. Platform-native dependency discovery
+and Rust policy/exec are explicit adapter boundaries: future Linux support requires an ELF resolver
+plus a complete Linux enforcement backend, and Windows requires PE/DLL lookup plus a complete
+Windows backend. Partial backends return `sandbox_unsupported_platform`. The first release does not
+claim overlay filesystems, fake deletion, rollback, cgroup isolation, strict memory isolation, or
+process-count isolation.
+
+## Filesystem Tools
+
+Filesystem Tools share canonical path resolution, preflight, path/inode mutexes, snapshots, text
+validation, streaming reads, and direct writes. `file_read` defaults to 500 lines, accepts 1-2000,
+caps final text at 64 KiB, and returns versioned line or long-line continuation metadata in both
+Tool metadata and model-visible text.
+
+`file_edit` and `file_write` build complete content in memory before one `fs.writeFile` call. This
+is deliberately not an atomic commit. An I/O failure can leave the target state unknown. There is
+no temporary-file recovery, rollback, or automatic backup.
+
+## Settings and Migration
+
+`~/.omni-agent/execution-settings.json` uses version 5 and keys state by stable workspace ID and
+Agent ID. Each entry stores mode, controlled-network state, and at most 64 approved filesystem
+roots. New workspaces default to controlled mode with network disabled and no additional roots.
+Updates use the shared inter-process lock, atomic JSON replacement, and file mode `0600`.
+
+The v4-to-v5 migration preserves every workspace and Agent mode/network setting and initializes
+approved roots empty. The one-way v3 migration maps both legacy modes to controlled, disables
+network, and discards old grants with a diagnostic. The old permissions file is retained for user
+inspection but never read after execution settings exist. Corruption or migration failure fails
+closed.
+
+## Cancellation and Timeouts
+
+`OperationDeadlineSupervisor` owns linked cancellation, deadlines, bounded cooperative cleanup,
+and late-settlement observation. Tool execution maps its deadline to `tool_timeout`; the separate,
+fixed runtime-projection budget maps dependency inspection stalls to
+`sandbox_runtime_projection_timeout` before lifecycle or middleware starts. User cancellation
+propagates `AbortError` and does not create a normal Tool result. Late completion cannot run
+after-middleware or enter the session, and late rejection is consumed.
+
+## Residual Boundaries
+
+- Local extensions are trusted in-process code and are not sandboxed.
+- Autonomous scopes are requested by the Agent and remain bounded by Runtime validation.
+- Enabled network is intentionally coarse-grained.
+- Allowed deletion is real and has no automatic recovery.
+- Symlink TOCTOU and PATH executable replacement are not completely eliminated.
+- Dynamic executable plugins and dependencies that cannot be discovered before launch are not
+  automatically granted or retried.
+- Direct file writes retain their documented truncation risk.

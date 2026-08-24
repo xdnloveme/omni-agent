@@ -74,7 +74,7 @@ examples/minimal-agent/
 - Catalog 声明包能提供什么，并将 Descriptor 与 Factory 放在同一个定义中。
 - Planner 校验 Recipe 引用、展开 Bundle、检查重复与依赖。
 - Blueprint 只能消费 `context.composition`，不得重新读取 YAML 或补默认组件。
-- Tool 自己拥有 authorization、execution 和 timeout 策略。
+- Tool 自己拥有 access、execution 和 timeout 策略。
 
 ## 3. 修改 YAML，观察动态装配
 

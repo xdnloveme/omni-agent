@@ -30,7 +30,7 @@
 
 ## 背景
 
-大多数 Agent 框架把执行循环和具体产品耦合在一起。Omni Agent 反转了这一点：内核负责执行、工具授权、
+大多数 Agent 框架把执行循环和具体产品耦合在一起。Omni Agent 反转了这一点：内核负责执行、工具访问、
 取消和上下文组装，而 Agent 是在组装期显式注册的声明式扩展。
 
 由此产生三条约束，并且代码库强制执行它们：
@@ -122,7 +122,7 @@ omni --version, -v      # CLI 版本
 | 命令           | 作用                             |
 | -------------- | -------------------------------- |
 | `/config`      | 重新配置 Vendor、连接和模型      |
-| `/permissions` | 修改权限模式并撤销持久化批准     |
+| `/permissions` | 管理执行模式、受控网络与批准根   |
 | `/new`         | 开始一个新会话                   |
 | `/clear`       | 清空当前会话历史                 |
 | `/help`        | 列出可用命令                     |
@@ -157,36 +157,30 @@ Agent 仍有活动捕获时，清理命令会拒绝删除数据。Web Viewer 始
 
 ### 内置工具
 
-| 工具                 | 用途                                    | 授权方式                |
-| -------------------- | --------------------------------------- | ----------------------- |
-| `file_read`          | 有界、版本一致的分页 UTF-8 读取         | `dynamic`（路径作用域） |
-| `file_write`         | 创建或完全覆盖 UTF-8 文本文件           | `dynamic`（路径作用域） |
-| `file_edit`          | 一次精确的、空白敏感的替换              | `dynamic`（路径作用域） |
-| `glob`               | 按文件名或路径模式快速发现文件          | `dynamic`（路径作用域） |
-| `grep`               | 基于 ripgrep 的内容搜索，返回结构化匹配 | `dynamic`（路径作用域） |
-| `bash`               | 在注入的执行 `cwd` 下执行 Bash          | `dynamic`（Shell 分析） |
-| `web_fetch`          | 抓取 URL 并返回可读文本                 | `dynamic`（URL 作用域） |
-| `web_search`         | 通过 DuckDuckGo 进行网页搜索            | `dynamic`（查询作用域） |
-| `request_user_input` | 收集 1–3 个结构化决策答案               | `trusted`               |
-| `skill_read`         | 加载指定技能的完整指令                  | `trusted`               |
+| 工具                 | 用途                                    | 访问 / 执行方式    |
+| -------------------- | --------------------------------------- | ------------------ |
+| `file_read`          | 有界、版本一致的分页 UTF-8 读取         | dynamic / 进程内   |
+| `file_write`         | 创建或完全覆盖 UTF-8 文本文件           | dynamic / 进程内   |
+| `file_edit`          | 一次精确的、空白敏感的替换              | dynamic / 进程内   |
+| `glob`               | 按文件名或路径模式快速发现文件          | dynamic / 进程内   |
+| `grep`               | 基于 ripgrep 的内容搜索，返回结构化匹配 | dynamic / 沙箱进程 |
+| `bash`               | 在注入的执行 `cwd` 下执行 Bash          | dynamic / 沙箱进程 |
+| `web_fetch`          | 抓取 URL 并返回可读文本                 | dynamic / 进程内   |
+| `web_search`         | 通过 DuckDuckGo 进行网页搜索            | dynamic / 进程内   |
+| `request_user_input` | 收集 1–3 个结构化决策答案               | internal / 进程内  |
+| `skill_read`         | 加载指定技能的完整指令                  | internal / 进程内  |
 
-`request_user_input` 之所以是受信任的，是因为它只是向当前用户提问 —— 它不授予任何权限，也没有任何
-外部副作用。`bash` 是唯一标记为 `sandbox_eligible` 的工具，也是唯一接受调用方指定超时（`timeout_ms`）
-的工具。
+`request_user_input` 只是向当前用户提问，因此属于 internal Tool。Bash 和 grep 是 Process Tool；在
+`controlled` 与 `autonomous` 模式下通过正式的 Rust Seatbelt 启动器运行。Bash 接受调用方指定的超时
+预算（`timeout_ms`）。
 
-### 权限模式
+### 执行模式
 
-`standard`（默认）允许常规的工作区读写以及常规的外部读取，在执行 Shell 和更高风险操作前询问。
-`supervised` 会同时收紧这两类：写入前会询问，常规外部读取前也会询问。每次调用都会在查询其作用域候选
-之前重新评估；状态非法时会失败关闭到 supervised 行为，且不保留任何自动批准。
-
-批准持久化到 `~/.omni-agent/permissions.json`，归属于授予它的 Agent，其复用边界取决于作用域种类：
-
-- **Agent 级、跨工具共享** —— `filesystem_read_directory`、`filesystem_read_file` 和
-  `filesystem_write_directory`。一个目录读授权会被 `file_read`、`glob`、`grep` 共同认可；一个目录写
-  授权会被 `file_write` 和 `file_edit` 共同认可。读授权永远不会授予写入或 Shell 执行权限。
-- **工具级** —— `tool_routine` 和 `bash_executable`，以具体的工具标识为键，因此批准了某个工具的常规
-  操作，并不意味着另一个工具也被批准。
+`controlled` 是默认模式：Process Tool 在 Seatbelt 中运行，访问限制在工作区或用户批准的附加文件系统根，
+网络首次使用时按工作区询问是否启用。附加根区分只读和读写，并可通过 `/permissions` 撤销。
+`autonomous` 仍使用 Seatbelt，但允许 Agent 为当前调用声明有界的路径和网络范围。
+`unrestricted` 需要明确确认，Process Tool 随后直接在宿主运行，但 Schema、领域预检、超时、取消和
+输出上限等 Runtime 稳定性保护仍然生效。
 
 ## 配置
 
@@ -195,17 +189,17 @@ Agent 仍有活动捕获时，清理命令会拒绝删除数据。Web Viewer 始
 
 「写入方」一列描述的是当前行为，而不是被保证的架构不变量。
 
-| 文件                             | 范围 | 用途                        | 写入方 |
-| -------------------------------- | ---- | --------------------------- | ------ |
-| `omni.config.json`               | 项目 | 共享模型 + 按 Agent 的覆盖  | 你     |
-| `omni.providers.json`            | 项目 | 自定义 Vendor 与连接定义    | 你     |
-| `omni.extensions.mjs`            | 项目 | 本地 ESM 扩展               | 你     |
-| `.env`                           | 项目 | 兜底的环境变量凭证          | 你     |
-| `~/.omni-agent/config.json`      | 全局 | CLI 选择的模型              | CLI    |
-| `~/.omni-agent/providers.json`   | 全局 | 交互式定义的自定义 Provider | CLI    |
-| `~/.omni-agent/extensions.mjs`   | 全局 | 全局本地扩展                | 你     |
-| `~/.omni-agent/permissions.json` | 全局 | 持久化的工具批准            | CLI    |
-| `~/.omni-agent/.env`             | 全局 | 全局兜底环境变量凭证        | 你     |
+| 文件                                    | 范围 | 用途                        | 写入方 |
+| --------------------------------------- | ---- | --------------------------- | ------ |
+| `omni.config.json`                      | 项目 | 共享模型 + 按 Agent 的覆盖  | 你     |
+| `omni.providers.json`                   | 项目 | 自定义 Vendor 与连接定义    | 你     |
+| `omni.extensions.mjs`                   | 项目 | 本地 ESM 扩展               | 你     |
+| `.env`                                  | 项目 | 兜底的环境变量凭证          | 你     |
+| `~/.omni-agent/config.json`             | 全局 | CLI 选择的模型              | CLI    |
+| `~/.omni-agent/providers.json`          | 全局 | 交互式定义的自定义 Provider | CLI    |
+| `~/.omni-agent/extensions.mjs`          | 全局 | 全局本地扩展                | 你     |
+| `~/.omni-agent/execution-settings.json` | 全局 | 工作区模式、网络与批准根    | CLI    |
+| `~/.omni-agent/.env`                    | 全局 | 全局兜底环境变量凭证        | 你     |
 
 目前 CLI 只写入上表中标注的三个全局文件；它会读取项目文件和 `.env` 文件，但不修改它们。
 
@@ -295,7 +289,7 @@ interface AgentExtensionContributions {
 
 ### 添加工具
 
-每个工具都必须显式声明授权、执行与超时策略，没有默认值，也没有元数据兜底。
+每个工具都必须显式声明访问、执行与超时策略，没有默认值，也没有元数据兜底。
 
 ```ts
 import type { AgentToolDefinition } from "@omni-agent/core";
@@ -310,8 +304,8 @@ const myTool: AgentToolDefinition = {
     properties: { query: { type: "string" } },
   },
   timeout: { kind: "none" },
-  authorization: { kind: "static", risk: "read", reason: "Reads public data" },
-  execution: { kind: "host" },
+  access: { kind: "internal" },
+  execution: { kind: "in_process" },
   async execute(params, context) {
     context.signal?.throwIfAborted();
     return {
@@ -324,10 +318,8 @@ const myTool: AgentToolDefinition = {
 
 - `timeout`：`{ kind: "none" }` | `{ kind: "fixed"; timeoutMs }` |
   `{ kind: "input"; parameter; defaultMs; minMs; maxMs }`
-- `authorization`：`{ kind: "trusted"; reason }` |
-  `{ kind: "static"; risk: "read" | "execute"; reason }` |
-  `{ kind: "dynamic"; assess(input, context) }`
-- `execution`：`{ kind: "host" }` | `{ kind: "sandbox_eligible"; profile }`
+- `access`：`{ kind: "internal" }` | `{ kind: "dynamic"; assess(input, context) }`
+- `execution`：`{ kind: "in_process" }` | `{ kind: "process" }`
 
 `execute` 必须返回 `ToolResult`：`content` 是 `{ type: "text"; text: string }` 组成的数组，`isError`
 是必填字段。请用 `isError: true` 返回结构化错误，而不是把失败藏进看似成功的输出里。
@@ -482,16 +474,16 @@ interface VendorPlugin {
 以及模型 Vendor 插件。所有贡献在注册前完成校验；激活失败和正常注销都按逆序清理，单项失败不会阻断后续
 清理，并按资源报告全部清理失败。可选的本地扩展失败只会产生诊断信息，不会阻止默认 Agent 启动。
 
-**工具授权管线。** 每个工具都必须显式声明 `authorization` 策略（`trusted` / `static` / `dynamic`）、
-彼此独立的 `execution` 策略（`host` / `sandbox_eligible`）以及超时策略（`none` / `fixed` / 绑定 schema
-的 `input`）。没有中心化的 `switch (toolName)` —— 领域判定始终留在工具的属主处。
+**工具访问管线。** 每个工具都必须显式声明访问策略（`internal` / `dynamic`）、执行策略
+（`in_process` / `process`）以及超时策略。领域评估留在 Tool owner，Core 只处理通用访问资源和执行模式。
 
-**结构化 Shell 分析。** Bash 授权全部来自单一的、基于 Tree-sitter 的分析入口。持久化批准的粒度是字面
-可执行文件名（而非其子命令）；复合命令与嵌套替换要求其中每一个已知可执行文件都被授权。启动进程前会
-移除 `BASH_ENV`、`ENV` 以及导出的 `BASH_FUNC_*` 值。
+**结构化 Shell 分析。** Bash 的访问事实和 hard-stop 来自单一的、基于 Tree-sitter 的分析过程。复合命令
+与嵌套替换共享同一个 parser、路径分析和安全流聚合。启动进程前会移除 `BASH_ENV`、`ENV` 以及导出的
+`BASH_FUNC_*` 值。
 
-**路径级文件系统授权。** 敏感文件必须使用精确文件授权，因此目录批准绝不会静默覆盖 `.env`、凭证、系统
-路径，或指向它们的符号链接。
+**Rust 进程沙箱。** `controlled` 与 `autonomous` 下的 Process Tool 通过版本化 Rust Seatbelt 启动器
+运行，由工作区、受控批准根或单次路径、敏感读取、网络和资源策略约束。受控批准由文件、搜索和 Bash Tool
+共享，每次只把当前调用需要的根投影进沙箱。
 
 **上下文引擎。** 模型上下文按轮次通过固定管线组装：会话快照 → 工作会话 → 上下文草稿 → 上下文中间件
 → 信封 → 策略管线 → 组装 → `ModelRuntimePort`。稳定微压缩把大体积工具结果投影为内容寻址的 sidecar
@@ -515,8 +507,8 @@ interface VendorPlugin {
 
 明确写出来，因为这会影响你的部署方式：
 
-- 权限层是**执行策略，不是操作系统沙箱**。它无法完全约束不受信任的子进程，也无法消除文件系统竞态。
-  目前没有随附任何 OS 级沙箱实现；`sandbox_eligible` 只是标记，不是保证。
+- Rust 沙箱目前只支持 macOS，并且只约束 Process Tool。进程内 Tool 与本地扩展仍是受信任代码。
+- 沙箱不提供 overlay filesystem、假删除、回滚、严格内存隔离或进程数量隔离。
 - 本地 ESM 扩展（`omni.extensions.mjs`）是**受信任的本地代码**，没有被沙箱化。
 - `file_write` / `file_edit` 采用直接覆盖写。这刻意不是原子提交；写入失败可能让目标文件处于未知状态。
 - 金融分析 Agent 是只读的，既不下单交易，也不抓取行情数据。
@@ -552,16 +544,16 @@ graph TD
     TOOLS --> CORE
 ```
 
-| 包                | 职责                                                         |
-| ----------------- | ------------------------------------------------------------ |
-| `packages/core`   | Agent 执行内核：执行循环、工具协调、权限、上下文、事件、端口 |
-| `packages/models` | 模型运行时、Vendor 插件、模型目录、协议转换、凭证持久化      |
-| `packages/app`    | 应用生命周期，Agent/工具/命令注册表，扩展宿主，会话，配置    |
-| `packages/tools`  | 领域无关的文件系统、Shell、搜索与 Web 工具                   |
-| `packages/ui`     | 浏览器与终端交互、展示投影、适配器、格式化与交付             |
-| `packages/cli`    | 命令、Agent 创建与用例编排、会话及初始引导流程               |
-| `apps/omni`       | 二进制入口、CLI/UI 组装、信号、Trace 预览生命周期和退出码    |
-| `agents/*`        | 独立打包的业务 Agent                                         |
+| 包                | 职责                                                             |
+| ----------------- | ---------------------------------------------------------------- |
+| `packages/core`   | Agent 执行内核：执行循环、工具协调、访问计划、上下文、事件、端口 |
+| `packages/models` | 模型运行时、Vendor 插件、模型目录、协议转换、凭证持久化          |
+| `packages/app`    | 应用生命周期，Agent/工具/命令注册表，扩展宿主，会话，配置        |
+| `packages/tools`  | 领域无关的文件系统、Shell、搜索与 Web 工具                       |
+| `packages/ui`     | 浏览器与终端交互、展示投影、适配器、格式化与交付                 |
+| `packages/cli`    | 命令、Agent 创建与用例编排、会话及初始引导流程                   |
+| `apps/omni`       | 二进制入口、CLI/UI 组装、信号、Trace 预览生命周期和退出码        |
+| `agents/*`        | 独立打包的业务 Agent                                             |
 
 ### 依赖方向
 
@@ -583,11 +575,12 @@ apps/omni -> app, cli, ui
 | ----------------------------- | ------------------------------------------------------------- |
 | `ModelRuntimePort`            | Core 唯一的模型契约，只接收已准备好的上下文消息与工具规格     |
 | `AgentRunner`                 | 单 Agent 执行循环，构造时恰好接收一个 `ModelRuntimePort`      |
-| `ToolCallCoordinator`         | Agent 循环唯一的工具入口：schema 校验、领域预检、路由         |
-| `ToolAuthorizationRouter`     | 直接放行 `trusted` 工具，其余全部委派给权限门                 |
-| `PermissionGate`              | 非受信工具的权限决策点                                        |
-| `ToolInvocationRunner`        | 只执行已授权的调用；中间件在授权之后才运行                    |
-| `ExecutionDeadlineSupervisor` | 负责联动取消、截止计时器和迟到结果的观测上报                  |
+| `ToolCallCoordinator`         | Agent 循环唯一的工具入口：schema 校验、领域预检、访问控制     |
+| `ToolAccessController`        | 评估模式、Tool 访问意图、访问许可与授权结果                   |
+| `ProcessExecutionPlanner`     | 解析 invocation/executable 并冻结最终进程计划                 |
+| `ProcessExecutionRouter`      | controlled/autonomous 路由 Rust，unrestricted 路由宿主        |
+| `ToolInvocationRunner`        | 只执行已批准的调用；负责中间件与截止时间集成                  |
+| `OperationDeadlineSupervisor` | 负责联动取消、截止计时、清理窗口和迟到结果观测                |
 | `AgentFactory`                | 唯一运行时组装入口：把 Agent Package 解析为不可变 Plan 和实例 |
 | `AgentBlueprint`              | 每个 Agent 包导出的 `agentBlueprint` 值                       |
 | `AgentExtension`              | 声明式贡献单元，经过校验并可原子回滚                          |
@@ -596,12 +589,13 @@ apps/omni -> app, cli, ui
 
 ```text
 AgentLoop
-  -> ToolCallCoordinator        schema 校验、领域预检
-  -> ToolAuthorizationRouter
-       |-> trusted              -> 已授权调用
-       `-> 受权限控制            -> PermissionGate -> 已授权调用
+  -> ToolCallCoordinator        schema 校验、领域预检、访问控制
+  -> ToolAccessController       模式、资源、网络许可、访问授权
+  -> ProcessExecutionPlanner    executable 信任、运行时闭包、最终进程计划
   -> 生命周期中间件
-  -> ToolInvocationRunner       host 或 sandbox-eligible 执行
+  -> ToolInvocationRunner
+       |-> 进程内 Tool
+       `-> ProcessExecutionRouter -> Rust 沙箱或直接宿主执行
 ```
 
 完整契约见 [`docs/architecture.md`](docs/architecture.md) 与
@@ -612,7 +606,7 @@ AgentLoop
 ```text
 omni-agent/
 ├── packages/
-│   ├── core/     Agent 循环、工具协调、权限、上下文引擎、端口
+│   ├── core/     Agent 循环、工具协调、访问、执行、上下文引擎、端口
 │   ├── models/   模型运行时、Vendor 插件、模型目录、凭证、缓存
 │   ├── app/      生命周期、注册表、扩展宿主、会话、配置、工作区
 │   ├── tools/    文件系统、Shell、搜索、Web 与用户输入工具
@@ -624,6 +618,7 @@ omni-agent/
 │   ├── coding/              默认编码 Agent（技能、文件、Shell、搜索、Web）
 │   └── financial-analysis/  只读的确定性指标计算 Agent
 ├── docs/         架构与运行时契约文档
+├── sandbox/      正式 Rust macOS Seatbelt 启动器
 ├── scripts/      构建与打包脚本
 ├── omni.config.json      项目模型配置
 └── omni.providers.json   项目 Vendor 定义
@@ -637,7 +632,7 @@ omni-agent/
 | [`docs/agent-package.md`](docs/agent-package.md)                                                   | Manifest v2、Blueprint、组合、Package 加载与所有权        |
 | [`docs/build-an-agent-in-five-minutes.md`](docs/build-an-agent-in-five-minutes.md)                 | 可执行的最小 Agent 教程与动态 YAML 组装                   |
 | [`docs/tracing.md`](docs/tracing.md)                                                               | Runtime Observation、Assembly Evidence、本地 Trace 与回放 |
-| [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | 工具授权、执行、取消与沙箱边界的权威契约                  |
+| [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | 工具访问、执行、取消与沙箱边界的权威契约                  |
 | [`docs/context-engineering.md`](docs/context-engineering.md)                                       | 上下文管线、压缩与检查点                                  |
 | [`docs/model-cache.md`](docs/model-cache.md)                                                       | 提示词缓存意图、作用域、指纹与租约状态                    |
 | [`docs/skill-system-architecture.md`](docs/skill-system-architecture.md)                           | 技能的发现、索引与加载                                    |
@@ -674,6 +669,18 @@ pnpm run eval:checkpoint     # 离线检查点摘要评测
 pnpm run eval:clarification  # 离线澄清路由评测
 ```
 
+### Rust 沙箱
+
+`controlled` 与 `autonomous` 下的 Process Tool 使用 `sandbox/` 中的正式 macOS Seatbelt 启动器。
+`pnpm dev` 和 `pnpm run build` 会自动构建当前主机的 Rust `1.95.0` 二进制。
+单独开发沙箱时可使用：
+
+```bash
+pnpm run build:sandbox
+```
+
+沙箱仅支持 macOS，不提供回滚或假删除。协议与安全边界见 [`sandbox/README.md`](sandbox/README.md)。
+
 husky 的 pre-commit 钩子会自动运行 `format:check`、`typecheck` 和 `test`。
 
 ## 参与贡献
@@ -698,12 +705,12 @@ husky 的 pre-commit 钩子会自动运行 `format:check`、`typecheck` 和 `tes
 
 ## 安全
 
-Omni Agent 会在你的机器上执行由模型驱动的 Shell 命令和文件写入。在授予批准之前请先理解边界：
+Omni Agent 会在你的机器上执行由模型驱动的 Shell 命令和文件写入。在切换执行模式前请先理解边界：
 
-- **安全模型记录在 [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)** —— 它是工具授权、权限
-  作用域、执行、取消与沙箱边界的权威契约。
-- **权限是执行策略，不是沙箱。** 参见[非目标](#非目标)。不要指望权限层能关住恶意代码；不受信任的
-  工作请放到虚拟机或容器里跑。
+- **安全模型记录在 [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)** —— 它是工具访问、执行、
+  取消与沙箱边界的权威契约。
+- **沙箱边界是有限的。** `controlled` 与 `autonomous` 只强制约束 Process Tool；进程内 Tool 和本地扩展
+  仍属于受信任代码。`unrestricted` 会直接在宿主执行进程。
 - **凭证**存放在操作系统钥匙串中，`.env` 文件只是只读兜底。绝不要把凭证写进 `omni.config.json` ——
   形似凭证的字段会被拒绝。
 - **扩展是受信任的代码。** `omni.extensions.mjs` 以完整进程权限执行。只加载你自己编写或审计过的扩展

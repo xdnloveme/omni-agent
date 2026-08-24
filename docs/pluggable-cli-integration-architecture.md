@@ -6,7 +6,7 @@
 
 > **运行时契约说明**：本文的 CLI 集成方案尚未实施，其中早期 `AgentTool`、
 > `execute(params, signal)` 和“同进程直接执行”示例不再是当前运行时契约。
-> 任何实现都必须生成最终 `AgentToolDefinition`，显式声明 `authorization` 与
+> 任何实现都必须生成最终 `AgentToolDefinition`，显式声明 `access` 与
 > `execution`，并统一经过 `ToolCallCoordinator`。权威契约见
 > [`docs/tool-call-runtime.md`](tool-call-runtime.md)。本文其余 `AgentTool` 表述仅代表
 > “模型可调用工具”这一概念，不构成可复制的 TypeScript API。
@@ -465,7 +465,7 @@ output:
 
 1. **当前阶段**：omni-agent 是本地 CLI 工具，不需要远程 tool serving，多进程通信是过度工程
 2. **核心需求**：把 CLI 命令包装成 `AgentToolDefinition`，同进程加载并经
-   `ToolCallCoordinator` 授权和执行
+   `ToolCallCoordinator` 访问控制和执行
 3. **未来兼容**：设计时遵循 MCP 的 schema 规范（JSON Schema for inputSchema），未来写一层薄 adapter 即可暴露为 MCP server
 4. **性能优势**：同进程加载，零 IPC 开销，工具调用延迟 = CLI 执行时间
 5. **已有生态**：`keytar` 已在依赖中，无需额外基础设施
@@ -932,9 +932,13 @@ interface AgentToolDefinition {
   name: string;
   description: string;
   schema: Record<string, unknown>;
-  authorization: ToolAuthorizationDescriptor;
-  execution: ToolExecutionStrategy;
-  execute(params: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolResult>;
+  access: ToolAccessDescriptor;
+  execution: { kind: "process" };
+  createProcessInvocation(
+    params: Record<string, unknown>,
+    context: ToolExecutionContext,
+  ): ProcessInvocation | Promise<ProcessInvocation>;
+  createToolResult(result: ProcessResult): ToolResult | Promise<ToolResult>;
 }
 ```
 
@@ -955,15 +959,16 @@ interface AgentToolDefinition {
     required: ["title", "repo"],
     additionalProperties: false,
   },
-  authorization: { kind: "dynamic", assess: assessCliCommandPermission },
-  execution: { kind: "sandbox_eligible", profile: "external-cli" },
-  execute: async (params, context) => { /* 使用 context.cwd 和 context.signal */ },
+  access: { kind: "dynamic", assess: assessCliAccess },
+  execution: { kind: "process" },
+  createProcessInvocation: async (params, context) => ({ /* executable, argv, cwd */ }),
+  createToolResult: async (result) => ({ /* structured ToolResult */ }),
 }
 ```
 
-CLI 集成工具通常会启动外部进程，不能默认标记为 `trusted`。具体命令的网络、
-写入、破坏性和未知风险应由该集成领域的 assessor 表达；App 和 CLI UI 不解析
-命令。当前尚无 OS sandbox，因此 `sandbox_eligible` 只是未来执行后端的路由声明。
+CLI 集成工具通常会启动外部进程，因此必须声明为 Process Tool。具体命令的路径、
+网络和 hard-stop 事实由该集成领域的 access assessor 表达；App 和 CLI UI 不解析
+命令。`controlled` 和 `autonomous` 由 Rust 沙箱执行，`unrestricted` 才直接使用宿主进程。
 
 ### 4.2 tools/index.ts barrel 导出对接
 
@@ -1453,7 +1458,7 @@ Step 6: 启动时自动加载，tools 自动注册
 1. **可插拔**：新增集成只需添加一个定义文件，无需修改框架代码
 2. **可扩展**：支持内置 → 用户自定义 → npm 包三级扩展
 3. **不过度设计**：最小核心 + 可选扩展点，不引入不需要的复杂度
-4. **与现有架构兼容**：生成标准 `AgentToolDefinition`，统一注册、授权和执行
+4. **与现有架构兼容**：生成标准 `AgentToolDefinition`，统一注册、访问控制和执行
 5. **渐进增强**：从最简实现起步，按需添加复杂功能
 
 ---

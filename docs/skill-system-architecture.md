@@ -162,8 +162,7 @@ Responsibilities:
 - `loader.ts`: discover skills from configured directories.
 - `registry.ts`: cache metadata and load full bodies on demand.
 - `prompt.ts`: render the compact index and selection rules.
-- `skill-read-tool.ts`: expose `skill_read` as an `AgentToolDefinition` with trusted
-  authorization and host execution.
+- `skill-read-tool.ts`: expose `skill_read` as an internal, in-process `AgentToolDefinition`.
 - `policy.ts`: apply per-skill allowed tools later when the runtime supports tool policy.
 - `skill-renderer.ts`: render skill lifecycle events in TUI.
 - `commands/skills.ts`: `/skills`, `/skills reload`, and slash invocation support.
@@ -241,9 +240,9 @@ sequenceDiagram
   participant TUI
 
   Model->>Coordinator: tool call skill_read({name})
-  Coordinator->>Coordinator: schema validation + trusted authorization
+  Coordinator->>Coordinator: schema validation + internal access
   Coordinator->>TUI: extension_event(skill, read_start)
-  Coordinator->>SkillReadTool: execute on host
+  Coordinator->>SkillReadTool: execute in process
   SkillReadTool->>SkillRegistry: loadBody(name)
   SkillRegistry-->>SkillReadTool: LoadedSkill
   SkillReadTool-->>Coordinator: tool result with skill body
@@ -317,11 +316,9 @@ export const skillReadTool: AgentToolDefinition = {
   name: "skill_read",
   description:
     "Read the full instructions for a named skill. Use this when the user's task matches an available skill. The result is added to context for the next step.",
-  authorization: {
-    kind: "trusted",
-    reason: "Loads internal instruction context without external side effects",
-  },
-  execution: { kind: "host" },
+  access: { kind: "internal" },
+  execution: { kind: "in_process" },
+  timeout: { kind: "none" },
   schema: {
     type: "object",
     properties: {
@@ -425,7 +422,7 @@ export interface ToolResult {
 `ToolCallCoordinator` is the single tool event source:
 
 1. It emits the existing `tool_start` / `tool_end` events for compatibility.
-2. After trusted authorization, tool lifecycle adapters can emit `extension_event`
+2. After internal access control, tool lifecycle adapters can emit `extension_event`
    before and after matching execution.
 3. `SkillReadLifecycleAdapter` emits `skill/read_start` before execution and
    `skill/read_end` after execution.
@@ -579,12 +576,11 @@ File watchers are optional. For a small local TUI, explicit reload is simpler an
 
 ## 14. Security and Policy
 
-Skills are instructions, not code execution. `skill_read` is explicitly declared as a
-trusted, host-executed internal capability. It bypasses `PermissionGate`, while still
-crossing schema validation, lifecycle adapters, execution middleware, cancellation,
-and structured tool-result handling. Following skill instructions may cause later
-permission-controlled tool calls; those calls are assessed independently at execution
-time.
+Skills are instructions, not code execution. `skill_read` is explicitly declared as an
+in-process tool with internal access. It still crosses schema validation, access planning,
+lifecycle adapters, execution middleware, cancellation, and structured tool-result handling.
+Following skill instructions may cause later tool calls; each call receives its own access plan
+from the active workspace execution mode.
 
 Still, skills can declare `allowed-tools` as an experimental future policy hint:
 
@@ -602,13 +598,13 @@ Policy semantics:
 - Multiple loaded skills should combine by intersection only when all declare `allowed-tools`; otherwise default host policy applies.
 
 This requires a dedicated skill tool-visibility policy upstream of
-`ToolCallCoordinator`. It must remain separate from `PermissionGate`, which
-authorizes permission-controlled calls to already-visible tools. Until then, `allowed-tools` is
+`ToolCallCoordinator`. It must remain separate from `ToolAccessController`, which
+plans access for already-visible tools. Until then, `allowed-tools` is
 **parsed-only** metadata and must not be documented to users as enforced behavior.
 
 See [`docs/tool-call-runtime.md`](tool-call-runtime.md) for the authoritative runtime
-pipeline and the distinction between trusted authorization, permission-controlled
-authorization, host execution, and sandbox-eligible execution.
+pipeline and the distinction between internal execution, access planning, sandboxed process
+execution, and unrestricted host execution.
 
 ## 15. Fit With omni-agent Code
 
@@ -1068,8 +1064,8 @@ Acceptance:
 
 ### Stream and TUI
 
-- `extension_event(namespace: "skill", event: "read_start")` emits after trusted
-  authorization and before tool execution.
+- `extension_event(namespace: "skill", event: "read_start")` emits after access control and
+  before tool execution.
 - `extension_event(namespace: "skill", event: "read_end")` emits after tool execution.
 - Non-skill extensions can add their own namespace without changing the core stream union.
 - TUI renders loaded skill card.

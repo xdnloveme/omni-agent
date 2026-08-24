@@ -213,7 +213,7 @@ disposed in reverse registration order when activation fails.
 Middleware contributions are stored by the extension manager in two independent
 registries. Context middleware transforms only a detached `ContextDraft`; lifecycle
 middleware observes a detached completed model call or wraps authorized tool execution.
-`ToolInvocationRunner` invokes tool middleware only after authorization. Unregistering
+`ToolInvocationRunner` invokes tool middleware only after access control. Unregistering
 an extension removes both middleware kinds in reverse registration order. Runtime
 middleware accepts only its current declared members; Context mutation belongs solely to
 `contextMiddleware.transform`.
@@ -306,7 +306,7 @@ the nearest Git root when present, and derives a stable path-based workspace ID.
 It owns only workspace identity, manifest initialization, and storage layout.
 The CLI resolves one `WorkspaceContext` and passes it into `AgentFactory`; Core,
 the TUI, and concrete Agents do not derive workspace identity or construct Session
-paths. Global configuration, credentials, permissions, and global extensions remain
+paths. Global configuration, credentials, execution settings, and global extensions remain
 shared. Transcript and Context state are isolated under
 `~/.omni-agent/workspaces/<workspaceId>/sessions/<agentId>/`.
 
@@ -327,10 +327,10 @@ Request-level `title`, `detail`, `message`, `tone`, `dismissLabel`, `status`, an
 must not interpret them as policy or alter stable field, option, and action IDs.
 
 ```text
-PermissionGate -> ApprovalBroker ------------┐
-Command -> TuiCommandInteractionAdapter ------+-> InteractionSurfacePort
-request_user_input -> clarification adapter --┘             |
-                                                        UI TUI Surface
+ToolAccessController -> AccessConsentBroker --┐
+Command -> TuiCommandInteractionAdapter -------+-> InteractionSurfacePort
+request_user_input -> clarification adapter ---┘             |
+                                                         UI TUI Surface
 ```
 
 `AgentFactory` lends one host-owned Surface to each Blueprint. The factory and Blueprint
@@ -340,9 +340,9 @@ forever. The UI package owns `TuiInteractionSurface`, its single foreground slot
 handoff, abort listeners, and disposal. CLI consumes only the interaction ports supplied by the
 Host. Nested requests fail with `interaction_busy`.
 
-Permission, Command, and clarification retain independent adapters and validation:
-the Surface never grants permission, maps command values, or decides whether a question
-is required. Escape is a neutral `dismissed` response; each adapter maps it to deny,
+Access consent, Command, and clarification retain independent adapters and validation:
+the Surface never computes access policy, maps command values, or decides whether a question
+is required. Escape is a neutral `dismissed` response; each adapter maps it to disabled,
 escape, or skipped respectively. Interaction presentation is process-local. Session
 history persists the ordinary tool call/result pair, not an editable widget or pending
 Promise. Cross-process pending-interaction recovery is intentionally unsupported.
@@ -425,10 +425,10 @@ App Store / Query adapters -> UI Preview Server -> Browser
 ```
 
 Runtime code depends only on typed, scoped Observation handles. Run, Turn, Context, Model,
-Tool Batch, Tool Call, authorization, preflight, and execution scopes report readonly facts at
+Tool Batch, Tool Call, access, preflight, and execution scopes report readonly facts at
 their authoritative execution points. They do not know span names, replay kinds, storage,
 OpenTelemetry, or an observability vendor. Observation methods are synchronous, fail-open, and
-cannot alter inputs, results, authorization, scheduling, cancellation, or exceptions.
+cannot alter inputs, results, access decisions, scheduling, cancellation, or exceptions.
 
 Trace Processing is the sole owner of translating Runtime facts into span conventions and replay
 records. `SpanRuntimeObserver` and `ReplayRuntimeObserver` are independent consumers combined by
@@ -654,7 +654,7 @@ fail closed. Immutable scalar and image-data strings may be shared.
 Executable `RegisteredAgentTool` values remain in the tool-call path. The Agent adapter
 projects them to `ModelToolSpec`, which contains only name, description, schema, and
 strictness before Context preparation begins. `PreparedModelContext` and `ModelRequest` therefore cannot expose tool
-execution, authorization, timeout, or host policy to a Provider.
+execution, access, timeout, or host policy to a Provider.
 
 Assembly owns the single `TranscriptMessage` to `ModelContextMessage` projection plus the
 projection of Context-only checkpoint and artifact entries. Checkpoints are emitted only
@@ -732,7 +732,7 @@ Loop rules, prompt wording, and enforcement remain separate responsibilities und
 `packages/core/src/loop-protection` and `packages/core/src/system-prompt`.
 
 Loop protection is created per `runAgentLoop` call and covers every tool routed through
-the coordinator, including extension tools and structured validation or authorization
+the coordinator, including extension tools and structured validation or access
 errors. It uses stable result signatures and trailing batch-cycle rules without knowing
 concrete tool names. A hard halt waits for the full tool batch, emits a structured error,
 and returns all produced messages for persistence. Concrete built-in Agents have no fixed
@@ -745,114 +745,99 @@ derived state; writes use provider-scoped serialization and compensation, while 
 corrupt index is quarantined and reconciled from known active provider IDs.
 Environment files are parsed without mutating `process.env`.
 
-## Runtime permissions
+## Runtime access and process sandbox
 
 The complete and authoritative runtime contract is in
 [`docs/tool-call-runtime.md`](tool-call-runtime.md). This section records only the
 cross-package boundary.
 
-Every tool call crosses one authorization path before execution:
+Every Tool call crosses one access path before execution:
 
 ```text
 AgentLoop -> ToolCallCoordinator -> schema validation -> domain preflight
-                                   -> ToolAuthorizationRouter
-                                      |-> trusted -> authorized call
-                                      `-> permission -> PermissionGate -> authorized call
-          -> lifecycle -> ToolInvocationRunner -> host or sandbox-eligible execution
+                                   -> ToolAccessController -> AccessGrant
+                                   -> ProcessExecutionPlanner -> final ToolExecutionPlan
+          -> lifecycle -> ToolInvocationRunner
+                         |-> in-process Tool
+                         `-> ProcessExecutionRouter -> Rust Seatbelt or direct host
 ```
 
-Core owns the stable authorization and permission contracts, `ToolCallCoordinator`,
-`ToolAuthorizationRouter`, `PermissionGate`, and `ToolInvocationRunner`. The
-coordinator is the AgentLoop's only tool-call entry. The router admits explicitly
-trusted internal tools without consulting permission state and delegates all other
-tools to the gate. The runner accepts only authorized calls and routes execution from
-the tool's explicit strategy. Authorization and execution strategy are independent.
-Concrete risk assessment stays with the owning technical domain in `packages/tools`:
-one Shell analysis entry, the Tree-sitter Bash adapter, its permission-specific `ShellProgram`,
-and command classifiers live with the Bash tool, while filesystem and search tools map shared
-path-security facts into their own permission presentations.
-Cross-domain path normalization, workspace-boundary checks, and sensitive-path
-definitions remain pure shared security primitives. The app
-owns the default policy, Agent-scoped permission service, and atomic persistence.
-The UI supplies the approval broker and renders approval prompts through the Host-provided
-interaction surface. No layer
-dispatches permission behavior through a central switch on tool name.
+Core owns `ToolCallCoordinator`, `ToolAccessController`, the process-planning port, immutable authorized calls, and
+`ToolInvocationRunner`. The coordinator remains AgentLoop's only Tool entry. Access and execution
+are independent explicit strategies. The tools package owns Shell, filesystem, search, and web
+facts plus filesystem consent candidates; App owns versioned workspace settings; UI owns mode
+management and access consent. No layer dispatches behavior through a central Tool-name switch.
+Tool domains report ordinary access-contract rejections through `ToolAccessIntent.denial` and
+reserve `hardStop` for security facts that override mode-specific evaluation.
 
-The default modes are `standard` and `supervised`. Standard mode permits routine
-workspace reads and writes but asks before ordinary process execution.
-Supervised mode also asks before writes. Assessments separately describe operational
-impact (`risk`) and the domain operation category (`operationClass`). Routine package
-operations may use an existing Agent/tool/scope grant. Bash persistent approval identifies
-one literal executable and deliberately does not classify its subcommands or dynamic ordinary
-arguments for persistence. Static sensitive-path, destructive, privileged, and hard-stop
-assessments cannot consume that scope. Compound commands and nested substitutions expose one
-requirement for each known executable, including targets resolved through supported wrappers.
-Unresolved executables and unsupported syntax cannot expose persistent scopes. Multiple
-executable identities use
-all-of matching: all existing grants allow execution, while one approval can atomically add
-only the missing executable scopes. Every call is reassessed before scope lookup, so stored
-state cannot override those boundaries. Constraining behavior inside an approved CLI is a
-future sandbox responsibility.
+The modes are `controlled`, `autonomous`, and `unrestricted`. Controlled confines access to the
+canonical workspace plus filesystem roots explicitly approved for that workspace and Agent, and
+asks once before enabling network. Approved roots distinguish read from read/write and remain
+subject to sensitive-path policy. Autonomous retains Seatbelt while consuming bounded per-call
+path and network scope. Unrestricted requires explicit mode confirmation and routes Process Tools
+directly to the host. It still keeps Schema, preflight, timeout, cancellation, output, and
+file-consistency protections.
 
 Tree-sitter handles Shell syntax once; the tools-local semantic IR is recursively analyzed for
-command, path, effect, uncertainty, and approval facts. A bounded context tracks static cwd,
+command, path, effect, uncertainty, and hard-stop facts. A bounded context tracks static cwd,
 literal variables, and security effects carried by known variables without attempting to model
 general command output. Bash execution rejects command-local shell startup injection and removes
 `BASH_ENV`, `ENV`, and exported Bash functions from the host environment so startup hooks cannot
-invalidate the analyzed command graph. PATH target replacement remains a documented sandbox
-boundary.
+invalidate the analyzed command graph. Process execution captures an immutable host PATH at
+startup. The same snapshot drives controlled/autonomous lookup and the sandboxed Bash environment,
+so mutable process state cannot make analysis and execution select different host executables.
 
-Filesystem path approval remains domain-owned. Ordinary external files may consume a
-canonical parent-directory read or write scope, while sensitive reads may consume only an exact-file
-scope. Read/write and tool identities remain isolated. Sensitive-path classification runs before scope matching, so a directory grant never
-silently includes `.env`, credential locations, system paths, or symlink targets that resolve
-into those locations. Core treats filesystem scope keys as opaque alternatives and does not
-parse paths.
+Before Core creates an authorized Process call, the tools-owned `ProcessExecutionPlanner` resolves
+the direct invocation executable and the static external executable facts produced by the single
+Shell analysis. Each fact preserves its effective cwd. A tools-owned runtime
+projection resolver follows lexical symlinks, bounded package roots, shebang interpreters, shell
+shim dependencies, and macOS Mach-O images. It contributes only per-call read scopes; these do not
+become approved filesystem roots or persistence state. Runtime scopes are minimized, combined
+with existing policy by one compiler, and remain subject to the shared sensitive deny overlay.
+The direct executable and shebang interpreter must resolve. Static command candidates found inside
+a shell script are projected when present; candidates absent from the immutable PATH are left for
+the shell's normal conditional or command-not-found behavior and never trigger broader lookup.
+Dynamic plugins and dependencies discovered only after launch do not trigger expansion, retry, or
+host fallback. `ProcessExecutionRouter` consumes only the frozen final plan and cannot add scopes.
+External dependency inspection during planning has a fixed bounded deadline and reuses Core's
+operation supervisor for cancellation, cooperative cleanup, and late-settlement consumption.
+Relative PATH entries are trusted only when their canonical target is already covered by the
+current access policy. PATH target replacement remains a documented residual boundary.
 
-Filesystem and search authorization also bind explicit path input to its canonical target before
-Core creates the immutable authorized call. The authorization router reuses the runtime's
-`ToolInputValidator` to validate that derived input against the Tool Schema before permission
-assessment. Assessment and execution therefore consume the same valid target value, and the tools
-layer rejects execution when that bound target has since resolved elsewhere. Core owns only the
-generic dynamic-input binding seam; canonical path semantics remain with the tools package.
+Filesystem and search access binds explicit path input to its canonical target before Core creates
+the immutable call. In controlled mode, an uncovered ordinary path can propose a canonical
+filesystem capability; user approval persists it, then Core re-evaluates the unchanged access
+intent. Ordinary file operations propose a parent subtree, while sensitive reads can only propose
+an exact file. The same capability matcher is consumed by file, search, and shell access, and only
+capabilities used by the current call are projected into its sandbox policy. Autonomous accepts
+ordinary external scope, exact sensitive reads, and rejects protected or sensitive writes.
+Execution still revalidates mutable path state. The shared sensitive-policy snapshot drives both
+TypeScript access inspection and Rust policy construction.
 
-Filesystem and search tools use optional domain preflight before authorization to reject
-missing, dangling, special, or wrong-kind targets without presenting an unusable approval.
-The execution implementation repeats the target-state check after approval to protect the
-later execution boundary; Core does not interpret path facts.
+State lives in `~/.omni-agent/execution-settings.json`, keyed by workspace and Agent, and uses v5
+with the shared inter-process lock plus atomic JSON persistence. v4 mode/network settings migrate
+without loss and initialize approved roots empty; legacy permission modes migrate to controlled
+and discard grants. Invalid state fails closed to controlled with network disabled and no roots.
 
-Permission state is stored in `~/.omni-agent/permissions.json`, keyed by Agent, stable
-tool origin, and opaque approval scope. Updates use an inter-process lock and atomic JSON
-replacement.
-Invalid state fails closed to supervised behavior with no automatic approvals.
-Approval presentations and diagnostic events exclude raw tool input and file
-contents.
-
-Authorization and execution are separate tool-definition strategies. A trusted
-internal capability such as `skill_read` or deterministic indicator computation
-bypasses permission state but still crosses schema validation, lifecycle,
-middleware, cancellation, and structured result handling. Filesystem, search, web,
-and Bash tools carry domain-owned dynamic assessors. Bash alone is currently marked
-`sandbox_eligible`; this marker does not grant permission and does not imply that a
-sandbox implementation exists.
-
-Permissions are policy and interaction, not an operating-system security
-boundary. Local extensions remain trusted code, and a spawned process can still
-perform behavior that static command analysis cannot observe. `SandboxRunnerPort`
-is an optional execution backend injected into `ToolInvocationRunner`; it receives
-only tools declared `sandbox_eligible`. Host tools, including Skill loading and
-deterministic in-memory computation, are never routed to it. No OS-level sandbox
-implementation is included yet. A future sandbox runner may enforce eligible calls
-at the OS boundary, but it must not own Agent modes, TUI interaction, or persistent
-approval rules.
+The formal Rust package under `sandbox/` enforces Process Tool policy with macOS Seatbelt.
+Protocol v3 protects the workspace and each projected read/write subtree root against deletion or
+rename while allowing mutations below it. A per-launch diagnostic token distinguishes Rust startup
+failures from target output. Controlled/autonomous never fall back to host.
+The package is rooted directly at `sandbox/`: development and repository builds compile the
+current-host release binary, while the CLI distribution builder separately cross-builds and
+packages macOS arm64 and x64 binaries.
+In-process Tools and local extensions remain trusted local code and are not described as
+Seatbelt-contained. Rust exposes a platform apply/exec boundary, and TypeScript isolates native
+dependency discovery behind a platform resolver. Linux or Windows support must add both a complete
+enforcement backend and dependency resolver; unsupported or partial backends fail closed.
 
 Every tool declares a required timeout strategy: `none`, runtime-owned `fixed`, or
-schema-bound `input`. The invocation runner starts a deadline only after approval and
+schema-bound `input`. The invocation runner starts a deadline only after access control and
 `beforeExecute` middleware. A timeout aborts the linked execution signal, permits a
 bounded cooperative cleanup window, and suppresses all late results. Bash and grep
 share one host-process runner; file and web tools retain domain-specific I/O behavior.
-Linked cancellation, timers, and late settlement observation are isolated in the
-runner-owned `ExecutionDeadlineSupervisor`.
+Linked cancellation, timers, and late settlement observation are isolated in Core's
+`OperationDeadlineSupervisor` and reused by execution and bounded planning inspections.
 
 Filesystem tools share canonical path resolution, snapshot/version checks, an
 in-process path/inode mutex, text validation, streaming line reads, and direct writes.
