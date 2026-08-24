@@ -2,12 +2,11 @@ import { readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { throwIfAborted } from "@omni-agent/core";
 import { analyzeShellCommand } from "../../shell/security/analysis";
+import { SHELL_INTERPRETERS } from "../../shell/security/semantics/shell-builtins";
 import { SandboxProcessError } from "../sandbox-process-error";
 import type { HostRuntimeSnapshot } from "./types";
 
 const MAX_SHELL_SCRIPT_BYTES = 256 * 1024;
-const SHELL_INTERPRETERS = new Set(["bash", "dash", "sh", "zsh"]);
-
 export async function discoverShellScriptRequirements(
   scriptPath: string,
   interpreter: string,

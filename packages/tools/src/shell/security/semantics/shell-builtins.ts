@@ -22,6 +22,29 @@ export const SHELL_CONTEXT_COMMANDS = new Set([
 
 export const DYNAMIC_EXECUTION_BUILTINS = new Set(["eval", "source", ".", "trap"]);
 
+export const SHELL_INTERPRETERS = new Set(["bash", "dash", "sh", "zsh"]);
+
+// Unquoted reserved words belong to Bash grammar and cannot name an external command.
+export const SHELL_RESERVED_WORDS = new Set([
+  "!",
+  "case",
+  "coproc",
+  "do",
+  "done",
+  "elif",
+  "else",
+  "esac",
+  "fi",
+  "for",
+  "function",
+  "if",
+  "in",
+  "select",
+  "then",
+  "until",
+  "while",
+]);
+
 export const SHELL_BUILTINS = new Set([
   ...SHELL_CONTEXT_COMMANDS,
   ...DYNAMIC_EXECUTION_BUILTINS,

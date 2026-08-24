@@ -8,7 +8,11 @@ import {
   type ShellAnalysisContext,
 } from "../analysis/shell-analysis-context";
 import type { ShellCommandSemantics, ShellEffect } from "../semantics/command-semantics";
-import { SHELL_BUILTINS } from "../semantics/shell-builtins";
+import {
+  SHELL_BUILTINS,
+  SHELL_INTERPRETERS,
+  SHELL_RESERVED_WORDS,
+} from "../semantics/shell-builtins";
 import { assignmentFromWord, type ShellCommandView, type ShellRedirection } from "../parser";
 
 const READ_OPTIONS_WITH_VALUE = new Set(["-d", "-i", "-n", "-N", "-p", "-t", "-u"]);
@@ -106,12 +110,16 @@ export function commandFact(
   context: ShellAnalysisContext,
 ): ShellCommandFact {
   const executableToken = command.executable?.staticValue ?? command.executable?.value ?? "";
+  const shellOwned =
+    !executableToken.includes("/") &&
+    (SHELL_BUILTINS.has(command.executableName) ||
+      isGrammarWord(command, executableToken, wrapperChain));
   return {
     executableName: command.executableName,
     executableToken,
     effectiveCwd: context.cwd,
     executionKind: command.executableName
-      ? !executableToken.includes("/") && SHELL_BUILTINS.has(command.executableName)
+      ? shellOwned
         ? "builtin"
         : !executableToken.includes("/") && context.shellFunctions.has(command.executableName)
           ? "shell_function"
@@ -120,4 +128,23 @@ export function commandFact(
     wrapperChain,
     effects: semantics.effects,
   };
+}
+
+function isGrammarWord(
+  command: ShellCommandView,
+  executableToken: string,
+  wrapperChain: readonly string[],
+): boolean {
+  if (
+    command.executable?.raw !== executableToken ||
+    !SHELL_RESERVED_WORDS.has(command.executableName)
+  ) {
+    return false;
+  }
+  const immediateWrapper = wrapperChain.at(-1);
+  return (
+    immediateWrapper === undefined ||
+    immediateWrapper === "time" ||
+    SHELL_INTERPRETERS.has(immediateWrapper)
+  );
 }

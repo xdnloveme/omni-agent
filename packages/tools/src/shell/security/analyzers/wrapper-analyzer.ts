@@ -6,6 +6,7 @@ import {
   type ShellCommandView,
   type ShellWord,
 } from "../parser";
+import { SHELL_INTERPRETERS } from "../semantics/shell-builtins";
 
 const ENV_OPTIONS_WITH_VALUE = new Set(["-u", "--unset", "-C", "--chdir"]);
 const EXEC_OPTIONS_WITH_VALUE = new Set(["-a"]);
@@ -63,7 +64,7 @@ export function analyzeWrapper(command: ShellCommandView): WrapperAnalysis | nul
   if (primary === "nohup") return argvTarget(args);
   if (primary === "time") return argvTarget(args, TIME_OPTIONS_WITH_VALUE);
   if (primary === "xargs") return argvTarget(args, XARGS_OPTIONS_WITH_VALUE);
-  if (["bash", "sh", "zsh", "dash"].includes(primary)) {
+  if (SHELL_INTERPRETERS.has(primary)) {
     const commandFlag = args.findIndex(({ staticValue }) => staticValue === "-c");
     if (commandFlag < 0) return undefined;
     const payload = args[commandFlag + 1]?.staticValue;

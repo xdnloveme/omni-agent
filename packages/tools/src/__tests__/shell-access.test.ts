@@ -32,6 +32,20 @@ describe("shell access intent", () => {
     await expect(
       analyzeShellAccess({ command: "helper() { echo ready; }; helper" }, context),
     ).resolves.toMatchObject({ executableRequirements: [] });
+    await expect(
+      analyzeShellAccess({ command: "{ time for i in $(seq 1 3); do echo x; done; }" }, context),
+    ).resolves.toMatchObject({
+      executableRequirements: [
+        { kind: "host_command", command: "seq", cwd: "/workspace", origin: "shell_command" },
+      ],
+    });
+    await expect(
+      analyzeShellAccess({ command: "bash -c 'time for i in 1 2; do echo x; done'" }, context),
+    ).resolves.toMatchObject({
+      executableRequirements: [
+        { kind: "host_command", command: "bash", cwd: "/workspace", origin: "shell_command" },
+      ],
+    });
   });
 
   it("keeps each executable's effective cwd across shell-local cd changes", async () => {
