@@ -10,6 +10,8 @@ import {
   type ModelRuntimePort,
 } from "@omni-agent/core";
 import { AgentFactory } from "../application/agent-factory";
+import { AgentService } from "../application/agent-service/agent-service";
+import type { AgentServiceEvent } from "../application/agent-service/contracts";
 import { AgentAssemblyError, AssemblyRollbackError } from "../assembly/errors";
 import type {
   AgentBlueprint,
@@ -118,6 +120,7 @@ async function factory(
     interactionSurface?: InteractionSurfacePort;
     extensionSourceLoader?: ExtensionSourceLoader;
     workspaceId?: string;
+    runtime?: ModelRuntimePort;
   } = {},
 ) {
   const workspaceRoot =
@@ -127,7 +130,7 @@ async function factory(
   if (!options.workspaceRoot) directories.push(workspaceRoot);
   if (!options.globalDirectory) directories.push(globalDirectory);
   const selection = { vendorId: "test", connectionId: "default", modelId: "model" };
-  const runtime: ModelRuntimePort = { async *stream() {} };
+  const runtime: ModelRuntimePort = options.runtime ?? { async *stream() {} };
   const modelService = {
     runtime,
     providerPlugins: undefined,
@@ -222,6 +225,63 @@ describe("AgentFactory", () => {
     expect(second.application.agentConfig.systemPrompt).toBe("prompt");
     expect(second.application.sessions.currentId).toBe(firstSessionId);
     await second.dispose();
+  });
+
+  it("runs a fully assembled AgentApplication through the AgentService boundary", async () => {
+    const target = agentPackage();
+    const runtime: ModelRuntimePort = {
+      async *stream() {
+        yield { type: "text_delta", delta: "hello" };
+        yield {
+          type: "done",
+          message: {
+            role: "assistant",
+            content: [{ type: "text", text: "hello" }],
+            stopReason: "stop",
+            usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+            timestamp: Date.now(),
+          },
+        } as never;
+      },
+    };
+    const service = new AgentService({
+      catalog: {
+        async list() {
+          return [
+            {
+              id: "test",
+              displayName: "Test",
+              description: "Test Agent",
+              packageName: target.packageName,
+              packageVersion: target.packageVersion,
+            },
+          ];
+        },
+        async load() {
+          return target;
+        },
+      },
+      factory: await factory({ runtime }),
+    });
+    const session = await service.openSession({ agentId: "test" });
+
+    const events: AgentServiceEvent[] = [];
+    for await (const event of service.run({
+      requestId: "request-1",
+      agentId: "test",
+      sessionId: session.sessionId,
+      input: { type: "text", text: "say hello" },
+    })) {
+      events.push(event);
+    }
+
+    expect(events).toEqual([
+      { type: "started", requestId: "request-1", sessionId: session.sessionId },
+      { type: "text_delta", text: "hello" },
+      { type: "final_response", text: "hello" },
+      { type: "completed" },
+    ]);
+    await service.dispose();
   });
 
   it("rejects a mismatched contribution before creating an application", async () => {

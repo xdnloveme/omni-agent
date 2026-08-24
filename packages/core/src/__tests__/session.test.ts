@@ -8,6 +8,7 @@ import {
   createUserMessage,
 } from "../session/factory";
 import { AgentSessionRepository } from "../session/agent-session-repository";
+import { AgentSessionNotFoundError } from "../session/errors";
 import type { TranscriptMessage } from "../messages";
 import type { EnvironmentContextRecord } from "../environment";
 import { digestStableValue } from "../valueDigest";
@@ -249,7 +250,13 @@ describe("AgentSessionRepository", () => {
     await coding.append(codingSession.id, records(createUserMessage("coding")));
     await financial.append(financialSession.id, records(createUserMessage("financial")));
 
-    await expect(financial.switchTo(codingSession.id)).rejects.toThrow("Session not found");
+    await expect(financial.switchTo(codingSession.id)).rejects.toMatchObject({
+      code: "agent_session_not_found",
+      sessionId: codingSession.id,
+    });
+    await expect(financial.switchTo(codingSession.id)).rejects.toBeInstanceOf(
+      AgentSessionNotFoundError,
+    );
     expect(coding.snapshot().messages).toEqual([expect.objectContaining({ content: "coding" })]);
     expect(financial.snapshot().messages).toEqual([
       expect.objectContaining({ content: "financial" }),

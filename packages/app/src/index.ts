@@ -33,6 +33,32 @@ export type {
   ResourceCleanupFailure,
 } from "./assembly/errors";
 export type { AgentFactoryOptions, AgentInstance } from "./application/agent-factory";
+export { AgentPackageCatalog } from "./agent-packages/agent-package-catalog";
+export type { AgentPackageCatalogOptions } from "./agent-packages/agent-package-catalog";
+export {
+  AgentPackageCatalogError,
+  type AgentPackageCatalogErrorCode,
+  type AgentPackageCatalogPort,
+  type AgentPackageDescriptor,
+  type AgentPackageModule,
+  type AgentPackageRegistration,
+} from "./agent-packages/contracts";
+export { AgentService } from "./application/agent-service/agent-service";
+export type { AgentServiceOptions } from "./application/agent-service/agent-service";
+export { toAgentServiceFailure } from "./application/agent-service/agent-service-failure";
+export {
+  AgentServiceDisposalError,
+  AgentServiceError,
+  type AgentServiceAgent,
+  type AgentServiceErrorCode,
+  type AgentServiceEvent,
+  type AgentServiceFailure,
+  type AgentServicePort,
+  type AgentServiceResourceDisposalFailure,
+  type AgentServiceRunRequest,
+  type AgentServiceSession,
+  type AgentServiceState,
+} from "./application/agent-service/contracts";
 export {
   parseAgentManifest,
   AgentManifestError,

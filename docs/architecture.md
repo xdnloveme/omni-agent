@@ -218,9 +218,9 @@ an extension removes both middleware kinds in reverse registration order. Runtim
 middleware accepts only its current declared members; Context mutation belongs solely to
 `contextMiddleware.transform`.
 
-Each installed Agent exports a strict `agent.yaml` Manifest and an `AgentBlueprint`. The CLI
-validates Manifest identity, API compatibility, and the Blueprint descriptor shape before
-normalizing both sources into `LoadedAgentPackage`. Manifest v2 owns static identity and the
+Each installed Agent exports a strict `agent.yaml` Manifest and an `AgentBlueprint`.
+`AgentPackageCatalog` validates Manifest identity, API compatibility, and the Blueprint descriptor
+shape before normalizing both sources into `LoadedAgentPackage`. Manifest v2 owns static identity and the
 declarative composition recipe. The Blueprint descriptor declares available components, while its
 builder owns executable implementations and Agent-scoped resources. Neither Blueprint nor Module
 may declare a second Agent ID.
@@ -242,7 +242,7 @@ sole owner of composition semantics: it matches Recipe IDs to the Blueprint desc
 the ordered mixture of Tool bundles and individual Tools, validates ordering, duplicates, and
 dependencies, and emits `ResolvedAgentComposition`. `AgentAssemblyPlanner` combines that value
 with the resolved Runtime inputs. The resulting Plan contains frozen values and no Blueprint,
-service, Host, loader, registry, or disposer. The Loader
+service, Host, Catalog, registry, or disposer. The Catalog
 validates descriptor shape but never interprets Recipe semantics. Live dependencies travel
 separately in `AgentAssemblyEnvironment` and are consumed only by the Assembler. Runtime assembly
 mechanics remain behind `AgentFactory`; the data-only `AgentCompositionPlanner` is exported only so
@@ -251,14 +251,15 @@ CLI inspection and package-author tooling can validate composition without creat
 `omni agent create` is a CLI-owned code-generation use case, not another Runtime construction
 path. Its pure template renderer emits the smallest supported Manifest-first Package; its
 filesystem transaction creates only a previously absent target and cleans up a failed write. The
-generated Package subsequently enters the same Loader, Planner, Blueprint, and Assembler chain as
+generated Package subsequently enters the same Catalog, Planner, Blueprint, and Assembler chain as
 every other external Agent. The scaffolder must not register an Agent, edit Workspace configuration,
 invent template-specific capabilities, or introduce a second Factory API.
 
 Agent packages keep each component's data-only Descriptor beside its package-private Factory. The
-public Blueprint Descriptor is derived from that Catalog; default selection remains exclusively in
-`agent.yaml`. Bundles are explicit ordered lists, never discovery rules. CLI inspection reuses the
-same Loader and `AgentCompositionPlanner` for `describe`, `validate`, and `plan` without calling
+public Blueprint Descriptor is derived from that component catalog; default selection remains
+exclusively in `agent.yaml`. Bundles are explicit ordered lists, never discovery rules. CLI
+inspection reuses the same `AgentPackageCatalog` and `AgentCompositionPlanner` for `describe`,
+`validate`, and `plan` without calling
 `Blueprint.build()` or creating Runtime resources.
 
 This is Omni Agent's deliberately bounded adaptation of DeepSeek Harness composition: declarative
@@ -314,6 +315,80 @@ Optional extensions can be exported from `~/.omni-agent/extensions.mjs` and the
 current project's `omni.extensions.mjs`. They merge by extension manifest ID,
 with the project definition replacing the matching global definition. Local
 extension code is trusted local code and is not sandboxed.
+
+## Agent package catalog and service Host boundary
+
+`packages/app` owns two separate application boundaries:
+
+```text
+AgentPackageCatalog
+  -> discover explicitly registered built-in Agent descriptors
+  -> validate Manifest before executing package code
+  -> load a validated Agent Package by exact ID
+
+AgentService
+  -> admit only Agents returned by Catalog.list()
+  -> own one AgentInstance per open Session
+  -> schedule Runs and expose a Host-neutral event stream
+  -> cancel, close, and dispose instances it created
+```
+
+The default Catalog factory remains in `packages/cli` because it is the adapter that knows the two
+concrete built-in packages (`coding` and `financial-analysis`), distribution build variables, and
+the existing installed-package resolution root. `packages/app` never imports a concrete Agent or
+reads bundler globals. `Catalog.list()` returns only those explicit built-ins. `Catalog.load(id)`
+also retains exact-ID loading for an installed external package so the existing CLI behavior does
+not regress; it does not scan packages or make an external Agent discoverable.
+
+The three capabilities are intentionally different:
+
+```text
+Catalog.list()              current Host's discoverable and Service-eligible Agents
+Catalog.load(agentId)       validated exact-package loading used by the existing CLI
+AgentService.openSession()  Catalog.list()-gated Agent execution
+```
+
+`AgentService` is process-local and binds to one Workspace through its injected `AgentFactory`.
+An open `(agentId, sessionId)` owns exactly one `AgentInstance`. Opening and closing the same key are
+deduplicated, partially constructed instances are rolled back, and Service disposal covers opening,
+open, and closing records. The Service does not own or dispose the injected Catalog, Model service,
+configuration service, or process runtime.
+
+Runs start only when the returned `AsyncIterable` is first consumed. Requests in one Session are
+strict FIFO; different Sessions may run concurrently. Active and queued request IDs are unique
+within the Service. Consumer exit, explicit abort, Session close, and Service disposal all converge
+on the same request cancellation path, and every consumed Run emits at most one terminal event.
+`AgentApplication` independently rejects overlapping Runs and Session mutation so callers cannot
+bypass this invariant outside the Service.
+
+Each Run event stream has exactly one consumer. Creating a second iterator fails explicitly instead
+of splitting events or allowing one consumer to cancel another. A Host that needs multiple views,
+such as UI rendering and logging, consumes the Service stream once and performs its own downstream
+fan-out.
+
+Process-local errors retain their structured type, diagnostic fields, and `cause`. They are not wire
+objects. `toAgentServiceFailure()` is the single safe projection into the stable `code`, `message`,
+and `retryable` shape shared by failed Run events and future Host adapters. The projection preserves
+actionable error codes while replacing paths and other internal diagnostics with bounded messages.
+Adapters must serialize that projection rather than an `Error`, its `cause`, or cleanup failure
+details. This keeps transport serialization outside the Service without duplicating error mappings
+across Godot, WebSocket, or IM Hosts.
+
+Explicit concurrent opens for the same `(agentId, sessionId)` share one opening operation. A
+session-less "latest" open and a simultaneous explicit open may resolve to the same persisted
+Session only after assembly; in that bounded case the Service keeps one instance and immediately
+disposes the redundant one. V1 accepts this transient assembly cost instead of adding an Agent-wide
+opening lock or a second Session-locator abstraction. Session absence remains owned by Core's
+Repository as `AgentSessionNotFoundError`; the Service maps it to its stable `session_not_found`
+boundary error without parsing Repository messages.
+
+The default CLI still owns its existing Run and `ActiveAgentRun` lifecycle; v1 does not route it
+through `AgentService`. Future game, WebSocket, or IM Hosts may adapt the Service Port without
+changing Agent assembly, Core execution, Tool coordination, or Session persistence. Dynamic Agent
+registration, source merging, hot reload, transport protocols, and multi-process Session ownership
+are outside this boundary.
+
+The public Host integration contract is summarized in [`agent-service.md`](agent-service.md).
 
 ## Host interaction surface
 
@@ -390,12 +465,13 @@ storage-version marker owned by the CLI; that marker is not part of the project
 configuration contract.
 The default CLI preserves the existing command, tool, event, and TUI behavior.
 
-Agent packages expose `./agent.yaml` and an `agentBlueprint` from their package root. The CLI keeps
-static loaders only for built-in Agents so the distribution bundler can discover
-them; other IDs resolve `@omni-agent/agent-<id>` through standard Node module
+Agent packages expose `./agent.yaml` and an `agentBlueprint` from their package root. The CLI default
+Catalog keeps static module loaders only for built-in Agents so the distribution bundler can discover
+them; other IDs loaded directly by the CLI resolve `@omni-agent/agent-<id>` through standard Node module
 resolution, first from the CLI installation and then from the package-manager-neutral
-`~/.omni-agent/agents/node_modules` root. The CLI requests only the exact package name;
-it does not scan packages or maintain an Agent registry. Every validated package passes to the single `AgentFactory`. `pnpm dev`
+`~/.omni-agent/agents/node_modules` root. The Catalog requests only the exact package name;
+it does not scan packages or maintain a dynamic Agent registry. Every validated package passes to
+the single `AgentFactory`. `pnpm dev`
 selects `coding` by default, while `pnpm run dev -- run <id>` selects another
 installed Agent package through the same run runtime.
 

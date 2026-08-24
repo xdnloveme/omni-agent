@@ -334,6 +334,7 @@ export type {
 } from "./stream/index";
 export {
   AgentSessionRepository,
+  AgentSessionNotFoundError,
   createUserMessage,
   createAssistantMessage,
   createToolResultMessage,

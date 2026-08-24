@@ -5,15 +5,15 @@ import { describe, expect, it } from "vitest";
 const root = join(import.meta.dirname, "..");
 
 describe("Agent composition architecture", () => {
-  it("keeps semantic composition in the Planner and executable loading in the Loader", async () => {
+  it("keeps semantic composition in the Planner and executable loading in the Catalog", async () => {
     const planner = await source("packages/app/src/assembly/agent-assembly-planner.ts");
-    const loader = await source("packages/cli/src/agents/agent-package-loader.ts");
+    const catalog = await source("packages/app/src/agent-packages/agent-package-catalog.ts");
     const assembler = await source("packages/app/src/assembly/agent-runtime-assembler.ts");
 
     expect(planner).toContain("AgentCompositionPlanner");
     expect(planner).not.toMatch(/\.build\s*\(/);
-    expect(loader).toContain("validateAgentBlueprintDescriptor");
-    expect(loader).not.toContain("AgentCompositionPlanner");
+    expect(catalog).toContain("validateAgentBlueprintDescriptor");
+    expect(catalog).not.toContain("AgentCompositionPlanner");
     expect(assembler).not.toContain("manifest.composition");
   });
 

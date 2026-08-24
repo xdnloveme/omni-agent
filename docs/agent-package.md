@@ -11,7 +11,7 @@ omni agent create <agent-id> <directory>
 
 脚手架只生成当前唯一的 Manifest-first 包结构，不提供会形成第二套架构的模板模式。目标目录
 必须不存在；创建失败会清理本次新建的目录，绝不覆盖已有 Agent。生成物只是普通 Agent
-Package，后续仍由同一个 Loader、Planner、Blueprint 和 Assembler 主链处理。
+Package，后续仍由同一个 Catalog、Planner、Blueprint 和 Assembler 主链处理。
 
 An Agent package consists of one declarative Manifest and one executable Blueprint:
 
@@ -21,7 +21,7 @@ package.json        package name, version, and exports
 agentBlueprint      component descriptor, implementations, extension, and owned lifecycle
 ```
 
-The package must export its root and `./agent.yaml`. The Loader resolves and strictly validates the
+The package must export its root and `./agent.yaml`. The Catalog resolves and strictly validates the
 Manifest before importing the root module. Unsupported versions, unknown fields, duplicate keys,
 aliases, merge keys, custom tags, multiple documents, non-mapping roots, and files above 64 KiB are
 rejected. Package name, requested Agent ID, Manifest ID, and the single contributed Agent ID must
@@ -37,7 +37,7 @@ use Core's `isToolOriginId()` syntax and never contain module paths. The Recipe 
 Prompt text, executable modules, credentials, access, execution, timeout, lifecycle, or
 `maxTurns` behavior.
 
-The Blueprint descriptor is a data-only catalog. The Loader validates its shape, but only the
+The Blueprint descriptor is a data-only catalog. The Catalog validates its shape, but only the
 Planner interprets Recipe references, expands bundles, validates dependencies, and produces the
 immutable `ResolvedAgentComposition`. The Blueprint builder receives that resolved value and must
 not re-read or reinterpret the Manifest recipe. The Assembler rejects any contributed Agent ID,
@@ -46,6 +46,12 @@ Tool order, Skills capability, or Artifact Recovery capability that differs from
 Built-in distribution uses the same canonical YAML files. The CLI build validates them with the
 production parser and embeds their raw source and package versions. Bundled runtime parses those raw
 sources through the same validation path; no handwritten Manifest object or monorepo path is kept.
+
+The default CLI Catalog explicitly registers the built-in `coding` and `financial-analysis`
+packages. `Catalog.list()` therefore returns only those Service-eligible Agents. Installed external
+packages remain loadable by exact ID for the existing CLI, but are not discovered or accepted by
+the v1 `AgentService`. Dynamic registration and multi-source discovery are future Catalog concerns,
+not package or Service behavior.
 
 Blueprint receives `{ manifest, composition, cwd, interaction }`, returns one `AgentExtension`,
 capabilities, and an optional disposer for Agent-owned resources. It must not load models, restore
@@ -64,7 +70,7 @@ Blueprint.build() owns resources created before it returns
 
 If `build()` fails before returning, the Blueprint cleans up its partial resources. After return,
 assembly failure invokes the optional Module disposer through the transaction. Normal disposal is
-idempotent and follows `ExtensionManager -> AgentModule -> Trace`; no Loader, Planner, or concrete
+idempotent and follows `ExtensionManager -> AgentModule -> Trace`; no Catalog, Planner, or concrete
 Agent owns Session, model, permission, process-signal, or Trace lifecycle.
 
 Tool bundles and individual Tools share one ordered sequence:

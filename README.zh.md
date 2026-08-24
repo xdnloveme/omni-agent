@@ -344,8 +344,9 @@ Factory 路径。本地安装和验证方式见生成的 README。
 [`agent-manifest-v2.schema.json`](schemas/agent-manifest-v2.schema.json) 可在兼容编辑器中提供
 YAML 补全和即时结构诊断。
 
-Agent 包从根部导出 `./agent.yaml` 和 `agentBlueprint`。CLI 在导入可执行代码前先验证静态 Manifest，
-并按约定解析 `@omni-agent/agent-<id>`，因此新增 Agent 不需要改动 CLI 分支。
+Agent 包从根部导出 `./agent.yaml` 和 `agentBlueprint`。App 的 `AgentPackageCatalog` 在导入可执行
+代码前先验证静态 Manifest；CLI 默认 Catalog 负责注册内置 Agent，并按约定解析
+`@omni-agent/agent-<id>`，因此新增 Agent 不需要改动 CLI 分支。
 
 ```yaml
 apiVersion: omni-agent/v2
@@ -444,6 +445,7 @@ omni run example
 
 该目录只是一个约定俗成的 `node_modules` 安装根。它不是 Agent 注册表，CLI 也不会扫描它 —— CLI 通过
 Node 解析精确的包名。
+已安装的外部 Agent 仍可由 CLI 按精确 ID 使用，但 v1 `AgentService` 只发现和运行显式注册的内置 Agent。
 
 ### 接入模型 Vendor
 
@@ -520,7 +522,7 @@ graph TD
     HOST["apps/omni<br/>二进制入口、组装根"]
     CLI["packages/cli<br/>命令、Agent 编排"]
     AGENTS["agents/*<br/>coding、financial-analysis"]
-    APP["packages/app<br/>生命周期、注册表、扩展、会话"]
+    APP["packages/app<br/>Catalog、Service、生命周期、会话"]
     MODELS["packages/models<br/>运行时、Vendor 插件、凭证"]
     TOOLS["packages/tools<br/>文件、Shell、搜索、Web"]
     UI["packages/ui<br/>浏览器与终端展示"]
@@ -548,7 +550,7 @@ graph TD
 | ----------------- | ---------------------------------------------------------------- |
 | `packages/core`   | Agent 执行内核：执行循环、工具协调、访问计划、上下文、事件、端口 |
 | `packages/models` | 模型运行时、Vendor 插件、模型目录、协议转换、凭证持久化          |
-| `packages/app`    | 应用生命周期，Agent/工具/命令注册表，扩展宿主，会话，配置        |
+| `packages/app`    | Package Catalog、Agent Service、应用生命周期、扩展、会话与配置   |
 | `packages/tools`  | 领域无关的文件系统、Shell、搜索与 Web 工具                       |
 | `packages/ui`     | 浏览器与终端交互、展示投影、适配器、格式化与交付                 |
 | `packages/cli`    | 命令、Agent 创建与用例编排、会话及初始引导流程                   |
@@ -581,7 +583,9 @@ apps/omni -> app, cli, ui
 | `ProcessExecutionRouter`      | controlled/autonomous 路由 Rust，unrestricted 路由宿主        |
 | `ToolInvocationRunner`        | 只执行已批准的调用；负责中间件与截止时间集成                  |
 | `OperationDeadlineSupervisor` | 负责联动取消、截止计时、清理窗口和迟到结果观测                |
+| `AgentPackageCatalogPort`     | 列出 Service 可用 Agent，并按精确 ID 加载 Manifest-first 包   |
 | `AgentFactory`                | 唯一运行时组装入口：把 Agent Package 解析为不可变 Plan 和实例 |
+| `AgentServicePort`            | 宿主无关的 Agent 发现、Session 所有权、FIFO 运行、取消与事件  |
 | `AgentBlueprint`              | 每个 Agent 包导出的 `agentBlueprint` 值                       |
 | `AgentExtension`              | 声明式贡献单元，经过校验并可原子回滚                          |
 
@@ -608,7 +612,7 @@ omni-agent/
 ├── packages/
 │   ├── core/     Agent 循环、工具协调、访问、执行、上下文引擎、端口
 │   ├── models/   模型运行时、Vendor 插件、模型目录、凭证、缓存
-│   ├── app/      生命周期、注册表、扩展宿主、会话、配置、工作区
+│   ├── app/      Package Catalog、Agent Service、生命周期、会话、配置、工作区
 │   ├── tools/    文件系统、Shell、搜索、Web 与用户输入工具
 │   ├── ui/       浏览器与终端展示、交互适配器与交付层
 │   └── cli/      参数解析、命令、Agent 运行与初始引导编排
@@ -630,6 +634,7 @@ omni-agent/
 | -------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | [`docs/architecture.md`](docs/architecture.md)                                                     | 分层、依赖规则、契约、组装流程与子系统设计                |
 | [`docs/agent-package.md`](docs/agent-package.md)                                                   | Manifest v2、Blueprint、组合、Package 加载与所有权        |
+| [`docs/agent-service.md`](docs/agent-service.md)                                                   | 宿主无关发现、Session/Run 生命周期、失败投影与 Adapter    |
 | [`docs/build-an-agent-in-five-minutes.md`](docs/build-an-agent-in-five-minutes.md)                 | 可执行的最小 Agent 教程与动态 YAML 组装                   |
 | [`docs/tracing.md`](docs/tracing.md)                                                               | Runtime Observation、Assembly Evidence、本地 Trace 与回放 |
 | [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | 工具访问、执行、取消与沙箱边界的权威契约                  |

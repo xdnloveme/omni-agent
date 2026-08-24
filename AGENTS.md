@@ -16,7 +16,7 @@ extensions without coupling the runtime kernel to a product domain.
 ```text
 packages/core   Agent execution kernel and stable runtime ports
 packages/models Model runtime, vendor plugins, catalogs, and credentials
-packages/app    Application lifecycle, registries, extensions, and sessions
+packages/app    Agent package Catalog, Host-neutral Service, lifecycle, extensions, and sessions
 packages/tools  Domain-neutral filesystem, shell, search, and web tools
 packages/ui     Interaction hosts, views, presentation models, and input handling
 packages/cli    Commands and Agent use-case orchestration
@@ -41,6 +41,8 @@ concrete agent. Agent packages must not import the CLI or another agent package.
 Concrete agents are registered explicitly through `AgentExtension`.
 
 See `docs/architecture.md` for the detailed architecture contract.
+See `docs/agent-service.md` for the Host-neutral Agent discovery, Session, Run,
+failure-projection, and lifecycle contract.
 See `docs/tool-call-runtime.md` for the authoritative Tool access, execution,
 cancellation, and sandbox-boundary contract.
 
@@ -50,7 +52,8 @@ cancellation, and sandbox-boundary contract.
   stable `ModelRuntimePort` contract in `packages/core`.
 - Put model transport execution, vendor/provider plugins, model catalogs,
   protocol conversion, and credential persistence in `packages/models`.
-- Put agent/tool/command registration, extension loading, application lifecycle,
+- Put Agent package Catalog behavior, Host-neutral Agent Service orchestration,
+  agent/tool/command registration, extension loading, application lifecycle,
   sessions, and configuration in `packages/app`.
 - Put a tool in `packages/tools` only when it has complete technical meaning
   outside a specific agent or business domain.
@@ -80,8 +83,8 @@ stream events, configuration behavior, credential storage, and JSONL session
 format unless a change explicitly requires a migration.
 
 `ModelRuntimePort`, `AgentMessage`, `AgentRunner`, `ToolCallCoordinator`,
-`ToolAccessController`, `ProcessExecutionPlanner`, `ProcessExecutionRouter`, `ToolInvocationRunner`, `AgentFactory`,
-`AgentBlueprint`, and `AgentExtension` are the current architecture. Do not add alternate tool
+`ToolAccessController`, `ProcessExecutionPlanner`, `ProcessExecutionRouter`, `ToolInvocationRunner`, `AgentPackageCatalogPort`,
+`AgentServicePort`, `AgentFactory`, `AgentBlueprint`, and `AgentExtension` are the current architecture. Do not add alternate tool
 execution paths, legacy model execution branches, compatibility overloads,
 global runtime setters, static model registries, or aliases for removed types.
 Historical configuration and credentials may be handled only by isolated,

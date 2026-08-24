@@ -277,6 +277,39 @@ describe("AgentApplication model selection", () => {
       code: "agent_application_closed",
     });
   });
+
+  it("owns its run and Session mutation concurrency invariant", async () => {
+    const { app, runtime, sessions } = await fixture();
+    const initialSessionId = sessions.currentId!;
+    let entered!: () => void;
+    let release!: () => void;
+    const started = new Promise<void>((resolve) => (entered = resolve));
+    const blocked = new Promise<void>((resolve) => (release = resolve));
+    runtime.stream = async function* () {
+      entered();
+      await blocked;
+      yield { type: "done" } as never;
+    };
+
+    const running = app.run("first", {});
+    await started;
+    await expect(app.run("second", {})).rejects.toMatchObject({
+      code: "agent_application_busy",
+    });
+    await expect(app.openSession(initialSessionId)).rejects.toMatchObject({
+      code: "agent_application_busy",
+    });
+    await expect(app.newSession()).rejects.toMatchObject({ code: "agent_application_busy" });
+    await expect(app.clearSession()).rejects.toMatchObject({ code: "agent_application_busy" });
+
+    release();
+    await running;
+    const nextSessionId = await app.newSession();
+    await expect(app.openSession(initialSessionId)).resolves.toMatchObject({
+      sessionId: initialSessionId,
+    });
+    expect(nextSessionId).not.toBe(initialSessionId);
+  });
 });
 
 describe("AgentApplication assembly evidence", () => {

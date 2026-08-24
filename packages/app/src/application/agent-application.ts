@@ -32,7 +32,7 @@ export class AgentApplicationLifecycleError extends Error {
   constructor(readonly code: "agent_application_closed" | "agent_application_busy") {
     super(
       code === "agent_application_busy"
-        ? "Agent application has an active run"
+        ? "Agent application is busy"
         : "Agent application is closed",
     );
     this.name = "AgentApplicationLifecycleError";
@@ -74,6 +74,7 @@ export class AgentApplication {
   private readonly agentModule?: AgentModule;
   private applicationState: AgentApplicationState = "ready";
   private activeRunCount = 0;
+  private sessionMutationActive = false;
   private disposePromise: Promise<void> | undefined;
 
   constructor(dependencies: AgentApplicationDependencies) {
@@ -113,9 +114,7 @@ export class AgentApplication {
   }
 
   async run(input: string, callbacks: StreamCallbacks, signal?: AbortSignal): Promise<void> {
-    if (this.applicationState !== "ready") {
-      throw new AgentApplicationLifecycleError("agent_application_closed");
-    }
+    this.assertIdle();
     this.activeRunCount += 1;
     try {
       const sessionId = this.requireSessionId();
@@ -185,9 +184,19 @@ export class AgentApplication {
   }
 
   async newSession(): Promise<string> {
-    const session = await this.sessions.create();
-    await this.cacheLeases.hydrate(session.id);
-    return session.id;
+    return this.mutateSession(async () => {
+      const session = await this.sessions.create();
+      await this.cacheLeases.hydrate(session.id);
+      return session.id;
+    });
+  }
+
+  async openSession(sessionId: string): Promise<SessionSnapshot> {
+    return this.mutateSession(async () => {
+      const session = await this.sessions.switchTo(sessionId);
+      await this.cacheLeases.hydrate(session.id);
+      return this.sessions.snapshot();
+    });
   }
 
   currentSessionSnapshot(): SessionSnapshot {
@@ -195,10 +204,12 @@ export class AgentApplication {
   }
 
   async clearSession(): Promise<void> {
-    const sessionId = this.requireSessionId();
-    await this.sessions.clear(sessionId);
-    await this.contextStorage.clear(sessionId);
-    this.cacheLeases.forget(sessionId);
+    await this.mutateSession(async () => {
+      const sessionId = this.requireSessionId();
+      await this.sessions.clear(sessionId);
+      await this.contextStorage.clear(sessionId);
+      this.cacheLeases.forget(sessionId);
+    });
   }
 
   async refreshInstructions(): Promise<void> {
@@ -253,7 +264,7 @@ export class AgentApplication {
   dispose(): Promise<void> {
     if (this.disposePromise) return this.disposePromise;
     if (this.applicationState === "disposed") return Promise.resolve();
-    if (this.activeRunCount > 0) {
+    if (this.activeRunCount > 0 || this.sessionMutationActive) {
       return Promise.reject(new AgentApplicationLifecycleError("agent_application_busy"));
     }
     this.applicationState = "disposing";
@@ -308,6 +319,25 @@ export class AgentApplication {
     const sessionId = this.sessions.currentId;
     if (!sessionId) throw new Error("Agent session is not initialized");
     return sessionId;
+  }
+
+  private assertIdle(): void {
+    if (this.applicationState !== "ready") {
+      throw new AgentApplicationLifecycleError("agent_application_closed");
+    }
+    if (this.activeRunCount > 0 || this.sessionMutationActive) {
+      throw new AgentApplicationLifecycleError("agent_application_busy");
+    }
+  }
+
+  private async mutateSession<T>(operation: () => Promise<T>): Promise<T> {
+    this.assertIdle();
+    this.sessionMutationActive = true;
+    try {
+      return await operation();
+    } finally {
+      this.sessionMutationActive = false;
+    }
   }
 }
 

@@ -2,9 +2,10 @@ import {
   AgentCompositionPlanner,
   AgentCompositionPlanningError,
   AgentManifestError,
+  AgentPackageCatalogError,
 } from "@omni-agent/app";
 import type { CliExecutionResult, CliHostServices } from "../host-services";
-import { AgentPackageLoadError, loadAgentPackage } from "../agents/agent-package-loader";
+import { createDefaultAgentPackageCatalog } from "../agents/default-agent-package-catalog";
 import { presentInspectionDocument } from "./presentation";
 import type {
   AgentInspectionAction,
@@ -20,10 +21,10 @@ export async function runAgentInspection(
 ): Promise<CliExecutionResult> {
   const packageName = `@omni-agent/agent-${agentId}`;
   try {
-    const loaded = await loadAgentPackage(agentId, {
+    const loaded = await createDefaultAgentPackageCatalog({
       resolutionBase: host.runtime.cliEntry,
       agentPackagesDirectory: host.runtime.agentPackagesDirectory,
-    });
+    }).load(agentId);
     const base = {
       apiVersion: "omni-agent/inspection/v1" as const,
       agentId,
@@ -66,7 +67,7 @@ function inspectionError(
   packageName: string,
   error: unknown,
 ): AgentInspectionErrorDocument {
-  const cause = error instanceof AgentPackageLoadError ? error.cause : error;
+  const cause = error instanceof AgentPackageCatalogError ? error.cause : error;
   const manifestError = cause instanceof AgentManifestError ? cause : undefined;
   const planningError = error instanceof AgentCompositionPlanningError ? error : undefined;
   return {
@@ -78,7 +79,7 @@ function inspectionError(
     error: {
       code:
         planningError?.code ??
-        (error instanceof AgentPackageLoadError ? error.code : "agent_inspection_failed"),
+        (error instanceof AgentPackageCatalogError ? error.code : "agent_inspection_failed"),
       message: error instanceof Error ? error.message : String(error),
       ...(manifestError
         ? {

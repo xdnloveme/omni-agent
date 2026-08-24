@@ -4,7 +4,7 @@ import {
   createModelService,
   resolveWorkspaceContext,
 } from "@omni-agent/app";
-import { loadAgentPackage } from "../agents/agent-package-loader";
+import { createDefaultAgentPackageCatalog } from "../agents/default-agent-package-catalog";
 import { createCommandRegistry, HOST_COMMAND_NAMES } from "../commands/index";
 import type { CliHostServices, HostTermination } from "../host-services";
 import { persistOnboardingSelection, runOnboarding } from "../onboarding";
@@ -20,10 +20,10 @@ export async function runAgentMode(
   options: { readonly trace: boolean } = { trace: false },
 ): Promise<HostTermination> {
   const workspace = await resolveWorkspaceContext(host.runtime.cwd);
-  const agentPackage = await loadAgentPackage(agentId, {
+  const agentPackage = await createDefaultAgentPackageCatalog({
     resolutionBase: host.runtime.cliEntry,
     agentPackagesDirectory: host.runtime.agentPackagesDirectory,
-  });
+  }).load(agentId);
   const configService = new ConfigService({
     cwd: workspace.root,
     globalDirectory: host.runtime.globalDirectory,

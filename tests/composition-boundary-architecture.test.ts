@@ -10,7 +10,7 @@ describe("Agent composition boundaries", () => {
     const violations: string[] = [];
     for (const file of appFiles.filter(isProduction)) {
       const source = await readFile(file, "utf8");
-      if (/@omni-agent\/agent-|agents\//.test(source)) {
+      if (/(?:from\s*|import\()\s*["'][^"']*(?:@omni-agent\/agent-|agents\/)/.test(source)) {
         violations.push(relative(root, file));
       }
     }

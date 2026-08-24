@@ -46,12 +46,14 @@ vi.mock("@omni-agent/app", () => ({
   resolveWorkspaceContext: vi.fn(async () => ({ root: "/workspace" })),
 }));
 
-vi.mock("../agents/agent-package-loader", () => ({
-  loadAgentPackage: vi.fn(async () => ({
-    packageName: "@omni-agent/agent-coding",
-    packageVersion: "0.0.1",
-    manifest: { metadata: { id: "coding" } },
-    blueprint: {},
+vi.mock("../agents/default-agent-package-catalog", () => ({
+  createDefaultAgentPackageCatalog: vi.fn(() => ({
+    load: vi.fn(async () => ({
+      packageName: "@omni-agent/agent-coding",
+      packageVersion: "0.0.1",
+      manifest: { metadata: { id: "coding" } },
+      blueprint: {},
+    })),
   })),
 }));
 

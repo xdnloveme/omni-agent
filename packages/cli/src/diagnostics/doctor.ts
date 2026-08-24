@@ -3,7 +3,7 @@ import { access, stat } from "node:fs/promises";
 import { dirname } from "node:path";
 import { createRequire } from "node:module";
 import { ConfigService, resolveWorkspaceContext } from "@omni-agent/app";
-import { loadAgentPackage } from "../agents/agent-package-loader";
+import { createDefaultAgentPackageCatalog } from "../agents/default-agent-package-catalog";
 
 interface DoctorCheck {
   readonly name: string;
@@ -102,7 +102,9 @@ function createDoctorChecks(
     {
       name: "Coding agent",
       async run() {
-        await loadAgentPackage("coding", { resolutionBase, agentPackagesDirectory });
+        await createDefaultAgentPackageCatalog({ resolutionBase, agentPackagesDirectory }).load(
+          "coding",
+        );
         return "available";
       },
     },

@@ -1,0 +1,119 @@
+# Agent Service Host boundary
+
+`AgentService` is the process-local application boundary for Hosts that need to discover and run
+the built-in Agents without depending on CLI orchestration, terminal presentation, a network
+protocol, or a concrete Agent package.
+
+## Ownership and dependency direction
+
+```text
+Host composition root
+  -> AgentPackageCatalogPort
+  -> AgentFactory
+  -> AgentServicePort
+       -> AgentApplication
+            -> AgentRunner
+```
+
+- `AgentPackageCatalog` owns Node package resolution, Manifest-first validation, package identity,
+  version, and Blueprint validation.
+- The CLI default Catalog factory owns the concrete built-in registrations and bundler variables.
+- `AgentService` owns only the `AgentInstance` values it creates, their Session lifecycle, Run
+  scheduling, cancellation, and event delivery.
+- `AgentApplication` owns the invariant that one instance cannot Run while its Session is changing.
+- Core owns Session persistence, Agent execution, Tool coordination, and structured Session errors.
+- A Host owns injected Catalog, Factory dependencies, model/configuration services, process
+  resources, transport validation, and shutdown order.
+
+`packages/app` does not import the CLI, UI, or a concrete Agent. A future Godot, WebSocket, or IM
+Host adapts `AgentServicePort`; it does not add another package loader, Factory, Runner, Tool, or
+Session path.
+
+## Availability and loading
+
+Availability and loading are intentionally separate:
+
+```text
+Catalog.list()              explicitly registered and Service-eligible Agents
+Catalog.load(agentId)       exact validated package loading
+AgentService.openSession()  list-gated Agent execution
+```
+
+The default v1 Catalog lists only `coding` and `financial-analysis`. An installed external Agent
+remains loadable by exact ID for the existing CLI, but is not listed and cannot be opened through
+the v1 Service. Unknown Agents fail explicitly; there is no default-Agent fallback.
+
+The Catalog validates `agent.yaml` before importing executable package code. Package name, package
+version, requested Agent ID, Manifest ID, Blueprint descriptor, and contributed Agent identity must
+agree. Legacy packages without a Manifest export and Manifest v1 packages fail closed.
+
+## Session and instance lifecycle
+
+One open `(agentId, sessionId)` owns one `AgentInstance`:
+
+```text
+absent -> opening -> open -> closing -> absent
+```
+
+- Concurrent explicit opens for the same key share one opening operation.
+- A session-less latest open and an explicit open can resolve to the same persisted Session only
+  after assembly. V1 keeps one instance and immediately disposes the redundant one.
+- Opening and Session activation failures roll back the newly created instance.
+- Closing rejects new Runs, cancels queued and active Runs, waits for settlement, disposes the
+  instance, and removes the record.
+- Concurrent closes share one Promise. Service disposal covers opening, open, and closing records
+  and continues cleanup after individual failures.
+- The Service does not dispose Host-owned Catalog, Model, configuration, or process resources.
+
+## Run contract
+
+`run()` returns a lazy, single-consumer `AsyncIterable<AgentServiceEvent>`:
+
+- the request is submitted on the first iteration;
+- one Session runs requests in FIFO order;
+- different Sessions may run concurrently;
+- active and queued `requestId` values are unique within one Service;
+- returning from the iterator cancels queued or active work;
+- a second iterator fails explicitly instead of splitting the stream;
+- each consumed Run emits at most one terminal event: `completed`, `failed`, or `cancelled`;
+- a failed Run does not block later requests in the same Session.
+
+A Host that needs UI rendering, logging, and metrics consumes the Service stream once and performs
+its own downstream fan-out.
+
+## Error and transport boundary
+
+Process-local errors retain their concrete type, diagnostic fields, cleanup details, and `cause`.
+They are not transport objects. Every Host must call `toAgentServiceFailure(error)` and serialize
+only the returned stable shape:
+
+```ts
+interface AgentServiceFailure {
+  readonly code: string;
+  readonly message: string;
+  readonly retryable: boolean;
+}
+```
+
+The same projection is used for failed Run events. It preserves actionable codes while replacing
+paths and internal diagnostics with bounded messages. Hosts must not serialize an `Error`, its
+`cause`, Catalog `source`, or Service cleanup failure records directly.
+
+## Trace boundary
+
+Service Runs call the same `AgentApplication.run()` path as other in-process callers. When Trace is
+enabled for the instance, existing Run, model, context, Tool, access, execution, cancellation, and
+result observations are therefore captured automatically. The Service does not duplicate those
+facts.
+
+Queue wait, Session open/close, consumer abandonment, and cancellation origin are Service
+orchestration facts and are not part of v1 Trace. If a real Host requires them, add an optional
+App-owned Service observation port and explicit request-to-Run correlation; do not make the Service
+depend on the local Trace store or concrete tracer.
+
+## V1 exclusions
+
+V1 does not include a transport, Godot integration, IM integration, dynamic Agent registration,
+package scanning, hot reload, instance LRU, multi-process Session ownership, or CLI migration to
+the Service. Those features extend the Host or Catalog boundary without changing the current Agent,
+Tool, Session, or execution chains.

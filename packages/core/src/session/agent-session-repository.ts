@@ -13,6 +13,7 @@ import { assertEnvironmentContextRecord, type EnvironmentContextRecord } from ".
 import type { TranscriptMessage } from "../messages";
 
 import type { SessionEntry, SessionIndex, SessionRecord, SessionSnapshot } from "./types";
+import { AgentSessionNotFoundError } from "./errors";
 
 export interface AgentSession {
   readonly id: string;
@@ -82,7 +83,7 @@ export class AgentSessionRepository {
     const session = await this.exclusive(async () => {
       const index = await this.readIndex();
       if (!index.sessions.some((entry) => entry.id === sessionId)) {
-        throw new Error(`Session not found: ${sessionId}`);
+        throw new AgentSessionNotFoundError(sessionId);
       }
       return this.replay(sessionId);
     });
@@ -96,7 +97,7 @@ export class AgentSessionRepository {
     await this.exclusive(async () => {
       const index = await this.readIndex();
       const entry = index.sessions.find((candidate) => candidate.id === sessionId);
-      if (!entry) throw new Error(`Session not found: ${sessionId}`);
+      if (!entry) throw new AgentSessionNotFoundError(sessionId);
 
       const lines = `${ownedRecords.map((record) => JSON.stringify(record)).join("\n")}\n`;
       await appendFile(this.sessionPath(sessionId), lines, { encoding: "utf8", mode: 0o600 });
@@ -114,7 +115,7 @@ export class AgentSessionRepository {
     await this.exclusive(async () => {
       const index = await this.readIndex();
       if (!index.sessions.some((entry) => entry.id === sessionId)) {
-        throw new Error(`Session not found: ${sessionId}`);
+        throw new AgentSessionNotFoundError(sessionId);
       }
       await writeFile(this.sessionPath(sessionId), "", { encoding: "utf8", mode: 0o600 });
     });

@@ -368,8 +368,9 @@ Then follow the executable [five-minute tutorial](docs/build-an-agent-in-five-mi
 [`agent-manifest-v2.schema.json`](schemas/agent-manifest-v2.schema.json) provides YAML completion
 and immediate structural feedback in compatible editors.
 
-An agent package exports `./agent.yaml` plus an `agentBlueprint` from its root. The CLI validates
-the non-executable Manifest before importing package code and resolves
+An agent package exports `./agent.yaml` plus an `agentBlueprint` from its root. App's
+`AgentPackageCatalog` validates the non-executable Manifest before importing package code, while the
+CLI default Catalog registers the built-ins and resolves
 `@omni-agent/agent-<id>` by convention, so no CLI branch is needed to add one.
 
 ```yaml
@@ -470,6 +471,8 @@ omni run example
 
 That directory is only a conventional `node_modules` root. It is not a registry, and the CLI does
 not scan it — it resolves the exact package name through Node.
+Installed external Agents remain available to the CLI by exact ID, but v1 `AgentService` discovery
+and execution are limited to the explicitly registered built-ins.
 
 ### Add a model vendor
 
@@ -558,7 +561,7 @@ graph TD
     HOST["apps/omni<br/>binary entry, composition root"]
     CLI["packages/cli<br/>commands, Agent orchestration"]
     AGENTS["agents/*<br/>coding, financial-analysis"]
-    APP["packages/app<br/>lifecycle, registries, extensions, sessions"]
+    APP["packages/app<br/>Catalog, Service, lifecycle, sessions"]
     MODELS["packages/models<br/>runtime, vendor plugins, credentials"]
     TOOLS["packages/tools<br/>fs, shell, search, web"]
     UI["packages/ui<br/>browser + terminal presentation"]
@@ -582,16 +585,16 @@ graph TD
     TOOLS --> CORE
 ```
 
-| Package           | Responsibility                                                                           |
-| ----------------- | ---------------------------------------------------------------------------------------- |
-| `packages/core`   | Agent execution kernel: loop, tool coordination, access planning, context, events, ports |
-| `packages/models` | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence     |
-| `packages/app`    | Application lifecycle, agent/tool/command registries, extension host, sessions, config   |
-| `packages/tools`  | Domain-neutral filesystem, shell, search, and web tools                                  |
-| `packages/ui`     | Browser and terminal interaction, presentation, adapters, formatting, and delivery       |
-| `packages/cli`    | Commands, Agent creation/use-case orchestration, sessions, and onboarding workflow       |
-| `apps/omni`       | Binary entry, CLI/UI composition, signals, Trace preview lifecycle, and process exit     |
-| `agents/*`        | Independently packaged business agents                                                   |
+| Package           | Responsibility                                                                             |
+| ----------------- | ------------------------------------------------------------------------------------------ |
+| `packages/core`   | Agent execution kernel: loop, tool coordination, access planning, context, events, ports   |
+| `packages/models` | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence       |
+| `packages/app`    | Package Catalog, Agent Service, application lifecycle, extensions, sessions, configuration |
+| `packages/tools`  | Domain-neutral filesystem, shell, search, and web tools                                    |
+| `packages/ui`     | Browser and terminal interaction, presentation, adapters, formatting, and delivery         |
+| `packages/cli`    | Commands, Agent creation/use-case orchestration, sessions, and onboarding workflow         |
+| `apps/omni`       | Binary entry, CLI/UI composition, signals, Trace preview lifecycle, and process exit       |
+| `agents/*`        | Independently packaged business agents                                                     |
 
 ### Dependency direction
 
@@ -621,7 +624,9 @@ must never import the CLI, UI, or another agent package.
 | `ProcessExecutionRouter`      | Routes controlled/autonomous to Rust Seatbelt and unrestricted to the host               |
 | `ToolInvocationRunner`        | Executes authorized calls only; owns middleware and deadline integration                 |
 | `OperationDeadlineSupervisor` | Owns linked cancellation, deadlines, cleanup, and late-settlement observation            |
+| `AgentPackageCatalogPort`     | Lists Service-eligible Agents and loads exact Manifest-first Agent packages              |
 | `AgentFactory`                | The only runtime assembly entry: resolves a package into one immutable Plan and instance |
+| `AgentServicePort`            | Host-neutral Agent discovery, Session ownership, FIFO Runs, cancellation, and events     |
 | `AgentBlueprint`              | The `agentBlueprint` value each agent package exports                                    |
 | `AgentExtension`              | Declarative contribution unit; validated and rolled back atomically                      |
 
@@ -648,7 +653,7 @@ omni-agent/
 ├── packages/
 │   ├── core/     Agent loop, tool coordination, access, execution, context engine, ports
 │   ├── models/   Model runtime, vendor plugins, catalogs, credentials, cache
-│   ├── app/      Lifecycle, registries, extension host, sessions, config, workspaces
+│   ├── app/      Package Catalog, Agent Service, lifecycle, sessions, config, workspaces
 │   ├── tools/    Filesystem, shell, search, web, and user-input tools
 │   ├── ui/       Browser and terminal presentation, interaction adapters, delivery
 │   └── cli/      Arg parsing, commands, Agent run and onboarding orchestration
@@ -670,6 +675,7 @@ omni-agent/
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | [`docs/architecture.md`](docs/architecture.md)                                                     | Layers, dependency rules, contracts, composition, and subsystem design |
 | [`docs/agent-package.md`](docs/agent-package.md)                                                   | Manifest v2, Blueprint, composition, package loading, and ownership    |
+| [`docs/agent-service.md`](docs/agent-service.md)                                                   | Host-neutral discovery, Session/Run lifecycle, failures, and adapters  |
 | [`docs/build-an-agent-in-five-minutes.md`](docs/build-an-agent-in-five-minutes.md)                 | Executable minimal Agent tutorial and dynamic YAML assembly            |
 | [`docs/tracing.md`](docs/tracing.md)                                                               | Runtime Observation, Assembly Evidence, local Trace, and replay        |
 | [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | Authoritative Tool access, execution, cancellation, sandbox            |

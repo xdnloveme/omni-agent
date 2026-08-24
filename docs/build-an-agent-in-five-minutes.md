@@ -49,6 +49,10 @@ agent.yaml (Recipe)
 完整产品运行时再由 `AgentRuntimeAssembler` 事务式连接 Session、Context、Permission、Trace
 等基础设施。Agent 包不需要知道这些 Host 资源如何创建。
 
+CLI 的 `run`、`describe`、`validate` 和 `plan` 会先通过 App 的 `AgentPackageCatalog` 执行
+Manifest-first 包校验，再进入上述 Planner、Blueprint 和 Assembler 主链。Catalog 不解释 Recipe，
+也不会在 Manifest 验证成功前执行包代码。
+
 ## 2. 理解四个文件
 
 ```text

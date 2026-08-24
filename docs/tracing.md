@@ -64,6 +64,13 @@ be mistaken for a complete capture.
 historical runs, active-run streaming, and payload parts. Clear uses a separate maintenance port;
 neither command imports Runtime Observation or store internals.
 
+`AgentService` invokes the same `AgentApplication.run()` path, so Service-initiated Runs reuse this
+observation and Trace chain automatically. The Service does not duplicate model, Tool, Context,
+access, execution, cancellation, or terminal facts. Queue wait, Session open/close, consumer
+abandonment, and cancellation origin remain Service orchestration facts outside v1 Trace. A future
+need for those facts should use an optional App-owned observation port plus explicit request-to-Run
+correlation, not a dependency from Service to the local Trace store or concrete tracer.
+
 The local disk schema, query DTOs, Preview HTTP/SSE contract, Session JSONL, and Context sidecars
 are compatibility boundaries. Future exporters should attach below Trace processing rather than
 adding a second runtime execution or observation path.
