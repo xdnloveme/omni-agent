@@ -1,10 +1,12 @@
 import { realpath } from "node:fs/promises";
 import path from "node:path";
+import type { SandboxPathScope } from "@omni-agent/core";
 import { SandboxProcessError } from "../../../sandbox-process-error";
 import type { PlatformRuntimeDependencyResolver } from "../platform-runtime-dependency-resolver";
 import type { PlatformDependencyContext } from "../../types";
 import { VersionedFileComputationCache } from "../../../versioned-file-computation-cache";
 import { inspectMachO } from "./otool-adapter";
+import type { DarwinDeveloperToolRuntimeResolver } from "./developer-tool-runtime-resolver";
 
 const MACHO_MAGICS = new Set([
   0xfeedface, 0xfeedfacf, 0xcefaedfe, 0xcffaedfe, 0xcafebabe, 0xcafebabf,
@@ -12,12 +14,23 @@ const MACHO_MAGICS = new Set([
 
 type MachOInspector = typeof inspectMachO;
 
+interface DarwinMachOResolverOptions {
+  readonly inspect?: MachOInspector;
+  readonly developerTools?: DarwinDeveloperToolRuntimeResolver;
+}
+
 export class DarwinMachODependencyResolver implements PlatformRuntimeDependencyResolver {
   private readonly inspections = new VersionedFileComputationCache<
     Awaited<ReturnType<MachOInspector>>
   >();
 
-  constructor(private readonly inspect: MachOInspector = inspectMachO) {}
+  private readonly inspect: MachOInspector;
+  private readonly developerTools: DarwinDeveloperToolRuntimeResolver | undefined;
+
+  constructor(options: DarwinMachOResolverOptions = {}) {
+    this.inspect = options.inspect ?? inspectMachO;
+    this.developerTools = options.developerTools;
+  }
 
   supports(_path: string, header: Uint8Array): boolean {
     if (header.byteLength < 4) return false;
@@ -28,12 +41,12 @@ export class DarwinMachODependencyResolver implements PlatformRuntimeDependencyR
   async resolve(
     executablePath: string,
     context: PlatformDependencyContext,
-  ): Promise<readonly string[]> {
+  ): Promise<readonly SandboxPathScope[]> {
     const pending: Array<{ imagePath: string; inheritedRpaths: readonly string[] }> = [
       { imagePath: executablePath, inheritedRpaths: [] },
     ];
     const visited = new Set<string>();
-    const resolved: string[] = [];
+    const resolved: SandboxPathScope[] = [];
     while (pending.length > 0) {
       const current = pending.shift()!;
       if (visited.has(current.imagePath)) continue;
@@ -42,6 +55,9 @@ export class DarwinMachODependencyResolver implements PlatformRuntimeDependencyR
       const inspection = await this.inspections.get(current.imagePath, context.signal, (signal) =>
         this.inspect(current.imagePath, signal),
       );
+      if (current.imagePath === executablePath && this.developerTools) {
+        resolved.push(...(await this.developerTools.resolve(inspection, context.signal)));
+      }
       const localRpaths = inspection.rpaths
         .map((rpath) => expandRpath(rpath, current.imagePath, context.rootExecutablePath))
         .filter((rpath): rpath is string => Boolean(rpath));
@@ -59,14 +75,16 @@ export class DarwinMachODependencyResolver implements PlatformRuntimeDependencyR
             "Unable to resolve a Mach-O runtime dependency.",
           );
         }
-        resolved.push(...candidates);
+        resolved.push(
+          ...candidates.map((candidate) => ({ path: candidate, scope: "exact" as const })),
+        );
         const canonical = candidates.at(-1);
         if (canonical && !isSystemImage(canonical)) {
           pending.push({ imagePath: canonical, inheritedRpaths: effectiveRpaths });
         }
       }
     }
-    return [...new Set(resolved)];
+    return [...new Map(resolved.map((scope) => [`${scope.scope}\0${scope.path}`, scope])).values()];
   }
 }
 

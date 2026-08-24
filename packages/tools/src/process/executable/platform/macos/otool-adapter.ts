@@ -7,6 +7,7 @@ const MAX_OTOOL_OUTPUT_BYTES = 256 * 1024;
 export interface MachOInspection {
   readonly dependencies: readonly string[];
   readonly rpaths: readonly string[];
+  readonly sections: readonly string[];
 }
 
 export async function inspectMachO(
@@ -24,7 +25,19 @@ export async function inspectMachO(
       .map((line) => line.trim().match(/^(\S+)\s+\(compatibility version/)?.[1])
       .filter((value): value is string => Boolean(value)),
     rpaths: parseRpaths(commands),
+    sections: parseSections(commands),
   };
+}
+
+function parseSections(output: string): readonly string[] {
+  const lines = output.split("\n");
+  const sections: string[] = [];
+  for (let index = 0; index < lines.length - 1; index += 1) {
+    const section = lines[index]?.trim().match(/^sectname (\S+)$/)?.[1];
+    const segment = lines[index + 1]?.trim().match(/^segname (\S+)$/)?.[1];
+    if (section && segment) sections.push(`${segment},${section}`);
+  }
+  return [...new Set(sections)];
 }
 
 async function runOtool(

@@ -9,6 +9,7 @@ export interface HostRuntimeEnvironment {
   readonly path: string;
   readonly pathExt?: string;
   readonly home: string;
+  readonly developerDirectory?: string;
 }
 
 export type HostPathEntry =
@@ -21,6 +22,7 @@ export interface HostRuntimeSnapshot {
   readonly pathEntries: readonly HostPathEntry[];
   readonly pathExtensions: readonly string[];
   readonly home: string;
+  readonly developerDirectory?: string;
 }
 
 export interface ResolvedExecutable {

@@ -226,7 +226,7 @@ export class ExecutableRuntimeProjectionResolver {
       candidate.supports(imagePath, header),
     );
     if (!resolver) return;
-    const dependencies = await resolver.resolve(imagePath, {
+    const runtimeScopes = await resolver.resolve(imagePath, {
       rootExecutablePath: imagePath,
       signal: context.signal,
       consumeImageBudget: (dependencyPath) => {
@@ -235,9 +235,7 @@ export class ExecutableRuntimeProjectionResolver {
         state.nativeImagePaths.add(dependencyPath);
       },
     });
-    for (const dependency of dependencies) {
-      addScopes(state, [{ path: dependency, scope: "exact" }]);
-    }
+    addScopes(state, runtimeScopes);
   }
 }
 

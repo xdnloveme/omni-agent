@@ -24,6 +24,7 @@ export async function runSandboxProcess(
       privateTemp,
       snapshot.path,
       snapshot.home,
+      snapshot.developerDirectory,
     );
     const approvedSensitiveReads = plan.policy.read
       .filter(({ scope }) => scope === "exact")
@@ -62,6 +63,7 @@ async function createSandboxEnvironment(
   privateTemp: string,
   trustedPath: string,
   trustedHome: string,
+  trustedDeveloperDirectory: string | undefined,
 ): Promise<NodeJS.ProcessEnv> {
   const config = path.join(privateTemp, "config");
   const cache = path.join(privateTemp, "cache");
@@ -73,7 +75,7 @@ async function createSandboxEnvironment(
     mkdir(state),
     writeFile(npmrc, "", { mode: 0o600 }),
   ]);
-  return {
+  const environment: NodeJS.ProcessEnv = {
     ...(invocationEnvironment ?? process.env),
     PATH: trustedPath,
     HOME: trustedHome,
@@ -83,4 +85,7 @@ async function createSandboxEnvironment(
     NPM_CONFIG_USERCONFIG: npmrc,
     npm_config_store_dir: path.join(privateTemp, "pnpm-store"),
   };
+  if (trustedDeveloperDirectory) environment.DEVELOPER_DIR = trustedDeveloperDirectory;
+  else delete environment.DEVELOPER_DIR;
+  return environment;
 }

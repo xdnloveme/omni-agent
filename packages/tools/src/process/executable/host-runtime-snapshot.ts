@@ -26,5 +26,6 @@ export function createHostRuntimeSnapshot(
     pathEntries: Object.freeze([...entries.values()]),
     pathExtensions: Object.freeze([...new Set(pathExtensions)]),
     home: path.resolve(environment.home),
+    developerDirectory: environment.developerDirectory,
   });
 }

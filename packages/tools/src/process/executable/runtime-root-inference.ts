@@ -3,6 +3,7 @@ import path from "node:path";
 import { throwIfAborted, type SandboxPathScope } from "@omni-agent/core";
 import { isWithinPath } from "../../security/path/path-boundary";
 import { SandboxProcessError } from "../sandbox-process-error";
+import { isSystemRuntimePath } from "./platform/system-runtime-paths";
 import type { HostRuntimeSnapshot, ResolvedExecutable } from "./types";
 
 const PACKAGE_MARKERS = ["package.json", "pyproject.toml", "Cargo.toml"] as const;
@@ -21,7 +22,9 @@ export async function inferExecutableRuntimeScopes(
   const packageRoot = isScript
     ? await findNearestPackageRoot(executable.canonicalExecutablePath, snapshot, signal)
     : undefined;
-  const installRoot = inferInstallRoot(executable.canonicalExecutablePath, snapshot);
+  const installRoot = isSystemRuntimePath(executable.canonicalExecutablePath, snapshot.platform)
+    ? undefined
+    : inferInstallRoot(executable.canonicalExecutablePath, snapshot);
   const runtimeRoot = packageRoot ?? (!isScript ? installRoot : undefined);
   if (runtimeRoot) {
     scopes.push({ path: runtimeRoot, scope: "subtree" });

@@ -16,6 +16,7 @@ export function createCliHostServices(termination: ProcessTerminationPort): CliH
     path: process.env.PATH ?? "",
     pathExt: process.env.PATHEXT,
     home: homedir(),
+    developerDirectory: process.env.DEVELOPER_DIR,
   };
   const processExecution = createProcessExecutionRuntime(hostRuntime);
   return {

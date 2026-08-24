@@ -24,7 +24,7 @@ export function createProcessExecutionRuntime(
   environment: HostRuntimeEnvironment,
 ): ProcessExecutionRuntime {
   const snapshot = createHostRuntimeSnapshot(environment);
-  const platform = createProcessPlatformRuntime(snapshot.platform);
+  const platform = createProcessPlatformRuntime(snapshot);
   const resolver = new ExecutableRuntimeProjectionResolver(snapshot, platform.dependencyResolvers);
   const sandboxRuntime = {
     snapshot,

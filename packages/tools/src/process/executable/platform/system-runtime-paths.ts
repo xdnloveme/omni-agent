@@ -13,7 +13,6 @@ const DARWIN_SUBTREES = [
   "/sbin",
   "/Library/Apple",
   "/private/var/db/timezone",
-  "/private/var/select",
 ];
 const DARWIN_EXACT = [
   "/private/etc/group",
