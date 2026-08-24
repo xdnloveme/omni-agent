@@ -1,5 +1,5 @@
 import {
-  NOOP_RUNTIME_AUTHORIZATION_OBSERVATION,
+  NOOP_RUNTIME_ACCESS_OBSERVATION,
   NOOP_RUNTIME_CONTEXT_OBSERVATION,
   NOOP_RUNTIME_EXECUTION_OBSERVATION,
   NOOP_RUNTIME_MODEL_CALL_OBSERVATION,
@@ -82,9 +82,9 @@ export class RecordingRuntimeObserver implements RuntimeObserverPort {
                     this.record("tool.preflight.started", preflight);
                     return NOOP_RUNTIME_PREFLIGHT_OBSERVATION;
                   },
-                  startAuthorization: (authorization) => {
-                    this.record("tool.authorization.started", authorization);
-                    return NOOP_RUNTIME_AUTHORIZATION_OBSERVATION;
+                  startAccess: (access) => {
+                    this.record("tool.access.started", access);
+                    return NOOP_RUNTIME_ACCESS_OBSERVATION;
                   },
                   startExecution: (execution) => {
                     this.record("tool.execution.started", execution);

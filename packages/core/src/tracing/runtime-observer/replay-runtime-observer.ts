@@ -1,6 +1,6 @@
 import { cloneData } from "../../dataCopy";
 import type {
-  RuntimeAuthorizationObservation,
+  RuntimeAccessObservation,
   RuntimeContextObservation,
   RuntimeExecutionObservation,
   RuntimeModelCallObservation,
@@ -246,7 +246,7 @@ export class ReplayRuntimeObserver implements RuntimeObserverPort {
     return {
       run: transparent,
       startPreflight: () => this.preflight(fact.toolCallId),
-      startAuthorization: () => this.authorization(fact.toolCallId),
+      startAccess: () => this.access(fact.toolCallId),
       startExecution: (execution) => this.execution(execution),
       result: (result) =>
         this.record({
@@ -309,30 +309,30 @@ export class ReplayRuntimeObserver implements RuntimeObserverPort {
     };
   }
 
-  private authorization(toolCallId: string): RuntimeAuthorizationObservation {
-    const terminal = new RuntimeObservationTerminal("replay.authorization", this.diagnostic);
+  private access(toolCallId: string): RuntimeAccessObservation {
+    const terminal = new RuntimeObservationTerminal("replay.access", this.diagnostic);
     return {
       run: transparent,
       complete: (fact) =>
         terminal.finish("complete", () =>
           this.record({
-            kind: "tool.authorization.completed",
+            kind: "tool.access.completed",
             correlation: { toolCallId },
-            payload: { outcome: fact.outcome, authorizationMs: fact.authorizationMs },
+            payload: { outcome: fact.outcome, accessMs: fact.accessMs },
           }),
         ),
       deny: (fact) =>
         terminal.finish("deny", () =>
           this.record({
-            kind: "tool.authorization.completed",
+            kind: "tool.access.completed",
             correlation: { toolCallId },
-            payload: { outcome: "denied", authorizationMs: fact.authorizationMs },
+            payload: { outcome: "denied", accessMs: fact.accessMs },
           }),
         ),
       fail: (fact) =>
         terminal.finish("fail", () =>
           this.record({
-            kind: "tool.authorization.failed",
+            kind: "tool.access.failed",
             correlation: { toolCallId },
             payload: { error: errorMessage(fact.error) },
           }),
@@ -340,7 +340,7 @@ export class ReplayRuntimeObserver implements RuntimeObserverPort {
       cancel: (fact) =>
         terminal.finish("cancel", () =>
           this.record({
-            kind: "tool.authorization.cancelled",
+            kind: "tool.access.cancelled",
             correlation: { toolCallId },
             ...(fact.error ? { payload: { error: errorMessage(fact.error) } } : {}),
           }),

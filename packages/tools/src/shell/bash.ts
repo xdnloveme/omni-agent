@@ -1,11 +1,5 @@
-import {
-  createAbortError,
-  isAbortError,
-  type AgentToolDefinition,
-  type ToolResult,
-} from "@omni-agent/core";
-import { runHostProcess } from "../process/host-process-runner";
-import { assessBashPermission } from "./permission/bash-assessor";
+import type { AgentToolDefinition, ProcessResult, ToolResult } from "@omni-agent/core";
+import { analyzeShellAccess } from "./access/analyze-shell-access";
 import { createShellEnvironment } from "./shell-environment";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -23,8 +17,8 @@ export const bashTool: AgentToolDefinition = {
     minMs: MIN_TIMEOUT_MS,
     maxMs: MAX_TIMEOUT_MS,
   },
-  authorization: { kind: "dynamic", assess: assessBashPermission },
-  execution: { kind: "sandbox_eligible", profile: "shell" },
+  access: { kind: "dynamic", assess: analyzeShellAccess },
+  execution: { kind: "process" },
   invocation: { action: "execute", resource: { kind: "command", inputKey: "command" } },
   description:
     "Execute Bash source from the current execution directory and return its stdout/stderr.\n\n" +
@@ -58,49 +52,59 @@ export const bashTool: AgentToolDefinition = {
         type: "integer",
         minimum: MIN_TIMEOUT_MS,
         maximum: MAX_TIMEOUT_MS,
-        description: `Execution budget in milliseconds, excluding permission wait time. Defaults to ${DEFAULT_TIMEOUT_MS}.`,
+        description: `Execution budget in milliseconds, excluding access evaluation and network consent time. Defaults to ${DEFAULT_TIMEOUT_MS}.`,
+      },
+      sandbox_scope: {
+        type: "object",
+        additionalProperties: false,
+        description:
+          "Declares network and external filesystem access needs. In controlled mode, missing path scopes may be offered to the user as persistent workspace access; in autonomous mode they apply only to this call; unrestricted mode does not use them.",
+        properties: {
+          network: { type: "boolean" },
+          read_paths: { type: "array", maxItems: 32, items: pathScopeSchema() },
+          write_paths: { type: "array", maxItems: 32, items: pathScopeSchema() },
+        },
       },
     },
     required: ["command"],
   },
-  execute: async (params, context): Promise<ToolResult> => {
-    const command = params.command as string;
-    try {
-      const { stdout, stderr, stdoutTruncated, stderrTruncated, exitCode, signal } =
-        await runHostProcess({
-          command: "bash",
-          args: ["-c", command],
-          cwd: context.cwd,
-          env: createShellEnvironment(process.env),
-          signal: context.signal,
-          maxOutputBytes: MAX_OUTPUT_BYTES,
-        });
-      const parts: string[] = [];
-      if (stdout) parts.push(stdout + (stdoutTruncated ? "\n... (stdout truncated)" : ""));
-      if (stderr)
-        parts.push(`STDERR:\n${stderr}${stderrTruncated ? "\n... (stderr truncated)" : ""}`);
-      if (exitCode !== null && exitCode !== 0) {
-        parts.push(`Exit code: ${exitCode}`);
-      }
-      if (signal) parts.push(`Terminated by signal: ${signal}`);
-
-      const output = parts.length > 0 ? parts.join("\n") : "(no output)";
-
-      return {
-        content: [{ type: "text", text: output }],
-        isError: signal !== null || (exitCode !== 0 && exitCode !== null),
-      };
-    } catch (err) {
-      if (isAbortError(err, context.signal)) throw createAbortError(context.signal);
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Failed to execute command: ${err instanceof Error ? err.message : String(err)}`,
-          },
-        ],
-        isError: true,
-      };
+  createProcessInvocation(params, context) {
+    return {
+      command: "/bin/bash",
+      args: ["-c", params.command as string],
+      cwd: context.cwd,
+      env: createShellEnvironment(process.env),
+      maxOutputBytes: MAX_OUTPUT_BYTES,
+    };
+  },
+  createToolResult: (result): ToolResult => {
+    const parts: string[] = [];
+    if (result.stdout) {
+      parts.push(result.stdout + (result.stdoutTruncated ? "\n... (stdout truncated)" : ""));
     }
+    if (result.stderr) {
+      parts.push(
+        `STDERR:\n${result.stderr}${result.stderrTruncated ? "\n... (stderr truncated)" : ""}`,
+      );
+    }
+    if (result.exitCode !== null && result.exitCode !== 0)
+      parts.push(`Exit code: ${result.exitCode}`);
+    if (result.signal) parts.push(`Terminated by signal: ${result.signal}`);
+    return {
+      content: [{ type: "text", text: parts.length > 0 ? parts.join("\n") : "(no output)" }],
+      isError: result.signal !== null || (result.exitCode !== 0 && result.exitCode !== null),
+    };
   },
 };
+
+function pathScopeSchema(): Record<string, unknown> {
+  return {
+    type: "object",
+    additionalProperties: false,
+    properties: {
+      path: { type: "string", minLength: 1, maxLength: 4096 },
+      scope: { type: "string", enum: ["exact", "subtree"] },
+    },
+    required: ["path", "scope"],
+  };
+}

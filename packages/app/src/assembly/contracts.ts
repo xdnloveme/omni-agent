@@ -1,12 +1,14 @@
 import type {
-  ApprovalBroker,
   ContextCapability,
+  ExecutionMode,
   InteractionSurfacePort,
   LateToolSettlementEvent,
-  PermissionObserver,
+  AccessConsentBroker,
+  ProcessExecutionRouterPort,
+  ProcessExecutionPlannerPort,
+  HostRuntimeContext,
   RuntimeEnvironmentProviderPort,
   RuntimeModelSelection,
-  SandboxRunnerPort,
   SkillRuntime,
 } from "@omni-agent/core";
 import type { ConfigService } from "../config/config-service";
@@ -107,6 +109,7 @@ export interface AgentBlueprintContext {
   readonly composition: ResolvedAgentComposition;
   readonly cwd: string;
   readonly interaction: InteractionSurfacePort;
+  readonly execution: { getMode(): Promise<ExecutionMode> };
 }
 
 export interface AgentModule {
@@ -152,9 +155,10 @@ export interface ExtensionSourceLoader {
 
 export interface AgentHostDependencies {
   readonly interactionSurface: InteractionSurfacePort;
-  readonly approvalBroker?: ApprovalBroker;
-  readonly permissionObserver?: PermissionObserver;
-  readonly sandboxRunner?: SandboxRunnerPort;
+  readonly accessConsentBroker: AccessConsentBroker;
+  readonly processRouter: ProcessExecutionRouterPort;
+  readonly processPlanner: ProcessExecutionPlannerPort;
+  readonly hostRuntime: HostRuntimeContext;
   readonly environmentProvider?: RuntimeEnvironmentProviderPort;
   readonly reservedCommandNames: readonly string[];
   readonly onLateToolSettlement?: (event: LateToolSettlementEvent) => void | Promise<void>;

@@ -1,28 +1,19 @@
 import { spawn } from "node:child_process";
-import { createAbortError, throwIfAborted } from "@omni-agent/core";
+import {
+  createAbortError,
+  throwIfAborted,
+  type ProcessInvocation,
+  type ProcessResult,
+} from "@omni-agent/core";
 import { decodeUtf8Prefix } from "../text/utf8";
 
 const TERMINATION_GRACE_MS = 500;
 
-export interface HostProcessRequest {
-  command: string;
-  args: readonly string[];
-  cwd: string;
-  env?: NodeJS.ProcessEnv;
+export interface HostProcessRequest extends ProcessInvocation {
   signal?: AbortSignal;
-  maxOutputBytes: number;
 }
 
-export interface HostProcessResult {
-  stdout: string;
-  stderr: string;
-  stdoutTruncated: boolean;
-  stderrTruncated: boolean;
-  exitCode: number | null;
-  signal: NodeJS.Signals | null;
-}
-
-export function runHostProcess(request: HostProcessRequest): Promise<HostProcessResult> {
+export function runHostProcess(request: HostProcessRequest): Promise<ProcessResult> {
   throwIfAborted(request.signal);
   return new Promise((resolve, reject) => {
     const detached = process.platform !== "win32";

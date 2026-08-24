@@ -1,7 +1,10 @@
 import type {
-  ApprovalBroker,
   CommandInteractionPort,
   InteractionSurfacePort,
+  AccessConsentBroker,
+  ProcessExecutionRouterPort,
+  ProcessExecutionPlannerPort,
+  HostRuntimeContext,
   SkillSource,
   StreamCallbacks,
   TranscriptMessage,
@@ -36,7 +39,7 @@ export interface RunPresentationSessionPort {
 
 export interface AgentConsolePort {
   readonly interactionSurface: InteractionSurfacePort;
-  readonly approvalBroker: ApprovalBroker;
+  readonly accessConsentBroker: AccessConsentBroker;
   readonly commandInteraction: CommandInteractionPort;
 
   start(): Promise<HostTermination>;
@@ -104,6 +107,9 @@ export interface CliHostServices {
   readonly runtime: CliRuntimeContext;
   readonly output: CliOutputPort;
   readonly text: TextPresentationPort;
+  readonly processRouter: ProcessExecutionRouterPort;
+  readonly processPlanner: ProcessExecutionPlannerPort;
+  readonly hostRuntime: HostRuntimeContext;
   createAgentConsole(options: { workspaceRoot: string }): AgentConsolePort;
   createOnboardingInteraction(): OnboardingInteractionPort;
   runTracePreview(agentId: string): Promise<void>;

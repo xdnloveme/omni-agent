@@ -10,6 +10,6 @@ export const RuntimeSpanName = {
   toolBatch: "agent.tool.batch",
   toolCall: "agent.tool.call",
   toolPreflight: "agent.tool.preflight",
-  toolAuthorization: "agent.tool.authorization",
+  toolAccess: "agent.tool.access",
   toolExecution: "agent.tool.execution",
 } as const;

@@ -172,18 +172,18 @@ export interface RuntimePreflightCompletedFact {
   readonly outcome: "ready" | "error";
 }
 
-export interface RuntimeAuthorizationStartedFact {
+export interface RuntimeAccessStartedFact {
   readonly toolName: string;
   readonly toolCallId: string;
 }
 
-export interface RuntimeAuthorizationCompletedFact {
+export interface RuntimeAccessCompletedFact {
   readonly outcome: "allowed";
-  readonly authorizationMs: number;
+  readonly accessMs: number;
 }
 
-export interface RuntimeAuthorizationDeniedFact {
-  readonly authorizationMs: number;
+export interface RuntimeAccessDeniedFact {
+  readonly accessMs: number;
 }
 
 export interface RuntimeExecutionStartedFact {

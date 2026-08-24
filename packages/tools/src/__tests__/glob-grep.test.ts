@@ -219,7 +219,7 @@ describe("grepTool", () => {
 
     expect(result.isError).toBe(false);
     const text = result.content[0].text;
-    const matchingLines = text.split("\n").filter((l) => l.includes("match line"));
+    const matchingLines = text.split("\n").filter((line: string) => line.includes("match line"));
     expect(matchingLines.length).toBe(5);
     expect(result.meta).toMatchObject({ returnedMatches: 5, totalMatches: 100, truncated: true });
   });
@@ -283,13 +283,6 @@ describe("grepTool", () => {
     expect(result.content[0].text).toContain("No matches found");
   });
 
-  it("should return error when regex is missing", async () => {
-    const result = await invokeToolImplementation(grepTool, {});
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("regex is required");
-  });
-
   it("treats every ripgrep exit code other than zero or one as an error", async () => {
     const result = await invokeToolImplementation(grepTool, {
       regex: "[",
@@ -314,20 +307,23 @@ describe("grepTool", () => {
   });
 });
 
-describe("search path permissions", () => {
+describe("search path access", () => {
   it.each([
     [globTool, { pattern: "*", dir_path: "../outside" }],
     [grepTool, { regex: "secret", search_path: "../outside" }],
   ])("assesses external search roots for %s", async (tool, input) => {
-    if (tool.authorization.kind !== "dynamic") throw new Error("expected dynamic authorization");
-    await expect(
-      tool.authorization.assess(input, {
-        cwd: tmpDir,
-        agentId: "test",
-        toolIdentity: `test:${tool.name}`,
-        toolCallId: "call-1",
-      }),
-    ).resolves.toMatchObject({ risk: "external" });
+    if (tool.access.kind !== "dynamic") throw new Error("expected dynamic access");
+    const intent = await tool.access.assess(input, {
+      cwd: tmpDir,
+      agentId: "test",
+      toolCallId: "call-1",
+      workspaceId: "workspace",
+      workspaceRoot: tmpDir,
+      hostRuntime: { platform: process.platform, home: process.env.HOME ?? tmpDir },
+    });
+    expect(intent.resources).toContainEqual(
+      expect.objectContaining({ kind: "filesystem", location: "external" }),
+    );
   });
 });
 

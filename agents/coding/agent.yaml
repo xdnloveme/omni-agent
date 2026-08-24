@@ -1,6 +1,6 @@
 # yaml-language-server: $schema=../../schemas/agent-manifest-v2.schema.json
 # Coding Agent's declarative, non-executable assembly recipe.
-# This file owns component selection and order. Implementations, authorization,
+# This file owns component selection and order. Implementations, access,
 # execution policy, model configuration and lifecycle remain in TypeScript.
 apiVersion: omni-agent/v2
 kind: Agent

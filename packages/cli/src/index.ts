@@ -14,6 +14,7 @@ export type {
   CliRuntimeContext,
   HostTermination,
 } from "./host-services";
+export { createProcessExecutionRuntime } from "./process-runtime";
 
 export async function main(
   args: readonly string[],

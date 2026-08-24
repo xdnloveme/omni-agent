@@ -236,8 +236,8 @@ describe("Runtime Trace observers", () => {
       .startPreflight({ toolName: "tool", toolCallId: "tool-call" })
       .cancel({ error: new Error("preflight cancelled") });
     call
-      .startAuthorization({ toolName: "tool", toolCallId: "tool-call" })
-      .fail({ error: new Error("authorization failed") });
+      .startAccess({ toolName: "tool", toolCallId: "tool-call" })
+      .fail({ error: new Error("access failed") });
     call
       .startExecution({ toolName: "tool", toolCallId: "tool-call", batchId: "batch" })
       .cancel({ error: new Error("execution cancelled") });
@@ -258,7 +258,7 @@ describe("Runtime Trace observers", () => {
       "tool.batch.started",
       "tool.call.started",
       "tool.preflight.cancelled",
-      "tool.authorization.failed",
+      "tool.access.failed",
       "tool.execution.started",
       "tool.execution.cancelled",
       "tool.call.cancelled",

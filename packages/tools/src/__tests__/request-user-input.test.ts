@@ -1,8 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
-import { InteractionError, type InteractionRequest } from "@omni-agent/core";
+import { InteractionError, isInProcessTool, type InteractionRequest } from "@omni-agent/core";
 import { ScriptedInteractionSurface } from "@omni-agent/core/testing";
 import { createRequestUserInputTool } from "../user-input/request-user-input";
 import { validateRequestUserInputArgs } from "../user-input/request-user-input-preflight";
+
+function inputTool(surface: Parameters<typeof createRequestUserInputTool>[0]) {
+  const tool = createRequestUserInputTool(surface);
+  if (!isInProcessTool(tool)) throw new Error("Expected in-process input tool");
+  return tool;
+}
 
 describe("request_user_input", () => {
   it("rejects duplicate ids and invalid text-question fields before presentation", () => {
@@ -43,7 +49,7 @@ describe("request_user_input", () => {
         },
       };
     });
-    const result = await createRequestUserInputTool(surface).execute(
+    const result = await inputTool(surface).execute(
       {
         context: "Choose implementation constraints",
         questions: [
@@ -89,7 +95,7 @@ describe("request_user_input", () => {
       kind: "dismissed",
       values: {},
     }));
-    const result = await createRequestUserInputTool(surface).execute(
+    const result = await inputTool(surface).execute(
       {
         questions: [
           {
@@ -113,7 +119,7 @@ describe("request_user_input", () => {
   });
 
   it("structures interaction errors but propagates Abort and unexpected failures", async () => {
-    const unavailable = createRequestUserInputTool({
+    const unavailable = inputTool({
       request: vi.fn(async () => {
         throw new InteractionError("interaction_unavailable", "unavailable");
       }),
@@ -136,7 +142,7 @@ describe("request_user_input", () => {
       meta: { code: "interaction_unavailable" },
     });
 
-    const invalidSurfaceResponse = createRequestUserInputTool({
+    const invalidSurfaceResponse = inputTool({
       request: vi.fn(async () => ({
         requestId: "wrong-request",
         kind: "dismissed" as const,
@@ -148,7 +154,7 @@ describe("request_user_input", () => {
       meta: { code: "invalid_interaction_response" },
     });
 
-    const invalidInteractionResponse = createRequestUserInputTool({
+    const invalidInteractionResponse = inputTool({
       request: vi.fn(async (request: InteractionRequest) => ({
         requestId: request.requestId,
         kind: "completed" as const,
@@ -160,7 +166,7 @@ describe("request_user_input", () => {
       meta: { code: "invalid_interaction_response" },
     });
 
-    const aborted = createRequestUserInputTool({
+    const aborted = inputTool({
       request: vi.fn(async () => {
         throw new DOMException("aborted", "AbortError");
       }),
@@ -169,7 +175,7 @@ describe("request_user_input", () => {
       name: "AbortError",
     });
 
-    const failed = createRequestUserInputTool({
+    const failed = inputTool({
       request: vi.fn(async () => {
         throw new Error("surface failed");
       }),

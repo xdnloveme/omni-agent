@@ -41,13 +41,26 @@ export class ToolDefinitionValidator {
       throw new Error(`Invalid tool preflight: ${tool.name}`);
     }
     validateTimeout(tool);
-    validateAuthorization(tool);
+    validateAccess(tool);
     validateExecution(tool);
     validateInvocationPresentation(tool);
     validateScheduling(tool);
     validateContextPolicy(tool);
-    if (typeof tool.execute !== "function")
-      throw new Error(`Tool execute is required: ${tool.name}`);
+    if (
+      tool.execution.kind === "in_process" &&
+      (!("execute" in tool) || typeof tool.execute !== "function")
+    ) {
+      throw new Error(`In-process Tool execute is required: ${tool.name}`);
+    }
+    if (
+      tool.execution.kind === "process" &&
+      (!("createProcessInvocation" in tool) ||
+        typeof tool.createProcessInvocation !== "function" ||
+        !("createToolResult" in tool) ||
+        typeof tool.createToolResult !== "function")
+    ) {
+      throw new Error(`Process Tool adapters are required: ${tool.name}`);
+    }
   }
 }
 
@@ -157,38 +170,29 @@ function schemaProperty(tool: AgentToolDefinition, name: string): unknown {
     : undefined;
 }
 
-function validateAuthorization(tool: AgentToolDefinition): void {
-  const descriptor = tool.authorization;
+function validateAccess(tool: AgentToolDefinition): void {
+  const descriptor = tool.access;
   if (!descriptor || typeof descriptor !== "object") {
-    throw new Error(`Tool authorization descriptor is required: ${tool.name}`);
+    throw new Error(`Tool access descriptor is required: ${tool.name}`);
   }
-  if (descriptor.kind === "trusted") {
-    if (typeof descriptor.reason !== "string" || !descriptor.reason.trim()) {
-      throw new Error(`Trusted authorization reason is required: ${tool.name}`);
-    }
-  } else if (descriptor.kind === "static") {
-    if (descriptor.risk !== "read" && descriptor.risk !== "execute") {
-      throw new Error(`Invalid static permission risk: ${tool.name}`);
-    }
-    if (typeof descriptor.reason !== "string" || !descriptor.reason.trim()) {
-      throw new Error(`Static permission reason is required: ${tool.name}`);
-    }
+  if (descriptor.kind === "internal") {
+    // Internal tools do not request host resources.
   } else if (descriptor.kind === "dynamic") {
     if (typeof descriptor.assess !== "function") {
-      throw new Error(`Dynamic permission assessor is required: ${tool.name}`);
+      throw new Error(`Dynamic access assessor is required: ${tool.name}`);
     }
     if (descriptor.bindInput !== undefined && typeof descriptor.bindInput !== "function") {
-      throw new Error(`Dynamic authorization input binder is invalid: ${tool.name}`);
+      throw new Error(`Dynamic access input binder is invalid: ${tool.name}`);
     }
   } else {
-    throw new Error(`Invalid authorization descriptor: ${tool.name}`);
+    throw new Error(`Invalid access descriptor: ${tool.name}`);
   }
   if (
     descriptor.hiddenInputKeys !== undefined &&
     (!Array.isArray(descriptor.hiddenInputKeys) ||
       descriptor.hiddenInputKeys.some((key) => typeof key !== "string" || !key))
   ) {
-    throw new Error(`Invalid hidden authorization fields: ${tool.name}`);
+    throw new Error(`Invalid hidden access fields: ${tool.name}`);
   }
 }
 
@@ -197,12 +201,7 @@ function validateExecution(tool: AgentToolDefinition): void {
   if (!strategy || typeof strategy !== "object") {
     throw new Error(`Tool execution strategy is required: ${tool.name}`);
   }
-  if (strategy.kind === "host") return;
-  if (
-    strategy.kind !== "sandbox_eligible" ||
-    typeof strategy.profile !== "string" ||
-    !strategy.profile.trim()
-  ) {
+  if (strategy.kind !== "in_process" && strategy.kind !== "process") {
     throw new Error(`Invalid tool execution strategy: ${tool.name}`);
   }
 }

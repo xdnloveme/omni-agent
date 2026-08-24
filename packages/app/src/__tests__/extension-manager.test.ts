@@ -19,8 +19,8 @@ function extension(id: string, activate?: () => void): AgentExtension {
       tools: [
         {
           name: `${id}_tool`,
-          authorization: { kind: "static", risk: "read", reason: "test" },
-          execution: { kind: "host" },
+          access: { kind: "internal" },
+          execution: { kind: "in_process" },
           timeout: { kind: "none" },
           description: "test",
           schema: { type: "object" },
@@ -276,14 +276,12 @@ describe("ExtensionManager", () => {
     expect(manager.tools.has("broken_tool")).toBe(false);
   });
 
-  it("rejects a tool without an authorization descriptor before registration", async () => {
+  it("rejects a tool without an access descriptor before registration", async () => {
     const manager = new ExtensionManager({ cwd: process.cwd() });
     const broken = extension("broken-permission");
-    delete (broken.contributions.tools![0] as Partial<{ authorization: unknown }>).authorization;
+    delete (broken.contributions.tools![0] as Partial<{ access: unknown }>).access;
 
-    await expect(manager.register(broken)).rejects.toThrow(
-      "Tool authorization descriptor is required",
-    );
+    await expect(manager.register(broken)).rejects.toThrow("Tool access descriptor is required");
     expect(manager.tools.has("broken-permission_tool")).toBe(false);
     expect(manager.agents.has("broken-permission_agent")).toBe(false);
   });

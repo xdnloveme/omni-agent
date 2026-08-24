@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { parseShellProgram } from "../shell/permission/parser";
+import { parseShellProgram } from "../shell/security/parser";
 
 describe("shell parser", () => {
   it("preserves compound and nested execution structure", () => {

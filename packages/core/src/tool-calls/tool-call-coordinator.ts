@@ -1,16 +1,23 @@
-import { isAbortError, throwIfAborted } from "../execution";
+import {
+  createAuthorizedToolCall,
+  isAbortError,
+  throwIfAborted,
+  type ProcessExecutionPlannerPort,
+  type HostRuntimeContext,
+  type ToolExecutionPlan,
+} from "../execution";
 import { assertJsonObject } from "../data";
 import type { ToolInvocationRunner } from "../execution";
+import type { ToolAccessController, ToolAccessResult } from "../access";
 import { sanitizeSensitiveValue } from "../security";
 import { collectLifecycleEndEvents, collectLifecycleStartEvents } from "../tool-lifecycle";
-import type { RegisteredAgentTool, ToolResult } from "../types";
+import { isProcessTool, type RegisteredAgentTool, type ToolResult } from "../types";
 import {
   NOOP_RUNTIME_TOOL_BATCH_OBSERVATION,
   type RuntimeToolBatchObservation,
   type RuntimeToolCallObservation,
 } from "../runtime-observation";
 import type { ToolInputValidator } from "./tool-input-validator";
-import type { ToolAuthorizationResult, ToolAuthorizer } from "./tool-authorization-router";
 import type {
   ToolCallEnvironment,
   ToolCallEvent,
@@ -20,9 +27,11 @@ import type {
 } from "./types";
 
 export interface ToolCallCoordinatorOptions {
-  authorizer: ToolAuthorizer;
+  accessController: ToolAccessController;
   invocationRunner: ToolInvocationRunner;
+  processPlanner: ProcessExecutionPlannerPort;
   inputValidator: ToolInputValidator;
+  hostRuntime: HostRuntimeContext;
 }
 
 export class ToolCallCoordinator {
@@ -42,9 +51,7 @@ export class ToolCallCoordinator {
       toolCallId: request.toolCallId,
       ...(environment.batchId ? { batchId: environment.batchId } : {}),
       input: request.input,
-      ...(tool?.authorization.hiddenInputKeys
-        ? { hiddenInputKeys: tool.authorization.hiddenInputKeys }
-        : {}),
+      ...(tool?.access.hiddenInputKeys ? { hiddenInputKeys: tool.access.hiddenInputKeys } : {}),
     });
     try {
       if (!tool) {
@@ -62,9 +69,10 @@ export class ToolCallCoordinator {
         return;
       }
 
+      let completedAccessMs = 0;
       try {
         const validationError = this.options.inputValidator.validate(tool.schema, request.input);
-        yield startEvent(request, tool.authorization.hiddenInputKeys);
+        yield startEvent(request, tool.access.hiddenInputKeys);
         if (validationError) {
           const result = errorResult(`Invalid tool input: ${validationError}`, {
             code: "invalid_tool_input",
@@ -90,6 +98,7 @@ export class ToolCallCoordinator {
             preflight = await preflightObservation.run(() =>
               tool.preflight!.validate(request.input, {
                 cwd: environment.cwd,
+                hostRuntime: this.options.hostRuntime,
                 signal: request.signal,
               }),
             );
@@ -127,43 +136,46 @@ export class ToolCallCoordinator {
           }
         }
 
-        let authorization: ToolAuthorizationResult;
-        const authorizationObservation = callObservation.startAuthorization({
+        let access: ToolAccessResult;
+        const accessObservation = callObservation.startAccess({
           toolName: request.toolName,
           toolCallId: request.toolCallId,
         });
         try {
-          authorization = await authorizationObservation.run(() =>
-            this.options.authorizer.authorize({
+          access = await accessObservation.run(() =>
+            this.options.accessController.authorize({
               tool,
               input: request.input,
               context: {
                 cwd: environment.cwd,
+                workspaceId: environment.workspaceId,
+                workspaceRoot: environment.workspaceRoot,
                 agentId: environment.agentId,
-                toolIdentity: tool.toolIdentity,
                 toolCallId: request.toolCallId,
+                hostRuntime: this.options.hostRuntime,
                 signal: request.signal,
               },
             }),
           );
-          if (authorization.outcome === "denied") {
-            authorizationObservation.deny({
-              authorizationMs: authorization.authorizationMs,
+          if (access.outcome === "denied") {
+            accessObservation.deny({
+              accessMs: access.accessMs,
             });
           } else {
-            authorizationObservation.complete({
+            completedAccessMs = access.accessMs;
+            accessObservation.complete({
               outcome: "allowed",
-              authorizationMs: authorization.authorizationMs,
+              accessMs: access.accessMs,
             });
           }
         } catch (error) {
           if (isAbortError(error, request.signal)) {
-            authorizationObservation.cancel({ error });
+            accessObservation.cancel({ error });
             throw error;
           }
-          authorizationObservation.fail({ error });
-          const result = errorResult("Tool authorization failed.", {
-            code: "tool_authorization_failed",
+          accessObservation.fail({ error });
+          const result = errorResult("Tool access evaluation failed.", {
+            code: "tool_access_failed",
           });
           yield finishToolCall(
             callObservation,
@@ -176,20 +188,39 @@ export class ToolCallCoordinator {
           return;
         }
         throwIfAborted(request.signal);
-        if (authorization.outcome === "denied") {
+        if (access.outcome === "denied") {
           yield finishToolCall(
             callObservation,
             request,
             environment,
-            authorization.result,
-            metrics(totalStartedAt, authorization.authorizationMs),
+            access.result,
+            metrics(totalStartedAt, access.accessMs),
             "deny",
           );
           return;
         }
 
-        const createLifecycleInput = () =>
-          structuredClone(authorization.call.input) as Record<string, unknown>;
+        const executionContext = { cwd: environment.cwd, signal: request.signal };
+        const executionPlan: ToolExecutionPlan = isProcessTool(tool)
+          ? {
+              mode: access.grant.mode,
+              process: await this.options.processPlanner.prepare({
+                tool,
+                input: access.grant.input,
+                context: executionContext,
+                access: access.grant.processAccess,
+                executableRequirements: access.grant.executableRequirements,
+              }),
+            }
+          : { mode: access.grant.mode };
+        throwIfAborted(request.signal);
+        const call = createAuthorizedToolCall(
+          tool,
+          access.grant.input,
+          executionContext,
+          executionPlan,
+        );
+        const createLifecycleInput = () => structuredClone(call.input) as Record<string, unknown>;
         for (const event of collectLifecycleStartEvents(
           environment.lifecycleAdapters,
           {
@@ -209,7 +240,7 @@ export class ToolCallCoordinator {
         const executionObservation = callObservation.startExecution(executionFact);
         const invocation = await callObservation.run(() =>
           this.options.invocationRunner.invoke(
-            authorization.call,
+            call,
             environment.middleware,
             {
               toolCallId: request.toolCallId,
@@ -231,11 +262,7 @@ export class ToolCallCoordinator {
         )) {
           yield event;
         }
-        const callMetrics = metrics(
-          totalStartedAt,
-          authorization.authorizationMs,
-          invocation.executionMs,
-        );
+        const callMetrics = metrics(totalStartedAt, access.accessMs, invocation.executionMs);
         yield finishToolCall(
           callObservation,
           request,
@@ -248,13 +275,16 @@ export class ToolCallCoordinator {
         if (isAbortError(error, request.signal)) {
           throw error;
         }
-        const result = errorResult(error instanceof Error ? error.message : String(error));
+        const result = errorResult(
+          error instanceof Error ? error.message : String(error),
+          stableErrorMeta(error),
+        );
         yield finishToolCall(
           callObservation,
           request,
           environment,
           result,
-          metrics(totalStartedAt),
+          metrics(totalStartedAt, completedAccessMs),
           "complete",
         );
       }
@@ -266,6 +296,11 @@ export class ToolCallCoordinator {
   }
 }
 
+function stableErrorMeta(error: unknown): Record<string, unknown> | undefined {
+  if (!error || typeof error !== "object" || !("code" in error)) return undefined;
+  return typeof error.code === "string" ? { code: error.code, retryable: false } : undefined;
+}
+
 function startEvent(request: ToolCallRequest, hiddenInputKeys?: readonly string[]): ToolCallEvent {
   return {
     type: "tool_start",
@@ -275,8 +310,8 @@ function startEvent(request: ToolCallRequest, hiddenInputKeys?: readonly string[
   };
 }
 
-function metrics(totalStartedAt: number, authorizationMs = 0, executionMs = 0): ToolCallMetrics {
-  return { authorizationMs, executionMs, totalMs: Date.now() - totalStartedAt };
+function metrics(totalStartedAt: number, accessMs = 0, executionMs = 0): ToolCallMetrics {
+  return { accessMs, executionMs, totalMs: Date.now() - totalStartedAt };
 }
 
 function endEvent(

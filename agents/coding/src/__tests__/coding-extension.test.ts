@@ -78,6 +78,11 @@ describe("coding extension", () => {
       composition,
       cwd,
       interaction: new RejectingInteractionSurface(),
+      execution: {
+        async getMode() {
+          return "controlled";
+        },
+      },
     });
     const tools = module.extension.contributions.tools ?? [];
     const codingAgent = module.extension.contributions.agents?.[0];
@@ -110,6 +115,11 @@ describe("coding extension", () => {
       composition,
       cwd,
       interaction: new RejectingInteractionSurface(),
+      execution: {
+        async getMode() {
+          return "controlled";
+        },
+      },
     });
     await expect(
       resolveInstructions(module.extension.contributions.agents?.[0]?.definition.instructions, cwd),

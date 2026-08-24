@@ -13,8 +13,8 @@ import { writeDirectFile } from "./io/direct-file-writer";
 import { FileToolError, fileToolErrorResult } from "./io/file-errors";
 import { createFileSnapshot } from "./io/file-snapshot";
 import { assertFileSize, encodeTextFile } from "./io/text-file-validation";
-import { createFilePathPermission } from "./permission/create-file-path-permission";
-import { createFilePathPreflight } from "./permission/create-file-path-preflight";
+import { createFileAccess } from "./access/create-file-access";
+import { createFilePathPreflight } from "./access/create-file-path-preflight";
 
 const MAX_CONTENT_BYTES = 8 * 1024 * 1024;
 
@@ -26,11 +26,12 @@ export const fileWriteTool: AgentToolDefinition = {
     acceptedKinds: ["regular_file", "missing"],
     operation: "write",
   }),
-  authorization: {
-    ...createFilePathPermission({ parameter: "file_path", access: "write" }),
+  access: createFileAccess({
+    parameter: "file_path",
+    access: "write",
     hiddenInputKeys: ["content"],
-  },
-  execution: { kind: "host" },
+  }),
+  execution: { kind: "in_process" },
   invocation: { action: "write", resource: { kind: "file", inputKey: "file_path" } },
   timeout: { kind: "none" },
   description:

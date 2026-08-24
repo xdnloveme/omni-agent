@@ -3,6 +3,7 @@ import {
   type PathSecurityInspection,
   type PathTargetKind,
 } from "./inspect-path-security";
+import type { PathSecurityEnvironment } from "./sensitive-paths";
 
 export interface PathPreflightIssue {
   code: "invalid_path" | "path_not_found" | "dangling_symlink" | "unsupported_path";
@@ -17,6 +18,7 @@ export type PathPreflightResult =
 export async function inspectPathPreflight(
   value: unknown,
   cwd: string,
+  environment: PathSecurityEnvironment,
   options: {
     acceptedKinds: readonly PathTargetKind[];
     operation: string;
@@ -25,8 +27,8 @@ export async function inspectPathPreflight(
   if (typeof value !== "string") {
     return issue("invalid_path", "Path must be a string", false);
   }
-  const inspection = await inspectPathSecurity(value, cwd);
-  // Device access is a permission hard-stop, so the assessor owns its canonical denial.
+  const inspection = await inspectPathSecurity(value, cwd, environment);
+  // Device access is an access-policy hard-stop, so the assessor owns its canonical denial.
   if (inspection.sensitivity === "device") return { outcome: "ready", inspection };
   if (inspection.targetKind === "dangling_symlink") {
     return issue("dangling_symlink", `Cannot ${options.operation} a dangling symbolic link`, false);

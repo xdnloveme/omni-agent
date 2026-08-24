@@ -3,7 +3,7 @@ import {
   type RuntimeObservationDiagnosticSink,
 } from "./diagnostics";
 import {
-  NOOP_RUNTIME_AUTHORIZATION_OBSERVATION,
+  NOOP_RUNTIME_ACCESS_OBSERVATION,
   NOOP_RUNTIME_CONTEXT_OBSERVATION,
   NOOP_RUNTIME_EXECUTION_OBSERVATION,
   NOOP_RUNTIME_MODEL_CALL_OBSERVATION,
@@ -15,7 +15,7 @@ import {
   NOOP_RUNTIME_TURN_OBSERVATION,
 } from "./noop";
 import type {
-  RuntimeAuthorizationObservation,
+  RuntimeAccessObservation,
   RuntimeContextObservation,
   RuntimeExecutionObservation,
   RuntimeModelCallObservation,
@@ -220,19 +220,13 @@ function callObservation(
             diagnostic,
           )
         : NOOP_RUNTIME_PREFLIGHT_OBSERVATION,
-    startAuthorization: (fact) =>
-      terminal.allows("startAuthorization")
-        ? authorizationObservation(
-            children(
-              targets,
-              "startAuthorization",
-              fact,
-              NOOP_RUNTIME_AUTHORIZATION_OBSERVATION,
-              diagnostic,
-            ),
+    startAccess: (fact) =>
+      terminal.allows("startAccess")
+        ? accessObservation(
+            children(targets, "startAccess", fact, NOOP_RUNTIME_ACCESS_OBSERVATION, diagnostic),
             diagnostic,
           )
-        : NOOP_RUNTIME_AUTHORIZATION_OBSERVATION,
+        : NOOP_RUNTIME_ACCESS_OBSERVATION,
     startExecution: (fact) =>
       terminal.allows("startExecution")
         ? executionObservation(
@@ -260,11 +254,11 @@ function preflightObservation(
   return terminalScope(targets, "preflight", diagnostic)[0];
 }
 
-function authorizationObservation(
-  targets: readonly RuntimeAuthorizationObservation[],
+function accessObservation(
+  targets: readonly RuntimeAccessObservation[],
   diagnostic?: RuntimeObservationDiagnosticSink,
-): RuntimeAuthorizationObservation {
-  const [scope, terminal] = terminalScope(targets, "authorization", diagnostic);
+): RuntimeAccessObservation {
+  const [scope, terminal] = terminalScope(targets, "access", diagnostic);
   return {
     ...scope,
     deny: (fact) => terminal.finish("deny", () => broadcast(targets, "deny", fact, diagnostic)),

@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import { createAbortError, type AgentToolDefinition, type ToolResult } from "@omni-agent/core";
-import { createWebReadPermission } from "./permission/web-permission";
+import { createWebAccess } from "./access/web-access-assessor";
 
 const DEFAULT_MAX_RESULTS = 5;
 const SEARCH_TIMEOUT_MS = 15_000;
@@ -46,12 +46,11 @@ function parseDuckDuckGoResults(html: string, maxResults: number): SearchResult[
 
 export const webSearchTool: AgentToolDefinition = {
   name: "web_search",
-  authorization: createWebReadPermission({
+  access: createWebAccess({
     parameter: "query",
-    title: "Search the web",
     valueKind: "text",
   }),
-  execution: { kind: "host" },
+  execution: { kind: "in_process" },
   invocation: { action: "search", resource: { kind: "text", inputKey: "query" } },
   timeout: { kind: "none" },
   strict: true,

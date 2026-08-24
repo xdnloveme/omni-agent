@@ -129,11 +129,12 @@ describe("skills", () => {
     const registry = new SkillRegistry({ cwd });
     await registry.initialize();
     const tool = createSkillReadTool(registry);
+    if (!("execute" in tool)) throw new Error("Expected in-process skill tool");
 
     const result = await tool.execute({ name: "frontend-design" }, { cwd: process.cwd() });
 
-    expect(tool.authorization).toMatchObject({ kind: "trusted" });
-    expect(tool.execution).toEqual({ kind: "host" });
+    expect(tool.access).toEqual({ kind: "internal" });
+    expect(tool.execution).toEqual({ kind: "in_process" });
     expect(result.isError).toBe(false);
     expect(result.meta).toMatchObject({
       kind: "skill_read",

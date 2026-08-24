@@ -1,7 +1,7 @@
 import chalk from "chalk";
 import type { SkillSource, TranscriptMessage } from "@omni-agent/core";
 import { TuiCommandInteractionAdapter } from "./adapters/command-interaction-adapter";
-import { TuiApprovalBroker } from "./adapters/tui-approval-broker";
+import { TuiAccessConsentBroker } from "./adapters/tui-access-consent-broker";
 import { TuiInteractionSurface } from "./adapters/tui-interaction-surface";
 import { renderSkillReadEnd, renderSkillReadStart } from "./presentation/skill-renderer";
 import { SkillStreamPresenter } from "./presentation/skill-stream-presenter";
@@ -23,12 +23,12 @@ interface SkillReadInput {
 export function createAgentConsole(options: { readonly workspaceRoot: string }) {
   const tui = createOmniTui(options);
   const interactionSurface = new TuiInteractionSurface(tui);
-  const approvalBroker = new TuiApprovalBroker(interactionSurface);
+  const accessConsentBroker = new TuiAccessConsentBroker(interactionSurface);
   const commandInteraction = new TuiCommandInteractionAdapter(tui, interactionSurface);
 
   return {
     interactionSurface,
-    approvalBroker,
+    accessConsentBroker,
     commandInteraction,
     start: () => tui.start(),
     terminate: (termination: Parameters<typeof tui.shutdown>[0]) => tui.shutdown(termination),

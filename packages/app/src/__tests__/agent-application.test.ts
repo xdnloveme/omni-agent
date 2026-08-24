@@ -8,7 +8,7 @@ import {
   ContextPolicyPipeline,
   DefaultContextEngine,
   EnvironmentContextController,
-  ToolAuthorizationRouter,
+  ToolAccessController,
   ToolCallCoordinator,
   ToolInputValidator,
   ToolInvocationRunner,
@@ -21,7 +21,7 @@ import type { ConfigService } from "../config/config-service";
 import type { ExtensionManager } from "../extensions/extension-manager";
 import type { ModelService } from "../models/model-service";
 import type { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
-import { createPermissionRuntime } from "../permissions/create-permission-runtime";
+import { ExecutionSettingsRepository, ExecutionSettingsService } from "../execution-settings";
 import { AgentScopedTraceRuntime } from "../tracing/agent-scoped-trace-runtime";
 import { TraceQueryService } from "../tracing/trace-query-service";
 import { AgentAssemblyEvidence } from "../assembly/agent-assembly-evidence";
@@ -75,9 +75,7 @@ async function fixture(withTrace = false) {
     systemPrompt: "test",
     tools: [],
   };
-  const permissions = createPermissionRuntime({
-    globalDirectory: root,
-  });
+  const executionSettings = new ExecutionSettingsService(new ExecutionSettingsRepository(root));
   const contextStorage = { clear: vi.fn(async () => undefined) };
   const cacheLeases = {
     hydrate: vi.fn(async () => undefined),
@@ -123,10 +121,30 @@ async function fixture(withTrace = false) {
       modelService,
       modelSelection: selection,
       configService,
-      permissionService: permissions.service,
+      executionSettings,
+      workspaceId: "workspace",
       toolCallCoordinator: new ToolCallCoordinator({
-        authorizer: new ToolAuthorizationRouter(permissions.permissionGate, inputValidator),
-        invocationRunner: new ToolInvocationRunner(),
+        accessController: new ToolAccessController({
+          settings: executionSettings,
+          consent: {
+            async request() {
+              return "deny";
+            },
+          },
+        }),
+        processPlanner: {
+          async prepare() {
+            throw new Error("unexpected process tool");
+          },
+        },
+        hostRuntime: { platform: "linux", home: root },
+        invocationRunner: new ToolInvocationRunner({
+          processRouter: {
+            async run() {
+              throw new Error("unexpected process tool");
+            },
+          },
+        }),
         inputValidator,
       }),
       contextEngine: new DefaultContextEngine(

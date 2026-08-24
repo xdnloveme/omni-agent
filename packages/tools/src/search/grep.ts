@@ -1,14 +1,7 @@
-import {
-  createAbortError,
-  isAbortError,
-  type AgentToolDefinition,
-  type ToolResult,
-} from "@omni-agent/core";
-import { runHostProcess } from "../process/host-process-runner";
-import { resolveAuthorizedOperationPath } from "../security/path/authorized-operation-path";
+import { type AgentToolDefinition, type ProcessResult, type ToolResult } from "@omni-agent/core";
 import { formatFileSize, loadFileSizes } from "./file-metadata";
-import { createSearchPathPermission } from "./permission/create-search-path-permission";
-import { createSearchPathPreflight } from "./permission/create-search-path-preflight";
+import { createSearchAccess } from "./access/create-search-access";
+import { createSearchPathPreflight } from "./access/create-search-path-preflight";
 import { parseRipgrepJson, type ParsedRipgrepMatch } from "./rg-json-parser";
 import type { GrepFileMatches, GrepResultMeta } from "./types";
 
@@ -25,8 +18,8 @@ export const grepTool: AgentToolDefinition = {
     defaultToCwd: true,
     acceptedKinds: ["regular_file", "directory"],
   }),
-  authorization: createSearchPathPermission("search_path"),
-  execution: { kind: "host" },
+  access: createSearchAccess("search_path"),
+  execution: { kind: "process" },
   invocation: { action: "search", resource: { kind: "text", inputKey: "regex" } },
   timeout: { kind: "none" },
   description:
@@ -75,97 +68,71 @@ export const grepTool: AgentToolDefinition = {
     },
     required: ["regex"],
   },
-  execute: async (params, context): Promise<ToolResult> => {
+  createProcessInvocation(params, context) {
     const regex = params.regex as string;
-    if (!regex) {
-      return { content: [{ type: "text", text: "Error: regex is required" }], isError: true };
-    }
-
-    const maxResults = (params.max_results as number | undefined) ?? DEFAULT_MAX_RESULTS;
     const args = ["--json", "--line-number", "--column", "--color=never"];
     if (params.glob) args.push(`--glob=${params.glob as string}`);
     if (params.ignore_case) args.push("--ignore-case");
-
-    try {
-      const searchPath = params.search_path
-        ? await resolveAuthorizedOperationPath(params.search_path as string, context.cwd)
-        : context.cwd;
-      args.push("--", regex, searchPath);
-      const processResult = await runHostProcess({
-        command: "rg",
-        args,
-        cwd: context.cwd,
-        signal: context.signal,
-        maxOutputBytes: MAX_PROCESS_OUTPUT_BYTES,
-      });
-      if (processResult.signal || (processResult.exitCode !== 0 && processResult.exitCode !== 1)) {
-        const detail =
-          processResult.stderr.trim() ||
-          `ripgrep exited with ${processResult.signal ?? `code ${processResult.exitCode}`}`;
-        return {
-          content: [{ type: "text", text: `ripgrep error: ${detail}` }],
-          isError: true,
-        };
-      }
-      if (processResult.exitCode === 1) return noMatchesResult();
-
-      const parsed = parseRipgrepJson(processResult.stdout, {
-        allowTrailingPartial: processResult.stdoutTruncated,
-      });
-      if (parsed.matches.length === 0) {
-        return processResult.stdoutTruncated ? truncatedWithoutMatchesResult() : noMatchesResult();
-      }
-
-      const candidates = parsed.matches.slice(0, maxResults);
-      const selectedFiles = selectFilesForDisplay(groupMatches(candidates));
-      const sizes = await loadFileSizes(
-        selectedFiles.map((file) => file.path),
-        context.cwd,
-        context.signal,
-      );
-      const files = selectedFiles.map((file) => ({
-        ...file,
-        sizeBytes: sizes.get(file.path) ?? null,
-      }));
-      const selectedMatches = countMatches(files);
-      const sourceTruncated =
-        processResult.stdoutTruncated ||
-        parsed.matches.length > maxResults ||
-        selectedMatches < candidates.length ||
-        (parsed.totalMatches !== undefined && parsed.totalMatches > selectedMatches);
-      const formatted = formatGrepResult(files, parsed.totalMatches, sourceTruncated);
-      return {
-        content: [{ type: "text", text: formatted.text }],
-        isError: false,
-        meta: { ...formatted.meta },
-      };
-    } catch (error: unknown) {
-      if (isAbortError(error, context.signal)) throw createAbortError(context.signal);
-      if (isMissingExecutable(error)) {
-        return {
-          content: [
-            {
-              type: "text",
-              text:
-                "Error: ripgrep (rg) is not installed or not in PATH. " +
-                "Please install it: https://github.com/BurntSushi/ripgrep#installation",
-            },
-          ],
-          isError: true,
-        };
-      }
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error running grep: ${error instanceof Error ? error.message : String(error)}`,
-          },
-        ],
-        isError: true,
-      };
-    }
+    args.push("--", regex, (params.search_path as string | undefined) ?? context.cwd);
+    return {
+      command: "rg",
+      args,
+      cwd: context.cwd,
+      maxOutputBytes: MAX_PROCESS_OUTPUT_BYTES,
+    };
   },
+  createToolResult: (result, params, context) =>
+    createGrepResult(
+      result,
+      (params.max_results as number | undefined) ?? DEFAULT_MAX_RESULTS,
+      context.cwd,
+      context.signal,
+    ),
 };
+
+async function createGrepResult(
+  processResult: ProcessResult,
+  maxResults: number,
+  cwd: string,
+  signal?: AbortSignal,
+): Promise<ToolResult> {
+  if (processResult.signal || (processResult.exitCode !== 0 && processResult.exitCode !== 1)) {
+    const detail =
+      processResult.stderr.trim() ||
+      `ripgrep exited with ${processResult.signal ?? `code ${processResult.exitCode}`}`;
+    return { content: [{ type: "text", text: `ripgrep error: ${detail}` }], isError: true };
+  }
+  if (processResult.exitCode === 1) return noMatchesResult();
+  const parsed = parseRipgrepJson(processResult.stdout, {
+    allowTrailingPartial: processResult.stdoutTruncated,
+  });
+  if (parsed.matches.length === 0) {
+    return processResult.stdoutTruncated ? truncatedWithoutMatchesResult() : noMatchesResult();
+  }
+  const candidates = parsed.matches.slice(0, maxResults);
+  const selectedFiles = selectFilesForDisplay(groupMatches(candidates));
+  const sizes = await loadFileSizes(
+    selectedFiles.map((file) => file.path),
+    cwd,
+    signal,
+  );
+  const files = selectedFiles.map((file) => ({
+    ...file,
+    sizeBytes: sizes.get(file.path) ?? null,
+  }));
+  const selectedMatches = countMatches(files);
+  const sourceTruncated =
+    processResult.stdoutTruncated ||
+    parsed.matches.length > maxResults ||
+    selectedMatches < candidates.length ||
+    (parsed.totalMatches !== undefined && parsed.totalMatches > selectedMatches);
+  const formatted = formatGrepResult(files, parsed.totalMatches, sourceTruncated);
+  return {
+    content: [{ type: "text", text: formatted.text }],
+    isError: false,
+    meta: formatted.meta,
+  };
+}
 
 function formatGrepResult(
   files: readonly GrepFileMatches[],
@@ -267,10 +234,4 @@ function truncatedWithoutMatchesResult(): ToolResult {
     isError: false,
     meta: { files: [], returnedMatches: 0, truncated: true },
   };
-}
-
-function isMissingExecutable(error: unknown): boolean {
-  return (
-    error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT"
-  );
 }

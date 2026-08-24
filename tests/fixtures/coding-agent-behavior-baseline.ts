@@ -7,7 +7,7 @@ export const CODING_AGENT_BEHAVIOR_BASELINE = Object.freeze({
   description: "Local coding agent with filesystem, shell, search, web, and skills capabilities.",
   manifestApiVersion: "omni-agent/v2",
   blueprintApiVersion: 2,
-  systemPromptDigest: "555a63ae8478cd6abbaccdd86ddbae569ba7cfff2f8baeccc755c9c5d77fb21b",
+  systemPromptDigest: "a2e8710fdffa533d0a216a42600361548ec7bffc7c48a54b697311870b752cb2",
   toolNames: Object.freeze([
     "bash",
     "file_read",

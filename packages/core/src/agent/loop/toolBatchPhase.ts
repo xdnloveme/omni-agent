@@ -16,6 +16,8 @@ import type { PublishAgentEvent, ToolBatchPhaseResult } from "./types";
 
 export interface ToolBatchPhaseInput {
   readonly agentId: string;
+  readonly workspaceId: string;
+  readonly workspaceRoot: string;
   readonly config: AgentConfig;
   readonly response: AssistantTranscriptMessage;
   readonly modelCallId: string;
@@ -59,14 +61,14 @@ export async function* executeToolBatchPhase(
       let result: ValidatedToolResult | undefined;
       if (turnBarrierIndex !== undefined && index !== turnBarrierIndex) {
         result = deferredToolResult();
-        const deferredMetrics = { authorizationMs: 0, executionMs: 0, totalMs: 0 };
+        const deferredMetrics = { accessMs: 0, executionMs: 0, totalMs: 0 };
         observeDeferredToolCall(
           observation,
           call,
           batch.batchId,
           result,
           deferredMetrics,
-          input.config.tools.find((tool) => tool.name === call.name)?.authorization.hiddenInputKeys,
+          input.config.tools.find((tool) => tool.name === call.name)?.access.hiddenInputKeys,
         );
         yield publishToolStart(
           input.session,
@@ -97,6 +99,8 @@ export async function* executeToolBatchPhase(
             },
             {
               agentId: input.agentId,
+              workspaceId: input.workspaceId,
+              workspaceRoot: input.workspaceRoot,
               batchId: batch.batchId,
               cwd: input.environment.snapshot.workspace.cwd,
               middleware: input.config.middleware ?? [],

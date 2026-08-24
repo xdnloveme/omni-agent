@@ -11,7 +11,8 @@
     "@omni-agent/agent-coding": "workspace:*",
     "@omni-agent/agent-financial-analysis": "workspace:*",
     "@omni-agent/app": "workspace:*",
-    "@omni-agent/core": "workspace:*"
+    "@omni-agent/core": "workspace:*",
+    "@omni-agent/tools": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

@@ -1,6 +1,6 @@
 import * as cheerio from "cheerio";
 import { createAbortError, type AgentToolDefinition, type ToolResult } from "@omni-agent/core";
-import { createWebReadPermission } from "./permission/web-permission";
+import { createWebAccess } from "./access/web-access-assessor";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_OUTPUT_CHARS = 20_000;
@@ -24,12 +24,11 @@ function extractTextFromHtml(html: string): string {
 
 export const webFetchTool: AgentToolDefinition = {
   name: "web_fetch",
-  authorization: createWebReadPermission({
+  access: createWebAccess({
     parameter: "url",
-    title: "Fetch web content",
     valueKind: "url",
   }),
-  execution: { kind: "host" },
+  execution: { kind: "in_process" },
   invocation: { action: "fetch", resource: { kind: "url", inputKey: "url" } },
   timeout: { kind: "none" },
   strict: true,

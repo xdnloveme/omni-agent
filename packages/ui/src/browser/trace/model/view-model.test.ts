@@ -346,20 +346,20 @@ describe("Trace preview view model", () => {
     const tool = span("tool", "batch", "agent.tool.call", 20, {
       "agent.tool.call.id": "tool-call",
     });
-    const authorization = span("authorization", "tool", "agent.tool.authorization", 21);
+    const access = span("access", "tool", "agent.tool.access", 21);
     const replay: Replay[] = [
       {
-        ...record(1, "tool.authorization.completed", {
+        ...record(1, "tool.access.completed", {
           outcome: "allowed",
-          authorizationMs: 2,
+          accessMs: 2,
         }),
         correlation: { toolCallId: "tool-call" },
       },
     ];
 
-    const details = viewModel.nodeDetails(authorization, [tool, authorization], replay, {});
+    const details = viewModel.nodeDetails(access, [tool, access], replay, {});
 
-    expect(details.output).toEqual({ outcome: "allowed", authorizationMs: 2 });
+    expect(details.output).toEqual({ outcome: "allowed", accessMs: 2 });
     expect(details.replayEvents).toHaveLength(1);
   });
 
@@ -372,11 +372,11 @@ describe("Trace preview view model", () => {
       "agent.tool.name": "file_read",
     });
     const preflight = span("preflight", "tool", "agent.tool.preflight", 4);
-    const authorization = span("authorization", "tool", "agent.tool.authorization", 5);
+    const access = span("access", "tool", "agent.tool.access", 5);
     const execution = span("execution", "tool", "agent.tool.execution", 6);
 
     const overview = viewModel.buildDisplayForest(
-      [run, turn, batch, tool, preflight, authorization, execution],
+      [run, turn, batch, tool, preflight, access, execution],
       [],
     );
     const rows = viewModel.flattenSpanForest(overview);
@@ -388,20 +388,20 @@ describe("Trace preview view model", () => {
     ]);
     expect(rows[2]?.phases?.map(({ span: item }) => item.name)).toEqual([
       "agent.tool.preflight",
-      "agent.tool.authorization",
+      "agent.tool.access",
       "agent.tool.execution",
     ]);
     expect(
       viewModel
         .flattenSpanForest(
           viewModel.buildDisplayForest(
-            [run, turn, batch, tool, preflight, authorization, execution],
+            [run, turn, batch, tool, preflight, access, execution],
             [],
             "detailed",
           ),
         )
         .map(({ span: item }) => item.name),
-    ).toContain("agent.tool.authorization");
+    ).toContain("agent.tool.access");
   });
 
   it("associates Prompt Cache with its Model and aggregates token-weighted hit rate", () => {

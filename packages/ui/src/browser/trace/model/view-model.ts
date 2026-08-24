@@ -40,11 +40,7 @@ const OVERVIEW_SPANS = new Set([
   "context.checkpoint",
 ]);
 
-const TOOL_PHASES = new Set([
-  "agent.tool.preflight",
-  "agent.tool.authorization",
-  "agent.tool.execution",
-]);
+const TOOL_PHASES = new Set(["agent.tool.preflight", "agent.tool.access", "agent.tool.execution"]);
 
 export function captureHealth(run: TraceRun | null | undefined): {
   readonly droppedRecords: number;
@@ -250,9 +246,9 @@ function displayNodeMatches(node: DisplayNode, filter: string): boolean {
   if (filter === "tools") return span.name === "agent.tool.call";
   if (filter === "context") return span.name.startsWith("context.");
   if (filter === "errors") return spanPresentation(span).statusTone === "error";
-  if (filter === "authorization")
+  if (filter === "access")
     return (node.phases ?? []).some(
-      ({ span: phase }) => phase.name === "agent.tool.authorization" && spanDuration(phase) > 0,
+      ({ span: phase }) => phase.name === "agent.tool.access" && spanDuration(phase) > 0,
     );
   if (filter === "cache") {
     return Boolean(

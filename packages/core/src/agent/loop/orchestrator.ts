@@ -20,6 +20,8 @@ export interface LoopIterationInput {
   readonly maxTurns?: number;
   readonly lastUsage?: TokenUsage;
   readonly agentId: string;
+  readonly workspaceId: string;
+  readonly workspaceRoot: string;
   readonly config: AgentConfig;
   readonly conversation: WorkingConversation;
   readonly environmentContext: EnvironmentContextControllerPort;
@@ -110,6 +112,8 @@ export async function* runLoopIteration(
 
     const tools = yield* executeToolBatchPhase({
       agentId: input.agentId,
+      workspaceId: input.workspaceId,
+      workspaceRoot: input.workspaceRoot,
       config: input.config,
       response: model.response,
       modelCallId: model.modelCallId,

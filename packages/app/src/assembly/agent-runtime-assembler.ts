@@ -3,7 +3,7 @@ import {
   AgentSessionRepository,
   digestStableValue,
   EnvironmentContextController,
-  ToolAuthorizationRouter,
+  ToolAccessController,
   ToolCallCoordinator,
   ToolInputValidator,
   ToolInvocationRunner,
@@ -16,7 +16,7 @@ import { ContextSidecarLayout } from "../context/sidecarLayout";
 import { ExtensionManager } from "../extensions/extension-manager";
 import { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
 import { ModelCacheLeaseRepository } from "../models/cache/model-cache-lease-repository";
-import { createPermissionRuntime } from "../permissions";
+import { ExecutionSettingsRepository, ExecutionSettingsService } from "../execution-settings";
 import { ToolRegistry } from "../registry/tool-registry";
 import { AgentScopedTraceRuntime } from "../tracing";
 import { WorkspaceStorageLayout } from "../workspaces";
@@ -37,6 +37,9 @@ export class AgentRuntimeAssembler {
   ): Promise<AgentInstance> {
     const transaction = new AssemblyTransaction();
     const agentId = plan.manifest.metadata.id;
+    const executionSettings = new ExecutionSettingsService(
+      new ExecutionSettingsRepository(plan.globalDirectory),
+    );
     let stage: AgentAssemblyStage = "blueprint_build";
     let source = plan.packageName;
     try {
@@ -45,6 +48,10 @@ export class AgentRuntimeAssembler {
         composition: plan.composition,
         cwd: plan.workspace.root,
         interaction: environment.host.interactionSurface,
+        execution: {
+          getMode: async () =>
+            (await executionSettings.getSettings(plan.workspace.id, agentId)).mode,
+        },
       });
       if (module.dispose) transaction.defer("agent_module", () => module.dispose!());
       stage = "module_validation";
@@ -145,22 +152,23 @@ export class AgentRuntimeAssembler {
         cacheLeaseAdvisor: environment.modelService.runtime.leaseAdvisor,
         onDiagnostic: (message) => diagnostic("builtin-context", "context-sidecar", message),
       });
-      stage = "permissions";
-      source = "permission-runtime";
-      const permissions = createPermissionRuntime({
-        globalDirectory: plan.globalDirectory,
-        approvalBroker: environment.host.approvalBroker,
-        observer: environment.host.permissionObserver,
+      stage = "access";
+      source = "access-runtime";
+      const accessController = new ToolAccessController({
+        settings: executionSettings,
+        consent: environment.host.accessConsentBroker,
       });
       stage = "runtime_composition";
       source = "tool-call-runtime";
       const toolCallCoordinator = new ToolCallCoordinator({
-        authorizer: new ToolAuthorizationRouter(permissions.permissionGate, toolInputValidator),
+        accessController,
+        processPlanner: environment.host.processPlanner,
         invocationRunner: new ToolInvocationRunner({
-          sandboxRunner: environment.host.sandboxRunner,
+          processRouter: environment.host.processRouter,
           onLateSettlement: environment.host.onLateToolSettlement,
         }),
         inputValidator: toolInputValidator,
+        hostRuntime: environment.host.hostRuntime,
       });
       stage = "environment";
       source = "runtime-environment-provider";
@@ -217,7 +225,8 @@ export class AgentRuntimeAssembler {
         modelService: environment.modelService,
         modelSelection: plan.modelSelection,
         configService: environment.configService,
-        permissionService: permissions.service,
+        executionSettings,
+        workspaceId: plan.workspace.id,
         toolCallCoordinator,
         contextEngine,
         contextMiddleware: manager.contextMiddleware,

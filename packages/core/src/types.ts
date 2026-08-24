@@ -3,8 +3,14 @@ import type { ToolLoopDiagnostic } from "./loop-protection";
 import type { ExtensionEvent } from "./extension-events";
 import type { ModelRuntimePort, RuntimeModelSelection } from "./models/runtime";
 import type { ModelCacheReport } from "./models/cache";
-import type { ToolAuthorizationDescriptor } from "./permissions";
-import type { ToolExecutionContext, ToolExecutionStrategy, ToolTimeoutPolicy } from "./execution";
+import type { ToolAccessDescriptor } from "./access";
+import type {
+  ProcessInvocation,
+  ProcessResult,
+  ToolExecutionContext,
+  ToolExecutionStrategy,
+  ToolTimeoutPolicy,
+} from "./execution";
 import type { ToolPreflightDescriptor } from "./tool-calls/tool-preflight";
 import type {
   ContextEnginePort,
@@ -15,20 +21,40 @@ import type {
 import type { SessionRecord, SessionSnapshot } from "./session";
 import type { RuntimeRunObservation } from "./runtime-observation";
 
-export interface AgentToolDefinition {
+interface AgentToolDefinitionBase {
   name: string;
   description: string;
   schema: Record<string, unknown>;
   strict?: boolean;
   preflight?: ToolPreflightDescriptor;
   timeout: ToolTimeoutPolicy;
-  authorization: ToolAuthorizationDescriptor;
+  access: ToolAccessDescriptor;
   execution: ToolExecutionStrategy;
   invocation?: ToolInvocationPresentation;
   scheduling?: ToolSchedulingPolicy;
   context?: ToolContextPolicy;
-  execute: (params: Record<string, unknown>, context: ToolExecutionContext) => Promise<ToolResult>;
 }
+
+export interface InProcessToolDefinition extends AgentToolDefinitionBase {
+  execution: { kind: "in_process" };
+  execute(params: Record<string, unknown>, context: ToolExecutionContext): Promise<ToolResult>;
+}
+
+export interface ProcessToolDefinition extends AgentToolDefinitionBase {
+  execution: { kind: "process" };
+  /** Pure, bounded planning step. Must not spawn a process or perform external I/O. */
+  createProcessInvocation(
+    params: Record<string, unknown>,
+    context: ToolExecutionContext,
+  ): ProcessInvocation | Promise<ProcessInvocation>;
+  createToolResult(
+    result: ProcessResult,
+    params: Readonly<Record<string, unknown>>,
+    context: ToolExecutionContext,
+  ): ToolResult | Promise<ToolResult>;
+}
+
+export type AgentToolDefinition = InProcessToolDefinition | ProcessToolDefinition;
 
 export interface ToolSchedulingPolicy {
   readonly batch: "normal" | "turn_barrier";
@@ -77,9 +103,21 @@ export interface ToolBatchDescriptor {
   readonly members: readonly ToolBatchMember[];
 }
 
-export interface RegisteredAgentTool extends AgentToolDefinition {
+export type RegisteredAgentTool = AgentToolDefinition & {
   readonly originId: string;
   readonly toolIdentity: string;
+};
+
+export function isInProcessTool(
+  tool: AgentToolDefinition | RegisteredAgentTool,
+): tool is InProcessToolDefinition & Partial<RegisteredAgentTool> {
+  return tool.execution.kind === "in_process";
+}
+
+export function isProcessTool(
+  tool: AgentToolDefinition | RegisteredAgentTool,
+): tool is ProcessToolDefinition & Partial<RegisteredAgentTool> {
+  return tool.execution.kind === "process";
 }
 
 export interface ToolResult {
@@ -135,6 +173,8 @@ export interface AgentLoopInput {
   contextMiddleware: readonly ContextMiddlewarePort[];
   modelRuntime: ModelRuntimePort;
   agentId: string;
+  workspaceId: string;
+  workspaceRoot: string;
   environmentContext: import("./environment").EnvironmentContextControllerPort;
   toolCallCoordinator: import("./tool-calls/tool-call-coordinator").ToolCallCoordinator;
   observation?: RuntimeRunObservation;

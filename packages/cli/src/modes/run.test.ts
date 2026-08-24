@@ -184,7 +184,7 @@ describe("Agent mode conversation lifecycle", () => {
 function createConsole(overrides: Partial<AgentConsolePort>): AgentConsolePort {
   return {
     interactionSurface: { request: vi.fn() },
-    approvalBroker: { request: vi.fn() },
+    accessConsentBroker: { request: vi.fn() },
     commandInteraction: {
       pause: vi.fn(),
       resume: vi.fn(),
@@ -229,6 +229,9 @@ function createHost(consoleView: AgentConsolePort): {
         nodeVersion: "22.19.0",
       },
       output: { stdout: vi.fn(), stderr: vi.fn() },
+      processRouter: { run: vi.fn() },
+      processPlanner: { prepare: vi.fn() },
+      hostRuntime: { platform: "linux", home: "/home/test" },
       createAgentConsole,
       createOnboardingInteraction: vi.fn(),
       runTracePreview: vi.fn(),

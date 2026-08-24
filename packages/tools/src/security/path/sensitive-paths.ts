@@ -1,72 +1,71 @@
-import os from "node:os";
 import path from "node:path";
+import type { HostRuntimeContext } from "@omni-agent/core";
 import { isWithinPath } from "./path-boundary";
 import { normalizeForComparison } from "./normalize-path";
 
-const credentialFiles = new Set([
-  ".npmrc",
-  ".pypirc",
-  ".netrc",
-  ".pgpass",
-  ".my.cnf",
-  ".git-credentials",
-]);
-const credentialTemplates = new Set([".env.example", ".env.sample", ".env.template", ".env.dist"]);
-const systemDirectories = ["/etc", "/root", "/private/etc", "/private/var/root"];
-const virtualSystemDirectories = ["/proc", "/sys"];
-const deviceDirectories = ["/dev"];
+export interface SensitivePathPolicy {
+  readonly credentialDirectories: readonly string[];
+  readonly credentialFileNames: readonly string[];
+  readonly credentialNamePrefixes: readonly string[];
+  readonly credentialTemplateNames: readonly string[];
+  readonly systemDirectories: readonly string[];
+  readonly virtualSystemDirectories: readonly string[];
+  readonly deviceDirectories: readonly string[];
+}
 
 export type PathSensitivity = "credential" | "system_file" | "virtual_system" | "device" | null;
 
-export interface PathSecurityEnvironment {
-  platform: NodeJS.Platform;
-  home: string;
-}
+export type PathSecurityEnvironment = HostRuntimeContext;
 
 export function classifySensitivePath(
   target: string,
-  environment: PathSecurityEnvironment = {
-    platform: process.platform,
-    home: os.homedir(),
-  },
+  environment: PathSecurityEnvironment,
 ): PathSensitivity {
   const normalized = normalizeForComparison(target, environment.platform);
   const basename = path.basename(normalized).toLowerCase();
-  const credentialDirectories = createCredentialDirectories(environment);
+  const policy = createSensitivePathPolicy(environment);
   if (
-    credentialDirectories.some((directory) =>
+    policy.credentialDirectories.some((directory) =>
       isWithinPath(normalized, directory, environment.platform),
     )
   ) {
     return "credential";
   }
-  if (!credentialTemplates.has(basename)) {
-    if (basename === ".env" || basename === ".envrc" || basename.startsWith(".env.")) {
+  if (!policy.credentialTemplateNames.includes(basename)) {
+    if (
+      policy.credentialFileNames.includes(basename) ||
+      policy.credentialNamePrefixes.some((prefix) => basename.startsWith(prefix))
+    ) {
       return "credential";
     }
-    if (credentialFiles.has(basename)) return "credential";
   }
   if (
-    deviceDirectories.some((directory) => isWithinPath(normalized, directory, environment.platform))
+    policy.deviceDirectories.some((directory) =>
+      isWithinPath(normalized, directory, environment.platform),
+    )
   )
     return "device";
   if (
-    virtualSystemDirectories.some((directory) =>
+    policy.virtualSystemDirectories.some((directory) =>
       isWithinPath(normalized, directory, environment.platform),
     )
   ) {
     return "virtual_system";
   }
   if (
-    systemDirectories.some((directory) => isWithinPath(normalized, directory, environment.platform))
+    policy.systemDirectories.some((directory) =>
+      isWithinPath(normalized, directory, environment.platform),
+    )
   ) {
     return "system_file";
   }
   return null;
 }
 
-function createCredentialDirectories(environment: PathSecurityEnvironment): string[] {
-  const directories = [
+export function createSensitivePathPolicy(
+  environment: PathSecurityEnvironment,
+): SensitivePathPolicy {
+  const credentialDirectories = [
     ".ssh",
     ".aws",
     ".gnupg",
@@ -77,10 +76,27 @@ function createCredentialDirectories(environment: PathSecurityEnvironment): stri
     ".azure",
   ].map((entry) => path.join(environment.home, entry));
   if (environment.platform === "darwin") {
-    directories.push(
+    credentialDirectories.push(
       path.join(environment.home, "Library", "Keychains"),
       path.join(environment.home, "Library", "Application Support", "Google", "Chrome", "Default"),
     );
   }
-  return directories;
+  return {
+    credentialDirectories,
+    credentialFileNames: [
+      ".env",
+      ".envrc",
+      ".npmrc",
+      ".pypirc",
+      ".netrc",
+      ".pgpass",
+      ".my.cnf",
+      ".git-credentials",
+    ],
+    credentialNamePrefixes: [".env."],
+    credentialTemplateNames: [".env.example", ".env.sample", ".env.template", ".env.dist"],
+    systemDirectories: ["/etc", "/root", "/private/etc", "/private/var/root"],
+    virtualSystemDirectories: ["/proc", "/sys"],
+    deviceDirectories: ["/dev"],
+  };
 }

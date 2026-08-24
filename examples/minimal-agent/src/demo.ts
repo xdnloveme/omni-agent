@@ -18,6 +18,11 @@ const module = await agentBlueprint.build({
   composition,
   cwd: process.cwd(),
   interaction: new RejectingInteractionSurface(),
+  execution: {
+    async getMode() {
+      return "controlled";
+    },
+  },
 });
 
 console.log(

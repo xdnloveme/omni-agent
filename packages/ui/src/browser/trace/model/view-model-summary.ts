@@ -18,7 +18,7 @@ export function traceSummary(roots: readonly DisplayNode[]): {
   readonly cacheReadTokens: number;
   readonly cacheWriteTokens: number;
   readonly cacheHitRate: number | null;
-  readonly authorizationMs: number;
+  readonly accessMs: number;
 } {
   const semantic = allNodes(roots).filter(
     ({ span }) => !["agent.run", "agent.turn"].includes(span.name),
@@ -48,7 +48,7 @@ export function traceSummary(roots: readonly DisplayNode[]): {
     (total, { phases }) =>
       total +
       (phases ?? [])
-        .filter(({ span }) => span.name === "agent.tool.authorization")
+        .filter(({ span }) => span.name === "agent.tool.access")
         .reduce((sum, { span }) => sum + spanDuration(span), 0),
     0,
   );
@@ -61,7 +61,7 @@ export function traceSummary(roots: readonly DisplayNode[]): {
     cacheReadTokens,
     cacheWriteTokens,
     cacheHitRate: cacheDenominator > 0 ? cacheReadTokens / cacheDenominator : null,
-    authorizationMs: waitingMs,
+    accessMs: waitingMs,
   };
 }
 

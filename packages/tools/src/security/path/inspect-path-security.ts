@@ -18,7 +18,7 @@ export interface PathSecurityInspection {
 export async function inspectPathSecurity(
   value: string,
   cwd: string,
-  environment?: PathSecurityEnvironment,
+  environment: PathSecurityEnvironment,
 ): Promise<PathSecurityInspection> {
   const [resolution, workspace] = await Promise.all([
     resolveCanonicalPath(value, cwd),
@@ -27,7 +27,7 @@ export async function inspectPathSecurity(
   return {
     target: resolution.target,
     targetKind: resolution.targetKind,
-    inWorkspace: isWithinPath(resolution.target, workspace.target, environment?.platform),
+    inWorkspace: isWithinPath(resolution.target, workspace.target, environment.platform),
     sensitivity: classifySensitivePath(resolution.target, environment),
   };
 }

@@ -71,7 +71,10 @@ export async function runAgentMode(
         modelService,
         host: {
           interactionSurface: consoleView.interactionSurface,
-          approvalBroker: consoleView.approvalBroker,
+          accessConsentBroker: consoleView.accessConsentBroker,
+          processRouter: host.processRouter,
+          processPlanner: host.processPlanner,
+          hostRuntime: host.hostRuntime,
           reservedCommandNames: HOST_COMMAND_NAMES,
         },
       }).create(agentPackage);

@@ -10,7 +10,7 @@ export type AgentAssemblyStage =
   | "session"
   | "cache"
   | "context"
-  | "permissions"
+  | "access"
   | "environment"
   | "trace"
   | "application";

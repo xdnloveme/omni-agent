@@ -1,7 +1,7 @@
 import type {
-  RuntimeAuthorizationCompletedFact,
-  RuntimeAuthorizationDeniedFact,
-  RuntimeAuthorizationStartedFact,
+  RuntimeAccessCompletedFact,
+  RuntimeAccessDeniedFact,
+  RuntimeAccessStartedFact,
   RuntimeCancelledFact,
   RuntimeContextPreparedFact,
   RuntimeContextProgressFact,
@@ -95,7 +95,7 @@ export interface RuntimeToolBatchObservation extends RuntimeObservationScope {
 
 export interface RuntimeToolCallObservation extends RuntimeObservationScope {
   startPreflight(fact: RuntimePreflightStartedFact): RuntimePreflightObservation;
-  startAuthorization(fact: RuntimeAuthorizationStartedFact): RuntimeAuthorizationObservation;
+  startAccess(fact: RuntimeAccessStartedFact): RuntimeAccessObservation;
   startExecution(fact: RuntimeExecutionStartedFact): RuntimeExecutionObservation;
   result(fact: RuntimeToolCallResultFact): void;
   complete(fact: RuntimeToolCallCompletedFact): void;
@@ -110,9 +110,9 @@ export interface RuntimePreflightObservation extends RuntimeObservationScope {
   cancel(fact: RuntimeCancelledFact): void;
 }
 
-export interface RuntimeAuthorizationObservation extends RuntimeObservationScope {
-  complete(fact: RuntimeAuthorizationCompletedFact): void;
-  deny(fact: RuntimeAuthorizationDeniedFact): void;
+export interface RuntimeAccessObservation extends RuntimeObservationScope {
+  complete(fact: RuntimeAccessCompletedFact): void;
+  deny(fact: RuntimeAccessDeniedFact): void;
   fail(fact: RuntimeFailedFact): void;
   cancel(fact: RuntimeCancelledFact): void;
 }

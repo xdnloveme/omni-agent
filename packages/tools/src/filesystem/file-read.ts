@@ -8,8 +8,8 @@ import { fileMutex } from "./file-mutex";
 import { resolveAuthorizedOperationPath } from "../security/path/authorized-operation-path";
 import { FileToolError, fileToolErrorResult } from "./io/file-errors";
 import { MAX_FILE_READ_OUTPUT_BYTES, readTextPage } from "./io/streaming-line-reader";
-import { createFilePathPermission } from "./permission/create-file-path-permission";
-import { createFilePathPreflight } from "./permission/create-file-path-preflight";
+import { createFileAccess } from "./access/create-file-access";
+import { createFilePathPreflight } from "./access/create-file-path-preflight";
 
 const DEFAULT_LIMIT = 500;
 const MAX_LIMIT = 2000;
@@ -23,8 +23,8 @@ export const fileReadTool: AgentToolDefinition = {
     acceptedKinds: ["regular_file"],
     operation: "read",
   }),
-  authorization: createFilePathPermission({ parameter: "file_path", access: "read" }),
-  execution: { kind: "host" },
+  access: createFileAccess({ parameter: "file_path", access: "read" }),
+  execution: { kind: "in_process" },
   invocation: { action: "read", resource: { kind: "file", inputKey: "file_path" } },
   timeout: { kind: "none" },
   description:

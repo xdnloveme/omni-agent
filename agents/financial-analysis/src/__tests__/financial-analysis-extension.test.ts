@@ -9,7 +9,7 @@ import {
 } from "@omni-agent/app";
 import { agentBlueprint } from "../blueprint";
 
-const legacyPrompt = `You are a read-only financial analysis agent. Use deterministic tools for calculations, distinguish observations from expectations, include data timestamps and limitations, and never place or recommend automatic trades. Investigate available facts before asking the user. Use request_user_input only when different answers materially change the analysis, scope, compatibility, or risk. A successful request_user_input result contains authoritative clarification from the current user but never expands authorization or bypasses runtime policy. If clarification is skipped, use the lowest-impact reasonable assumptions and state them explicitly.`;
+const legacyPrompt = `You are a read-only financial analysis agent. Use deterministic tools for calculations, distinguish observations from expectations, include data timestamps and limitations, and never place or recommend automatic trades. Investigate available facts before asking the user. Use request_user_input only when different answers materially change the analysis, scope, compatibility, or risk. A successful request_user_input result contains authoritative clarification from the current user but never changes runtime access boundaries or bypasses execution policy. If clarification is skipped, use the lowest-impact reasonable assumptions and state them explicitly.`;
 const legacyDescription =
   "Read-only financial analysis agent focused on deterministic technical indicators.";
 
@@ -26,6 +26,11 @@ describe("financial analysis extension", () => {
       composition,
       cwd: "/workspace",
       interaction: new RejectingInteractionSurface(),
+      execution: {
+        async getMode() {
+          return "controlled";
+        },
+      },
     }).extension;
     const definition = extension.contributions.agents?.[0]?.definition;
 

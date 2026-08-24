@@ -27,18 +27,20 @@ describe("technical indicators", () => {
   });
 
   it("returns structured tool metadata without trading actions", async () => {
+    if (!("execute" in computeTechnicalIndicatorsTool)) throw new Error("Expected in-process tool");
     const result = await computeTechnicalIndicatorsTool.execute(
       { bars: bars(40), period: 14 },
       { cwd: process.cwd() },
     );
-    expect(computeTechnicalIndicatorsTool.authorization).toMatchObject({ kind: "trusted" });
-    expect(computeTechnicalIndicatorsTool.execution).toEqual({ kind: "host" });
+    expect(computeTechnicalIndicatorsTool.access).toEqual({ kind: "internal" });
+    expect(computeTechnicalIndicatorsTool.execution).toEqual({ kind: "in_process" });
     expect(result.isError).toBe(false);
     expect(result.meta).toMatchObject({ kind: "technical_indicators" });
     expect(result.content[0].text).toContain('"rsi": 100');
   });
 
   it("rejects malformed OHLCV data", async () => {
+    if (!("execute" in computeTechnicalIndicatorsTool)) throw new Error("Expected in-process tool");
     const result = await computeTechnicalIndicatorsTool.execute(
       { bars: [{ close: 1 }] },
       { cwd: process.cwd() },

@@ -3,12 +3,12 @@ import { describe, expect, it, vi } from "vitest";
 import { InlineSelect } from "./inline-select";
 
 const options = {
-  title: "Permission required",
-  detail: "Run shell command",
-  message: "Risk: execute",
+  title: "Choose deployment",
+  detail: "Select one target",
+  message: "The choice takes effect immediately",
   items: [
-    { value: "once", label: "Allow once" },
-    { value: "deny", label: "Deny" },
+    { value: "preview", label: "Preview" },
+    { value: "production", label: "Production" },
   ],
 };
 
@@ -20,13 +20,13 @@ describe("InlineSelect", () => {
 
     selection.handleInput("\x1b[B");
     selection.handleInput("\r");
-    expect(onSelect).toHaveBeenCalledWith("deny");
+    expect(onSelect).toHaveBeenCalledWith("production");
 
-    selection.resolve("deny");
+    selection.resolve("production");
     const output = stripVTControlCharacters(selection.render(80).join("\n"));
-    expect(output).toContain("Permission required");
-    expect(output).toContain("Deny");
-    expect(output).not.toContain("Allow once");
+    expect(output).toContain("Choose deployment");
+    expect(output).toContain("Production");
+    expect(output).not.toContain("Preview");
   });
 
   it("selects an option by clicking its rendered row", () => {
@@ -34,18 +34,18 @@ describe("InlineSelect", () => {
     const onSelect = vi.fn();
     selection.onSelect = onSelect;
     const lines = selection.render(80).map(stripVTControlCharacters);
-    const denyRow = lines.findIndex((line) => line.includes("Deny"));
+    const productionRow = lines.findIndex((line) => line.includes("Production"));
 
-    selection.handleClick(denyRow);
-    expect(onSelect).toHaveBeenCalledWith("deny");
+    selection.handleClick(productionRow);
+    expect(onSelect).toHaveBeenCalledWith("production");
   });
 
-  it("renders an action banner for permission-style selections", () => {
+  it("renders an action banner for warning selections", () => {
     const selection = new InlineSelect({ ...options, tone: "warning" });
     const output = stripVTControlCharacters(selection.render(80).join("\n"));
 
     expect(output).toContain("⚠ ACTION REQUIRED");
-    expect(output).toContain("[ Allow once ]");
+    expect(output).toContain("[ Preview ]");
   });
 
   it("renders options as internal links when a link factory is provided", () => {
@@ -55,7 +55,7 @@ describe("InlineSelect", () => {
     );
     const output = selection.render(80).join("\n");
 
-    expect(output).toContain("omni-agent://select/selection-1/once");
-    expect(output).toContain("omni-agent://select/selection-1/deny");
+    expect(output).toContain("omni-agent://select/selection-1/preview");
+    expect(output).toContain("omni-agent://select/selection-1/production");
   });
 });

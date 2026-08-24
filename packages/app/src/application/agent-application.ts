@@ -9,7 +9,8 @@ import {
   type ToolCallCoordinator,
   type ContextEnginePort,
   type ContextMiddlewarePort,
-  type PermissionMode,
+  type ExecutionMode,
+  type FilesystemCapabilityScope,
   type EnvironmentContextControllerPort,
   type SessionSnapshot,
 } from "@omni-agent/core";
@@ -18,7 +19,7 @@ import type { AgentSessionRepository } from "@omni-agent/core";
 import { ConfigService } from "../config/config-service";
 import { ExtensionManager } from "../extensions/extension-manager";
 import { ModelService, type ModelSelection } from "../models/model-service";
-import type { PermissionService } from "../permissions/permission-service";
+import type { ExecutionSettingsService } from "../execution-settings/execution-settings-service";
 import type { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
 import { NOOP_AGENT_RUN_OBSERVATION, type AgentRunObservationPort } from "./agent-run-observation";
 import type { AgentModule } from "../assembly/contracts";
@@ -63,7 +64,8 @@ export class AgentApplication {
   readonly agentId: string;
   readonly cwd: string;
   readonly modelService: ModelService;
-  readonly permissions: PermissionService;
+  readonly executionSettings: ExecutionSettingsService;
+  readonly workspaceId: string;
   private readonly configuration: AgentConfigurationController;
   private readonly contextStorage: ContextSessionStorage;
   private readonly environmentContext: EnvironmentContextControllerPort;
@@ -96,11 +98,14 @@ export class AgentApplication {
       modelService: dependencies.modelService,
       assemblyEvidence: dependencies.assemblyEvidence,
     });
-    this.permissions = dependencies.permissionService;
+    this.executionSettings = dependencies.executionSettings;
+    this.workspaceId = dependencies.workspaceId;
     this.runner = new AgentRunner(
       dependencies.modelService.runtime,
       dependencies.toolCallCoordinator,
       dependencies.agentId,
+      dependencies.workspaceId,
+      dependencies.cwd,
       dependencies.environmentContext,
       dependencies.contextEngine,
       dependencies.contextMiddleware,
@@ -216,24 +221,33 @@ export class AgentApplication {
     return this.configuration.modelSelection;
   }
 
-  getPermissionMode(): Promise<PermissionMode> {
-    return this.permissions.getMode(this.agentId);
+  getExecutionSettings() {
+    return this.executionSettings.getSettings(this.workspaceId, this.agentId);
   }
 
-  setPermissionMode(mode: PermissionMode): Promise<void> {
-    return this.permissions.setMode(this.agentId, mode);
+  async setExecutionMode(mode: ExecutionMode): Promise<void> {
+    await this.executionSettings.setMode(this.workspaceId, this.agentId, mode);
+    await this.refreshInstructions();
   }
 
-  listPersistentApprovals() {
-    return this.permissions.listPersistentApprovals(this.agentId);
+  setControlledNetworkEnabled(enabled: boolean): Promise<void> {
+    return this.executionSettings.setControlledNetworkEnabled(
+      this.workspaceId,
+      this.agentId,
+      enabled,
+    );
   }
 
-  revokePersistentApproval(id: string): Promise<void> {
-    return this.permissions.revokePersistentApproval(this.agentId, id);
+  revokeApprovedFilesystemRoot(root: FilesystemCapabilityScope) {
+    return this.executionSettings.revokeApprovedFilesystemRoot(
+      this.workspaceId,
+      this.agentId,
+      root,
+    );
   }
 
-  clearPersistentApprovals(): Promise<void> {
-    return this.permissions.clearPersistentApprovals(this.agentId);
+  clearApprovedFilesystemRoots(): Promise<void> {
+    return this.executionSettings.clearApprovedFilesystemRoots(this.workspaceId, this.agentId);
   }
 
   dispose(): Promise<void> {
@@ -307,7 +321,8 @@ export interface AgentApplicationDependencies {
   readonly modelService: ModelService;
   readonly modelSelection: ModelSelection;
   readonly configService: ConfigService;
-  readonly permissionService: PermissionService;
+  readonly executionSettings: ExecutionSettingsService;
+  readonly workspaceId: string;
   readonly toolCallCoordinator: ToolCallCoordinator;
   readonly contextEngine: ContextEnginePort;
   readonly contextMiddleware: readonly ContextMiddlewarePort[];

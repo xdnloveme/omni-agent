@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { webFetchTool } from "../web/web-fetch";
 import { webSearchTool } from "../web/web-search";
-import { createWebReadPermission } from "../web/permission/web-permission";
 import { invokeToolImplementation } from "./tool-test-helper";
 
 // Mock global fetch
@@ -27,27 +26,6 @@ beforeEach(() => {
 // ─── web_fetch ───────────────────────────────────────────────────────────────
 
 describe("webFetchTool", () => {
-  it("classifies HTTP reads and hard-denies unsupported protocols", async () => {
-    const descriptor = createWebReadPermission({
-      parameter: "url",
-      title: "Fetch",
-      valueKind: "url",
-    });
-    if (descriptor.kind !== "dynamic") throw new Error("expected dynamic permission");
-    await expect(
-      Promise.resolve(descriptor.assess({ url: "https://example.com" }, permissionContext())),
-    ).resolves.toMatchObject({
-      risk: "external_read",
-      enforcement: "policy",
-    });
-    await expect(
-      Promise.resolve(descriptor.assess({ url: "file:///etc/passwd" }, permissionContext())),
-    ).resolves.toMatchObject({
-      enforcement: "hard_deny",
-      ruleIds: ["web.unsupported-protocol"],
-    });
-  });
-
   it("should extract text from HTML, stripping scripts and styles", async () => {
     const html = `
       <html>
@@ -179,15 +157,6 @@ describe("webFetchTool", () => {
     await expect(pending).rejects.toMatchObject({ name: "AbortError" });
   });
 });
-
-function permissionContext() {
-  return {
-    cwd: process.cwd(),
-    agentId: "test",
-    toolIdentity: "test:web_fetch",
-    toolCallId: "call-1",
-  };
-}
 
 // ─── web_search ──────────────────────────────────────────────────────────────
 

@@ -43,7 +43,7 @@ const FILTER_OPTIONS = [
   ["models", "Models"],
   ["tools", "Tools"],
   ["context", "Context"],
-  ["authorization", "Authorization"],
+  ["access", "Access"],
   ["cache", "Cache"],
   ["slow", "Slow"],
   ["errors", "Errors"],
@@ -69,7 +69,7 @@ export function ExecutionToolbar({
     readonly models: number;
     readonly tools: number;
     readonly tokenUsage: number;
-    readonly authorizationMs: number;
+    readonly accessMs: number;
     readonly errors: number;
     readonly compactions: number;
     readonly cacheHitRate: number | null;
@@ -92,9 +92,7 @@ export function ExecutionToolbar({
     `${summary.tools} ${summary.tools === 1 ? "tool" : "tools"}`,
     `${formatCompactNumber(summary.tokenUsage)} tokens`,
     ...(summary.cacheHitRate === null ? [] : [`cache ${formatPercent(summary.cacheHitRate)}`]),
-    ...(summary.authorizationMs > 0
-      ? [`authorization ${formatDuration(summary.authorizationMs)}`]
-      : []),
+    ...(summary.accessMs > 0 ? [`access ${formatDuration(summary.accessMs)}`] : []),
     ...(summary.compactions > 0 ? [`${summary.compactions} compacted`] : []),
     ...(focusedLabel ? [`focused ${focusedLabel}`] : []),
     ...(summary.errors > 0 ? [`${summary.errors} errors`] : []),

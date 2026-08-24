@@ -5,11 +5,8 @@ import type { SkillRegistry } from "./registry";
 export function createSkillReadTool(registry: SkillRegistry): AgentToolDefinition {
   return {
     name: SKILL_TOOL_NAME,
-    authorization: {
-      kind: "trusted",
-      reason: "Reads instructions from the trusted skill registry",
-    },
-    execution: { kind: "host" },
+    access: { kind: "internal" },
+    execution: { kind: "in_process" },
     timeout: { kind: "none" },
     context: { retention: "conversation" },
     description:

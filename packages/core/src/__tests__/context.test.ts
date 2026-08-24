@@ -62,8 +62,8 @@ function tool(): RegisteredAgentTool {
     strict: true,
     originId: "test",
     toolIdentity: "test:inspect",
-    authorization: { kind: "static", risk: "read", reason: "test" },
-    execution: { kind: "host" },
+    access: { kind: "internal" },
+    execution: { kind: "in_process" },
     invocation: { action: "read", resource: { kind: "file", inputKey: "path" } },
     timeout: { kind: "none" },
     async execute() {

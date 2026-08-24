@@ -5,11 +5,8 @@ import { atr, ema, macd, rsi, sma } from "../indicators/calculations";
 export const computeTechnicalIndicatorsTool: AgentToolDefinition = {
   name: "financial_compute_technical_indicators",
   strict: true,
-  authorization: {
-    kind: "trusted",
-    reason: "Computes deterministic indicators from provided values",
-  },
-  execution: { kind: "host" },
+  access: { kind: "internal" },
+  execution: { kind: "in_process" },
   timeout: { kind: "none" },
   description:
     "Compute deterministic SMA, EMA, RSI, MACD, and ATR values from timestamped OHLCV bars.",

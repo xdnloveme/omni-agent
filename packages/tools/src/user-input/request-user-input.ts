@@ -17,15 +17,12 @@ export function createRequestUserInputTool(
   return {
     name: "request_user_input",
     description:
-      "Collect 1 to 3 structured decision answers from the current user using single-select, multi-select, or text fields. Every predefined option requires a stable id and non-empty user-visible label. Returns submitted answers or a skipped outcome. This tool does not grant authorization.",
+      "Collect 1 to 3 structured decision answers from the current user using single-select, multi-select, or text fields. Every predefined option requires a stable id and non-empty user-visible label. Returns submitted answers or a skipped outcome. This tool does not change runtime access boundaries.",
     strict: true,
     schema: requestUserInputSchema,
     preflight: createRequestUserInputPreflight(),
-    authorization: {
-      kind: "trusted",
-      reason: "Requests information from the current user without external side effects",
-    },
-    execution: { kind: "host" },
+    access: { kind: "internal" },
+    execution: { kind: "in_process" },
     timeout: { kind: "none" },
     scheduling: { batch: "turn_barrier" },
     context: { retention: "conversation" },

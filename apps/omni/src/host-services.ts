@@ -1,6 +1,6 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import type { CliHostServices } from "@omni-agent/cli";
+import { createProcessExecutionRuntime, type CliHostServices } from "@omni-agent/cli";
 import {
   confirmTerminalAction,
   createAgentConsole,
@@ -11,6 +11,13 @@ import { runTracePreview } from "./trace-preview";
 import type { ProcessTerminationPort } from "./process-signals";
 
 export function createCliHostServices(termination: ProcessTerminationPort): CliHostServices {
+  const hostRuntime = {
+    platform: process.platform,
+    path: process.env.PATH ?? "",
+    pathExt: process.env.PATHEXT,
+    home: homedir(),
+  };
+  const processExecution = createProcessExecutionRuntime(hostRuntime);
   return {
     runtime: {
       cwd: process.cwd(),
@@ -24,6 +31,9 @@ export function createCliHostServices(termination: ProcessTerminationPort): CliH
       stderr: (text) => process.stderr.write(text),
     },
     text: terminalTextPresentation,
+    processRouter: processExecution.router,
+    processPlanner: processExecution.planner,
+    hostRuntime: processExecution.hostRuntime,
     createAgentConsole(options) {
       const consoleView = createAgentConsole(options);
       const unsubscribe = termination.subscribe((result) => consoleView.terminate(result));

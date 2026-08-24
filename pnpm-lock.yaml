@@ -8,6 +8,9 @@ importers:
 
   .:
     devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.19.19
       esbuild:
         specifier: ^0.28.0
         version: 0.28.0
@@ -139,6 +142,9 @@ importers:
       '@omni-agent/core':
         specifier: workspace:*
         version: link:../core
+      '@omni-agent/tools':
+        specifier: workspace:*
+        version: link:../tools
     devDependencies:
       '@types/node':
         specifier: ^22.10.5
@@ -267,6 +273,9 @@ importers:
         specifier: ^4.12.3
         version: 4.12.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
     devDependencies:
+      '@types/node':
+        specifier: ^22.10.5
+        version: 22.19.19
       '@types/react':
         specifier: ^19.2.0
         version: 19.2.18

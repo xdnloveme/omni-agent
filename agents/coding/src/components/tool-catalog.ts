@@ -18,27 +18,32 @@ interface CodingToolDefinition {
 
 // Package-private Catalog: each Component's public facts and Factory are co-located.
 const toolDefinitions: readonly CodingToolDefinition[] = [
-  definition("coding.bash", "Shell", "Run shell commands in the active workspace.", bashTool),
+  definition(
+    "coding.bash",
+    "Shell",
+    "Run shell commands within the active execution boundary.",
+    bashTool,
+  ),
   definition(
     "coding.file-read",
     "Read file",
-    "Read bounded file content from the active workspace.",
+    "Read bounded file content within the active execution boundary.",
     fileReadTool,
   ),
   definition(
     "coding.file-edit",
     "Edit file",
-    "Apply explicit text edits to a workspace file.",
+    "Apply explicit text edits to an accessible file.",
     fileEditTool,
   ),
   definition(
     "coding.file-write",
     "Write file",
-    "Write complete content to a workspace file.",
+    "Write complete content to an accessible file.",
     fileWriteTool,
   ),
-  definition("coding.glob", "Discover files", "Find workspace files by glob pattern.", globTool),
-  definition("coding.grep", "Search files", "Search workspace file content.", grepTool),
+  definition("coding.glob", "Discover files", "Find accessible files by glob pattern.", globTool),
+  definition("coding.grep", "Search files", "Search accessible file content.", grepTool),
   definition(
     "research.web-fetch",
     "Fetch web resource",

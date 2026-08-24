@@ -36,8 +36,8 @@ describe("ToolDefinitionValidator", () => {
         timeout_ms: { type: "integer", minimum: 1_000, maximum: 10_000 },
       },
     },
-    authorization: { kind: "static", risk: "read", reason: "test" },
-    execution: { kind: "host" },
+    access: { kind: "internal" },
+    execution: { kind: "in_process" },
     timeout: {
       kind: "input",
       parameter: "timeout_ms",
@@ -91,23 +91,16 @@ describe("ToolDefinitionValidator", () => {
     );
   });
 
-  it("rejects a non-function dynamic authorization input binder", () => {
+  it("rejects a non-function dynamic access input binder", () => {
     const invalid = tool();
-    invalid.authorization = {
+    invalid.access = {
       kind: "dynamic",
       bindInput: "invalid",
-      assess: () => ({
-        risk: "read",
-        operationClass: "routine",
-        enforcement: "policy",
-        reasons: ["read"],
-        presentation: { title: "Read", reason: "read" },
-        ruleIds: [],
-      }),
+      assess: () => ({ resources: [] }),
     } as never;
 
     expect(() => new ToolDefinitionValidator().validate(invalid)).toThrow(
-      "Dynamic authorization input binder is invalid",
+      "Dynamic access input binder is invalid",
     );
   });
 });

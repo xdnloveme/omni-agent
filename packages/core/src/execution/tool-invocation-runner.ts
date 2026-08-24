@@ -2,33 +2,48 @@ import type { ToolExecutionMiddleware } from "../middleware";
 import type { ToolResult } from "../types";
 import { isAbortError, throwIfAborted } from "./abort";
 import {
-  ExecutionDeadlineSupervisor,
-  type ExecutionDeadlineSupervisorOptions,
-} from "./execution-deadline-supervisor";
+  OperationDeadlineSupervisor,
+  type OperationDeadlineSupervisorOptions,
+} from "./operation-deadline-supervisor";
 import { resolveToolTimeout } from "./timeout-policy";
 import { ToolTimeoutError } from "./tool-timeout-error";
 import type {
   AuthorizedExecutionContext,
   AuthorizedToolCall,
-  SandboxRunnerPort,
+  ProcessExecutionRouterPort,
   ToolInvocationResult,
 } from "./types";
+import { isInProcessTool } from "../types";
 import {
   NOOP_RUNTIME_EXECUTION_OBSERVATION,
   type RuntimeExecutionObservation,
 } from "../runtime-observation";
 
-export type { LateToolSettlementEvent } from "./execution-deadline-supervisor";
+export interface LateToolSettlementEvent {
+  toolName: string;
+  outcome: "fulfilled" | "rejected";
+  error?: unknown;
+}
 
-export interface ToolInvocationRunnerOptions extends ExecutionDeadlineSupervisorOptions {
-  sandboxRunner?: SandboxRunnerPort;
+export interface ToolInvocationRunnerOptions {
+  processRouter: ProcessExecutionRouterPort;
+  cleanupGraceMs?: OperationDeadlineSupervisorOptions["cleanupGraceMs"];
+  onLateSettlement?: (event: LateToolSettlementEvent) => void | Promise<void>;
 }
 
 export class ToolInvocationRunner {
-  private readonly deadlineSupervisor: ExecutionDeadlineSupervisor;
+  private readonly deadlineSupervisor: OperationDeadlineSupervisor;
 
-  constructor(private readonly options: ToolInvocationRunnerOptions = {}) {
-    this.deadlineSupervisor = new ExecutionDeadlineSupervisor(options);
+  constructor(private readonly options: ToolInvocationRunnerOptions) {
+    this.deadlineSupervisor = new OperationDeadlineSupervisor({
+      cleanupGraceMs: options.cleanupGraceMs,
+      onLateSettlement: (event) =>
+        options.onLateSettlement?.({
+          toolName: event.operationName,
+          outcome: event.outcome,
+          ...(event.error === undefined ? {} : { error: event.error }),
+        }),
+    });
   }
 
   async invoke(
@@ -64,10 +79,7 @@ export class ToolInvocationRunner {
         observation.cancel({ error });
         throw error;
       }
-      const result =
-        error instanceof ToolTimeoutError
-          ? timeoutResult(error)
-          : toolError(error instanceof Error ? error.message : String(error));
+      const result = error instanceof ToolTimeoutError ? timeoutResult(error) : toolError(error);
       const executionMs = Date.now() - executionStartedAt;
       const fact = {
         toolName: call.tool.name,
@@ -84,25 +96,25 @@ export class ToolInvocationRunner {
   private async executeAuthorized(call: AuthorizedToolCall): Promise<ToolResult> {
     const timeoutMs = resolveToolTimeout(call.tool.timeout, call.input);
     return this.deadlineSupervisor.run({
-      toolName: call.tool.name,
+      operationName: call.tool.name,
       timeoutMs,
       externalSignal: call.context.signal,
+      createTimeoutError: (duration) => new ToolTimeoutError(duration),
       execute: (signal) => this.startExecution(call, signal),
     });
   }
 
   private startExecution(call: AuthorizedToolCall, signal: AbortSignal): Promise<ToolResult> {
-    const request = {
-      tool: call.tool,
-      input: call.input,
-      context: { cwd: call.context.cwd, signal },
-    };
-    return call.tool.execution.kind === "sandbox_eligible" && this.options.sandboxRunner
-      ? this.options.sandboxRunner.run({
-          ...request,
-          profile: call.tool.execution.profile,
-        })
-      : call.tool.execute(request.input, request.context);
+    const context = { cwd: call.context.cwd, signal };
+    const tool = call.tool;
+    if (isInProcessTool(tool)) {
+      return tool.execute(call.input, context);
+    }
+    const process = call.executionPlan.process;
+    if (!process) throw new Error("Authorized Process Tool is missing its execution plan");
+    return this.options.processRouter
+      .run(process, signal)
+      .then((result) => tool.createToolResult(result, call.input, context));
   }
 }
 
@@ -114,6 +126,15 @@ function timeoutResult(error: ToolTimeoutError): ToolResult {
   };
 }
 
-function toolError(message: string): ToolResult {
-  return { content: [{ type: "text", text: message }], isError: true };
+function toolError(error: unknown): ToolResult {
+  const message = error instanceof Error ? error.message : String(error);
+  const code =
+    error && typeof error === "object" && "code" in error && typeof error.code === "string"
+      ? error.code
+      : undefined;
+  return {
+    content: [{ type: "text", text: message }],
+    isError: true,
+    ...(code ? { meta: { code, retryable: false } } : {}),
+  };
 }

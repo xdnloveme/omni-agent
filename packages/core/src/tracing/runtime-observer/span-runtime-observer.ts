@@ -1,5 +1,5 @@
 import type {
-  RuntimeAuthorizationObservation,
+  RuntimeAccessObservation,
   RuntimeContextObservation,
   RuntimeExecutionObservation,
   RuntimeModelCallObservation,
@@ -12,7 +12,7 @@ import type {
   RuntimeTurnObservation,
 } from "../../runtime-observation";
 import {
-  NOOP_RUNTIME_AUTHORIZATION_OBSERVATION,
+  NOOP_RUNTIME_ACCESS_OBSERVATION,
   NOOP_RUNTIME_CONTEXT_OBSERVATION,
   NOOP_RUNTIME_EXECUTION_OBSERVATION,
   NOOP_RUNTIME_MODEL_CALL_OBSERVATION,
@@ -222,7 +222,7 @@ export class SpanRuntimeObserver implements RuntimeObserverPort {
         return {
           run: (operation) => span.run(operation),
           startPreflight: (preflight) => span.run(() => this.preflight(preflight)),
-          startAuthorization: (authorization) => span.run(() => this.authorization(authorization)),
+          startAccess: (access) => span.run(() => this.access(access)),
           startExecution: (execution) => span.run(() => this.execution(execution)),
           result() {},
           complete: (completed) =>
@@ -265,17 +265,17 @@ export class SpanRuntimeObserver implements RuntimeObserverPort {
     );
   }
 
-  private authorization(
-    fact: Parameters<RuntimeToolCallObservation["startAuthorization"]>[0],
-  ): RuntimeAuthorizationObservation {
+  private access(
+    fact: Parameters<RuntimeToolCallObservation["startAccess"]>[0],
+  ): RuntimeAccessObservation {
     return this.safe(
-      "start_authorization",
+      "start_access",
       () => {
-        const span = this.tracer.startSpan(RuntimeSpanName.toolAuthorization, {
+        const span = this.tracer.startSpan(RuntimeSpanName.toolAccess, {
           "agent.tool.name": fact.toolName,
           "agent.tool.call.id": fact.toolCallId,
         });
-        const terminal = new RuntimeObservationTerminal("span.authorization", this.diagnostic);
+        const terminal = new RuntimeObservationTerminal("span.access", this.diagnostic);
         return {
           run: (operation) => span.run(operation),
           complete: (completed) => terminal.finish("complete", () => completeSpan(span, "ok")),
@@ -285,7 +285,7 @@ export class SpanRuntimeObserver implements RuntimeObserverPort {
             terminal.finish("cancel", () => failSpan(span, cancelled.error, "cancelled")),
         };
       },
-      NOOP_RUNTIME_AUTHORIZATION_OBSERVATION,
+      NOOP_RUNTIME_ACCESS_OBSERVATION,
     );
   }
 

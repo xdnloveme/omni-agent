@@ -25,8 +25,8 @@ const components: readonly ToolComponent[] = [
         properties: { text: { type: "string" } },
       },
       timeout: { kind: "none" },
-      authorization: { kind: "trusted", reason: "Pure in-memory transformation" },
-      execution: { kind: "host" },
+      access: { kind: "internal" },
+      execution: { kind: "in_process" },
       async execute(input) {
         return {
           content: [{ type: "text", text: String(input.text) }],

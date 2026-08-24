@@ -117,8 +117,8 @@ function kindBelongsToSpan(spanName: string, kind: string): boolean {
       );
     case "agent.tool.preflight":
       return kind.startsWith("tool.preflight.");
-    case "agent.tool.authorization":
-      return kind.startsWith("tool.authorization.");
+    case "agent.tool.access":
+      return kind.startsWith("tool.access.");
     case "agent.tool.execution":
       return kind.startsWith("tool.execution.");
     case "agent.environment.capture":

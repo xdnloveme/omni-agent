@@ -22,7 +22,7 @@ export interface GrepFileMatches {
   matches: readonly GrepMatch[];
 }
 
-export interface GrepResultMeta {
+export interface GrepResultMeta extends Record<string, unknown> {
   files: readonly GrepFileMatches[];
   returnedMatches: number;
   totalMatches?: number;

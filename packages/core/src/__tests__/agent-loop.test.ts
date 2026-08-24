@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import type { TranscriptMessage } from "../messages";
 import type { AgentConfig, AgentEvent, RegisteredAgentTool } from "../types";
+import { ToolAccessController } from "../access";
 import type { ModelRuntimePort } from "../models";
 import { runAgentLoop } from "../agent-loop";
 import {
@@ -10,8 +11,7 @@ import {
   SkillReadStatus,
 } from "../skills";
 import type { ToolLifecycleAdapter } from "../tool-lifecycle";
-import { PermissionGate } from "../permissions";
-import { ToolAuthorizationRouter, ToolCallCoordinator, ToolInputValidator } from "../tool-calls";
+import { ToolCallCoordinator, ToolInputValidator } from "../tool-calls";
 import { ToolInvocationRunner } from "../execution";
 import {
   DefaultContextEngine,
@@ -46,13 +46,15 @@ const TEST_ENVIRONMENT: EnvironmentContextRecord = {
   snapshot: TEST_ENVIRONMENT_SNAPSHOT,
 };
 
-function makeTool(name = "test_tool"): RegisteredAgentTool {
+type TestTool = Extract<RegisteredAgentTool, { execution: { kind: "in_process" } }>;
+
+function makeTool(name = "test_tool"): TestTool {
   return {
     name,
     originId: "test",
     toolIdentity: `test:${name}`,
-    authorization: { kind: "static", risk: "read", reason: "test" },
-    execution: { kind: "host" },
+    access: { kind: "internal" },
+    execution: { kind: "in_process" },
     invocation: { action: "execute", resource: { kind: "command", inputKey: "input" } },
     timeout: { kind: "none" },
     description: "A test tool",
@@ -111,6 +113,8 @@ function executeLoop(
     contextMiddleware,
     modelRuntime,
     agentId: "test",
+    workspaceId: "test-workspace",
+    workspaceRoot: process.cwd(),
     environmentContext,
     toolCallCoordinator: coordinator,
     observation,
@@ -136,26 +140,39 @@ function createContextEngine(): ContextEnginePort {
 
 function createCoordinator() {
   const inputValidator = new ToolInputValidator();
-  const permissionGate = new PermissionGate({
-    policy: { evaluate: () => ({ outcome: "allow", reason: "test" }) },
-    grants: {
-      async getMode() {
-        return "standard";
+  const accessController = new ToolAccessController({
+    settings: {
+      async getSettings() {
+        return {
+          mode: "controlled",
+          controlledNetworkEnabled: false,
+          approvedFilesystemRoots: [],
+        };
       },
-      async getGrantedScopeKeys() {
-        return [];
-      },
-      async saveGrants() {},
+      async enableControlledNetwork() {},
+      async addApprovedFilesystemRoots() {},
     },
-    broker: {
+    consent: {
       async request() {
         return "deny";
       },
     },
   });
   return new ToolCallCoordinator({
-    authorizer: new ToolAuthorizationRouter(permissionGate, inputValidator),
-    invocationRunner: new ToolInvocationRunner(),
+    accessController,
+    processPlanner: {
+      async prepare() {
+        throw new Error("unexpected process tool");
+      },
+    },
+    hostRuntime: { platform: "linux", home: "/home/test" },
+    invocationRunner: new ToolInvocationRunner({
+      processRouter: {
+        async run() {
+          throw new Error("unexpected process tool");
+        },
+      },
+    }),
     inputValidator,
   });
 }
@@ -637,7 +654,7 @@ describe("runAgentLoop", () => {
     }
   });
 
-  it("executes only the first turn barrier and defers every sibling before authorization", async () => {
+  it("executes only the first turn barrier and defers every sibling before access evaluation", async () => {
     const before = makeTool("before");
     const barrier = { ...makeTool("clarify"), scheduling: { batch: "turn_barrier" as const } };
     const secondBarrier = {
@@ -753,6 +770,8 @@ describe("runAgentLoop", () => {
         contextMiddleware: [],
         modelRuntime,
         agentId: "test",
+        workspaceId: "test-workspace",
+        workspaceRoot: "/workspace/project",
         environmentContext,
         toolCallCoordinator: createCoordinator(),
       }),

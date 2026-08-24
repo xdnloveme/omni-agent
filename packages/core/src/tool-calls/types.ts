@@ -12,6 +12,8 @@ export interface ToolCallRequest {
 
 export interface ToolCallEnvironment {
   agentId: string;
+  workspaceId: string;
+  workspaceRoot: string;
   batchId?: string;
   cwd: string;
   middleware: readonly ToolExecutionMiddleware[];
@@ -19,7 +21,7 @@ export interface ToolCallEnvironment {
 }
 
 export interface ToolCallMetrics {
-  authorizationMs: number;
+  accessMs: number;
   executionMs: number;
   totalMs: number;
 }

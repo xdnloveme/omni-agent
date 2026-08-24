@@ -1,5 +1,5 @@
 import type {
-  RuntimeAuthorizationObservation,
+  RuntimeAccessObservation,
   RuntimeContextObservation,
   RuntimeExecutionObservation,
   RuntimeModelCallObservation,
@@ -43,7 +43,7 @@ export const NOOP_RUNTIME_PREFLIGHT_OBSERVATION: RuntimePreflightObservation = {
   ...NOOP_RUNTIME_OPERATION_OBSERVATION,
 };
 
-export const NOOP_RUNTIME_AUTHORIZATION_OBSERVATION: RuntimeAuthorizationObservation = {
+export const NOOP_RUNTIME_ACCESS_OBSERVATION: RuntimeAccessObservation = {
   ...scope,
   complete() {},
   deny() {},
@@ -62,7 +62,7 @@ export const NOOP_RUNTIME_EXECUTION_OBSERVATION: RuntimeExecutionObservation = {
 export const NOOP_RUNTIME_TOOL_CALL_OBSERVATION: RuntimeToolCallObservation = {
   ...scope,
   startPreflight: () => NOOP_RUNTIME_PREFLIGHT_OBSERVATION,
-  startAuthorization: () => NOOP_RUNTIME_AUTHORIZATION_OBSERVATION,
+  startAccess: () => NOOP_RUNTIME_ACCESS_OBSERVATION,
   startExecution: () => NOOP_RUNTIME_EXECUTION_OBSERVATION,
   result() {},
   complete() {},

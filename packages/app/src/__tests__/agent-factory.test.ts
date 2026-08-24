@@ -150,6 +150,22 @@ async function factory(
     configService,
     host: {
       interactionSurface: options.interactionSurface ?? new RejectingInteractionSurface(),
+      accessConsentBroker: {
+        async request() {
+          return "deny";
+        },
+      },
+      processRouter: {
+        async run() {
+          throw new Error("unexpected process tool");
+        },
+      },
+      processPlanner: {
+        async prepare() {
+          throw new Error("unexpected process tool");
+        },
+      },
+      hostRuntime: { platform: "linux", home: globalDirectory },
       reservedCommandNames: [],
     },
     extensionSourceLoader: options.extensionSourceLoader,
@@ -165,8 +181,8 @@ function portableExtension(): AgentExtension {
           name: "portable_tool",
           description: "portable",
           schema: { type: "object" },
-          authorization: { kind: "static", risk: "read", reason: "test" },
-          execution: { kind: "host" },
+          access: { kind: "internal" },
+          execution: { kind: "in_process" },
           timeout: { kind: "none" },
           async execute() {
             return { content: [{ type: "text" as const, text: "ok" }], isError: false };

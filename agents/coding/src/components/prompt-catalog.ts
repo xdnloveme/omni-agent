@@ -2,6 +2,7 @@ import {
   agentsMdContributor,
   composeStableSystemPrompt,
   createSkillsContributor,
+  type ExecutionMode,
   type SkillRuntime,
   type SystemPromptContributor,
 } from "@omni-agent/core";
@@ -54,6 +55,15 @@ const promptContributors: readonly PromptContributorDefinition[] = [
   },
 ];
 
+const EXECUTION_MODE_GUIDANCE: Readonly<Record<ExecutionMode, string>> = {
+  controlled:
+    "Operate within the workspace by default. Use file and search tools directly for external paths; the runtime derives the smallest useful access scope and may ask the user to add it to this workspace's controlled boundary. For Bash, declare every filesystem path outside the workspace or its approved boundary in sandbox_scope, including a bounded exact or subtree scope for dynamically determined paths, and declare network needs there. You may request access, but only the user can approve it. Do not attempt to bypass filesystem boundaries through temporary paths, symlinks, or shell wrappers.",
+  autonomous:
+    "You may request external access per Bash call through sandbox_scope. Declare the smallest useful read/write paths, set network=true for network operations, use exact scope for sensitive reads, and never request credential writes or exfiltration.",
+  unrestricted:
+    "Commands run directly on the host without sandbox access restrictions. Runtime schema validation, timeout, cancellation, output limits, and domain validation still apply. Avoid destructive or unrelated host changes unless the user's request clearly requires them.",
+};
+
 export const codingPromptProfileDescriptors = promptProfiles.map(({ descriptor }) => descriptor);
 export const codingPromptContributorDescriptors = promptContributors.map(
   ({ descriptor }) => descriptor,
@@ -64,6 +74,7 @@ export function createCodingSystemPrompt(
   contributorIds: readonly string[],
   cwd: string,
   skills: SkillRuntime | undefined,
+  getExecutionMode: () => Promise<ExecutionMode>,
 ): () => Promise<string> {
   const profile = promptProfiles.find(({ descriptor }) => descriptor.id === profileId);
   if (!profile) throw new Error(`Coding Prompt profile implementation is missing: ${profileId}`);
@@ -74,6 +85,13 @@ export function createCodingSystemPrompt(
   });
   return async () => {
     const dynamic = await Promise.all(contributors.map((contributor) => contributor(cwd)));
-    return composeStableSystemPrompt(profile.content, dynamic);
+    return composeStableSystemPrompt(profile.content, [
+      executionModePrompt(await getExecutionMode()),
+      ...dynamic,
+    ]);
   };
+}
+
+function executionModePrompt(mode: ExecutionMode): string {
+  return `# Execution Mode\n\nCurrent mode: ${mode}. ${EXECUTION_MODE_GUIDANCE[mode]}`;
 }

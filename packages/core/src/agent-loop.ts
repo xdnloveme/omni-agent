@@ -37,6 +37,8 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
       maxTurns,
       lastUsage,
       agentId: input.agentId,
+      workspaceId: input.workspaceId,
+      workspaceRoot: input.workspaceRoot,
       config: input.config,
       conversation,
       environmentContext: input.environmentContext,

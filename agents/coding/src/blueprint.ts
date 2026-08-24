@@ -34,6 +34,7 @@ export const agentBlueprint = {
       context.composition.prompt.contributorIds,
       context.cwd,
       skills,
+      context.execution.getMode,
     );
     const tools = createCodingTools(
       context.composition.tools.componentIds,

@@ -95,6 +95,14 @@ export function sanitizeTracePayload(value: unknown, hiddenKeys: readonly string
   });
 }
 
+export function formatSanitizedToolInput(
+  input: Record<string, unknown>,
+  hiddenKeys: readonly string[] = [],
+): string {
+  const rendered = JSON.stringify(sanitizeSensitiveValue(input, hiddenKeys));
+  return sanitizeSensitiveText(rendered, DEFAULT_MAX_STRING_LENGTH);
+}
+
 function redact(value: string): string {
   return value
     .replace(

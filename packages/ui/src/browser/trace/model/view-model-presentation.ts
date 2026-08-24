@@ -15,7 +15,7 @@ const SPAN_PRESENTATION: Readonly<
   "agent.tool.batch": { label: "Tool batch", kind: "batch" },
   "agent.tool.call": { label: "Tool call", kind: "tool" },
   "agent.tool.preflight": { label: "Preflight", kind: "guard" },
-  "agent.tool.authorization": { label: "Authorization", kind: "guard" },
+  "agent.tool.access": { label: "Access", kind: "guard" },
   "agent.tool.execution": { label: "Execution", kind: "execution" },
   "agent.finish": { label: "Finish", kind: "finish" },
   "context.compaction": { label: "Context compacted", kind: "compaction" },

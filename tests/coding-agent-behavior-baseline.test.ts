@@ -36,6 +36,11 @@ describe("Coding Agent M0 behavior baseline", () => {
       composition,
       cwd,
       interaction: new RejectingInteractionSurface(),
+      execution: {
+        async getMode() {
+          return "controlled";
+        },
+      },
     });
     const contribution = module.extension.contributions.agents?.[0];
     if (!contribution) throw new Error("Coding Agent contribution is missing");
