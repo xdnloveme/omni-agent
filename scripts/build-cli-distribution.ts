@@ -1,4 +1,4 @@
-import { readFile, mkdir, rm, writeFile, copyFile } from "node:fs/promises";
+import { readFile, mkdir, rm, writeFile, copyFile, chmod } from "node:fs/promises";
 import { spawn } from "node:child_process";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -89,6 +89,7 @@ export async function buildCliDistribution(): Promise<{
   );
   await copyFile(join(repositoryRoot, "README.md"), join(outputDirectory, "README.md"));
   await copyFile(join(repositoryRoot, "LICENSE"), join(outputDirectory, "LICENSE"));
+  await buildSandboxBinary(binDirectory);
   await buildBrowserAssets(join(binDirectory, "assets"));
 
   const textOutputs = Object.keys(result.metafile.outputs)
@@ -103,6 +104,44 @@ export async function buildCliDistribution(): Promise<{
     }
   }
   return { outputDirectory, version: cliPackage.version };
+}
+
+async function buildSandboxBinary(binDirectory: string): Promise<void> {
+  if (process.platform !== "darwin") {
+    throw new Error("The formal Omni sandbox distribution currently supports macOS only");
+  }
+  const cargo =
+    process.env.CARGO ??
+    (process.env.HOME ? join(process.env.HOME, ".cargo", "bin", "cargo") : "cargo");
+  for (const target of [
+    { rust: "aarch64-apple-darwin", node: "arm64" },
+    { rust: "x86_64-apple-darwin", node: "x64" },
+  ]) {
+    await runCommand(join(repositoryRoot, "sandbox"), cargo, [
+      "build",
+      "--release",
+      "--target",
+      target.rust,
+    ]);
+    const destination = join(binDirectory, "sandbox", `darwin-${target.node}`);
+    await mkdir(destination, { recursive: true });
+    await copyFile(
+      join(repositoryRoot, "sandbox", "target", target.rust, "release", "omni-sandbox"),
+      join(destination, "omni-sandbox"),
+    );
+    await chmod(join(destination, "omni-sandbox"), 0o755);
+  }
+}
+
+async function runCommand(cwd: string, command: string, args: readonly string[]): Promise<void> {
+  await new Promise<void>((resolvePromise, reject) => {
+    const child = spawn(command, args, { cwd, stdio: "inherit" });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) resolvePromise();
+      else reject(new Error(`${command} failed (${signal ?? code})`));
+    });
+  });
 }
 
 export async function loadBuiltinAgentMetadata(): Promise<{

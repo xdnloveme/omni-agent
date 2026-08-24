@@ -108,6 +108,7 @@ Thumbs.db
 .nuxt
 dist
 artifacts/
+/sandbox/target/
 
 # Gatsby files
 .cache/

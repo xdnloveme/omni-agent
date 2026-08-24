@@ -1,0 +1,9 @@
+[package]
+name = "omni-sandbox"
+version = "0.0.1"
+edition = "2021"
+license = "MIT"
+rust-version = "1.85"
+
+[dependencies]
+libc = "0.2"
