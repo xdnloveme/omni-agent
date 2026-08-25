@@ -109,6 +109,7 @@ Thumbs.db
 dist
 artifacts/
 /sandbox/target/
+/apps/omni-game/.godot/
 
 # Gatsby files
 .cache/

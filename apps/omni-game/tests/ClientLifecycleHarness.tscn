@@ -1,0 +1,10 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://tests/client_lifecycle_harness.gd" id="1_harness"]
+[ext_resource type="Script" path="res://src/client/agent_host_client.gd" id="2_client"]
+
+[node name="ClientLifecycleHarness" type="Node"]
+script = ExtResource("1_harness")
+
+[node name="AgentHostClient" type="Node" parent="."]
+script = ExtResource("2_client")

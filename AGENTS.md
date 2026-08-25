@@ -22,6 +22,7 @@ packages/tools  Domain-neutral filesystem, shell, search, and web tools
 packages/ui     Interaction hosts, views, presentation models, and input handling
 packages/cli    Commands and Agent use-case orchestration
 apps/omni       Binary entry, process lifecycle, and composition root
+apps/omni-game  Godot character, Session, task interaction, and presentation
 agents/*        Independently packaged business agents
 ```
 
@@ -36,6 +37,7 @@ agents/* -> app, core, tools
 ui -> app, core
 cli -> app, core, tools, agents/*
 apps/omni -> agent-host, app, core, tools, cli, ui
+apps/omni-game -> WebSocket Protocol v1 only
 ```
 
 Do not introduce reverse dependencies. `core` and `app` must never import a
@@ -47,6 +49,8 @@ See `docs/agent-service.md` for the Host-neutral Agent discovery, Session, Run,
 failure-projection, and lifecycle contract.
 See `docs/agent-host.md` for the loopback WebSocket protocol, authentication,
 transport cancellation, and process contract.
+See `docs/godot-agent-host-client.md` for the concrete Godot client, Session
+interaction, and development process lifecycle.
 See `docs/tool-call-runtime.md` for the authoritative Tool access, execution,
 cancellation, and sandbox-boundary contract.
 
@@ -69,6 +73,9 @@ cancellation, and sandbox-boundary contract.
 - Keep browser and terminal rendering, view interaction, input handling, and presentation
   lifecycle in `packages/ui`; keep Agent and onboarding workflow orchestration in `packages/cli`;
   keep composition and process lifecycle in `apps/omni`.
+- Keep Godot Socket and Protocol v1 behavior in `AgentHostClient`, game interaction state in
+  `CharacterWorkspaceController`, and Godot presentation in scene UI. Do not add a Gateway or
+  backend Port until a second real backend demonstrates the boundary.
 - Prefer composition and declarative definitions over `BaseAgent` inheritance.
 - Do not add a framework abstraction until at least two real consumers require
   it or it removes meaningful existing complexity.
