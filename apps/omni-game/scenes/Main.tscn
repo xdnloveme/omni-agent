@@ -1,0 +1,54 @@
+[gd_scene load_steps=6 format=3]
+
+[ext_resource type="Script" path="res://src/bootstrap/game_root.gd" id="1_root"]
+[ext_resource type="Script" path="res://src/client/agent_host_client.gd" id="2_client"]
+[ext_resource type="Script" path="res://src/features/character_workspace_controller.gd" id="3_controller"]
+[ext_resource type="PackedScene" path="res://scenes/CharacterSelectionPanel.tscn" id="4_characters"]
+[ext_resource type="PackedScene" path="res://scenes/TaskPanel.tscn" id="5_task"]
+
+[node name="Main" type="Node"]
+script = ExtResource("1_root")
+
+[node name="AgentHostClient" type="Node" parent="."]
+script = ExtResource("2_client")
+
+[node name="CharacterWorkspaceController" type="Node" parent="."]
+script = ExtResource("3_controller")
+
+[node name="Background" type="ColorRect" parent="."]
+offset_right = 1440.0
+offset_bottom = 900.0
+color = Color(0.055, 0.067, 0.082, 1)
+
+[node name="Layout" type="MarginContainer" parent="."]
+offset_right = 1440.0
+offset_bottom = 900.0
+theme_override_constants/margin_left = 48
+theme_override_constants/margin_top = 32
+theme_override_constants/margin_right = 48
+theme_override_constants/margin_bottom = 38
+
+[node name="Content" type="VBoxContainer" parent="Layout"]
+theme_override_constants/separation = 18
+
+[node name="TopBar" type="HBoxContainer" parent="Layout/Content"]
+
+[node name="GameTitle" type="Label" parent="Layout/Content/TopBar"]
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 34
+text = "Omni Agent Workshop"
+
+[node name="ConnectionStatus" type="Label" parent="Layout/Content/TopBar"]
+unique_name_in_owner = true
+text = "准备连接……"
+
+[node name="CharacterSelectionPanel" parent="Layout/Content" instance=ExtResource("4_characters")]
+unique_name_in_owner = true
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="TaskPanel" parent="Layout/Content" instance=ExtResource("5_task")]
+unique_name_in_owner = true
+visible = false
+size_flags_horizontal = 3
+size_flags_vertical = 3

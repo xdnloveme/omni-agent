@@ -11,6 +11,7 @@ packages/tools  Domain-neutral tool implementations
 packages/ui     User interaction and presentation surfaces
 packages/cli    Commands and Agent use-case orchestration
 apps/omni       Binary entry and composition root
+apps/omni-game  Godot character, Session, and task UI
 agents/*        Independently packaged business agents
 ```
 
@@ -25,6 +26,7 @@ agents/* -> app, core, tools
 ui -> app, core
 cli -> app, core, tools, agents/*
 apps/omni -> agent-host, app, core, tools, cli, ui
+apps/omni-game -> WebSocket Protocol v1 only
 ```
 
 Core and app must not import a concrete agent. Agent packages must not import the
@@ -40,6 +42,18 @@ validation, request correlation, bounded writes, heartbeat, and connection-creat
 `AgentServicePort` is its only business interface. Catalog, Factory, Session, model, Tool, and
 concrete Agent dependencies remain outside the package. `apps/omni` is the process owner that
 composes those dependencies for the standalone `omni-host` entry.
+
+`apps/omni-game` is a separate Godot application. Its concrete `AgentHostClient` connects directly
+to Protocol v1 and owns only Socket, authentication, strict response parsing, request correlation,
+and transport shutdown. `CharacterWorkspaceController` owns character, Session transition,
+foreground Run, transcript, and screen state. Godot UI scenes depend on that Controller and never
+access WebSocket or JSON. The game imports no Workspace package and does not create a Gateway Port,
+Agent runtime, Session repository, or Tool path.
+
+`apps/omni/src/game/GameBootstrap` is the parent process owner for development. It generates the
+ephemeral Token, starts `omni-host` with the developer's original working directory, then starts the
+pinned Godot project. Godot's project path never changes the Host Workspace. Bootstrap owns process
+cleanup but has no access to `AgentServicePort`.
 
 ## Process and interaction lifecycle
 
@@ -398,6 +412,8 @@ ownership remain outside this boundary.
 
 The application contract is summarized in [`agent-service.md`](agent-service.md); the WebSocket
 transport and companion-process contract are in [`agent-host.md`](agent-host.md).
+The concrete Godot client and process handoff are in
+[`godot-agent-host-client.md`](godot-agent-host-client.md).
 
 ## Host interaction surface
 
