@@ -25,9 +25,9 @@ Host composition root
 - A Host owns injected Catalog, Factory dependencies, model/configuration services, process
   resources, transport validation, and shutdown order.
 
-`packages/app` does not import the CLI, UI, or a concrete Agent. A future Godot, WebSocket, or IM
-Host adapts `AgentServicePort`; it does not add another package loader, Factory, Runner, Tool, or
-Session path.
+`packages/app` does not import the CLI, UI, transport, or a concrete Agent.
+`packages/agent-host` is the concrete WebSocket Protocol v1 adapter and calls only
+`AgentServicePort`; it does not add another package loader, Factory, Runner, Tool, or Session path.
 
 ## Availability and loading
 
@@ -111,9 +111,9 @@ orchestration facts and are not part of v1 Trace. If a real Host requires them, 
 App-owned Service observation port and explicit request-to-Run correlation; do not make the Service
 depend on the local Trace store or concrete tracer.
 
-## V1 exclusions
+## Service exclusions
 
-V1 does not include a transport, Godot integration, IM integration, dynamic Agent registration,
-package scanning, hot reload, instance LRU, multi-process Session ownership, or CLI migration to
-the Service. Those features extend the Host or Catalog boundary without changing the current Agent,
-Tool, Session, or execution chains.
+The Service itself does not include a transport, Godot integration, IM integration, dynamic Agent
+registration, package scanning, hot reload, instance LRU, multi-process Session ownership, or CLI
+migration. WebSocket v1 lives in `packages/agent-host`; those exclusions can extend the Host or
+Catalog boundary without changing the current Agent, Tool, Session, or execution chains.

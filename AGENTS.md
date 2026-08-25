@@ -17,6 +17,7 @@ extensions without coupling the runtime kernel to a product domain.
 packages/core   Agent execution kernel and stable runtime ports
 packages/models Model runtime, vendor plugins, catalogs, and credentials
 packages/app    Agent package Catalog, Host-neutral Service, lifecycle, extensions, and sessions
+packages/agent-host WebSocket Protocol v1 adapter for AgentServicePort
 packages/tools  Domain-neutral filesystem, shell, search, and web tools
 packages/ui     Interaction hosts, views, presentation models, and input handling
 packages/cli    Commands and Agent use-case orchestration
@@ -30,10 +31,11 @@ Allowed workspace dependency direction:
 tools -> core
 models -> core
 app -> core, models
+agent-host -> app
 agents/* -> app, core, tools
 ui -> app, core
 cli -> app, core, tools, agents/*
-apps/omni -> app, cli, ui
+apps/omni -> agent-host, app, core, tools, cli, ui
 ```
 
 Do not introduce reverse dependencies. `core` and `app` must never import a
@@ -43,6 +45,8 @@ Concrete agents are registered explicitly through `AgentExtension`.
 See `docs/architecture.md` for the detailed architecture contract.
 See `docs/agent-service.md` for the Host-neutral Agent discovery, Session, Run,
 failure-projection, and lifecycle contract.
+See `docs/agent-host.md` for the loopback WebSocket protocol, authentication,
+transport cancellation, and process contract.
 See `docs/tool-call-runtime.md` for the authoritative Tool access, execution,
 cancellation, and sandbox-boundary contract.
 
@@ -55,6 +59,9 @@ cancellation, and sandbox-boundary contract.
 - Put Agent package Catalog behavior, Host-neutral Agent Service orchestration,
   agent/tool/command registration, extension loading, application lifecycle,
   sessions, and configuration in `packages/app`.
+- Put only WebSocket connection, Protocol v1 validation, request correlation,
+  transport cancellation, bounded writes, and backpressure in `packages/agent-host`.
+  Its only business interface is `AgentServicePort`.
 - Put a tool in `packages/tools` only when it has complete technical meaning
   outside a specific agent or business domain.
 - Keep prompts, domain types, domain services, domain tools, and workflows in the

@@ -71,6 +71,10 @@ abandonment, and cancellation origin remain Service orchestration facts outside 
 need for those facts should use an optional App-owned observation port plus explicit request-to-Run
 correlation, not a dependency from Service to the local Trace store or concrete tracer.
 
+`packages/agent-host` does not duplicate this Trace chain. Authentication, protocol rejection,
+connection close, and backpressure are transport diagnostics rather than Agent Run facts. V1 does
+not add a Host observer or persist request bodies, Agent output, tokens, or connection diagnostics.
+
 The local disk schema, query DTOs, Preview HTTP/SSE contract, Session JSONL, and Context sidecars
 are compatibility boundaries. Future exporters should attach below Trace processing rather than
 adding a second runtime execution or observation path.

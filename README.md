@@ -114,6 +114,12 @@ omni --help, -h         # usage
 omni --version, -v      # CLI version
 ```
 
+The distribution also includes `omni-host`, a loopback-only WebSocket companion process for a
+future Godot client. Its parent process owns the ephemeral authentication Token and child-process
+lifecycle; developers can run `pnpm verify:host` without creating or copying a Token. Model
+configuration must already exist for actual Runs. See [`docs/agent-host.md`](docs/agent-host.md) for
+the machine-readable startup and Protocol v1 contract.
+
 `omni doctor` never mutates state. It reports eight checks: Node.js version, resolved workspace
 root and ID, global directory accessibility, configuration validity, coding Agent package
 availability, and the resolvability of the `keytar`, `tree-sitter`, and `tree-sitter-bash` native
@@ -562,6 +568,7 @@ graph TD
     CLI["packages/cli<br/>commands, Agent orchestration"]
     AGENTS["agents/*<br/>coding, financial-analysis"]
     APP["packages/app<br/>Catalog, Service, lifecycle, sessions"]
+    AGENT_HOST["packages/agent-host<br/>WebSocket Protocol v1 adapter"]
     MODELS["packages/models<br/>runtime, vendor plugins, credentials"]
     TOOLS["packages/tools<br/>fs, shell, search, web"]
     UI["packages/ui<br/>browser + terminal presentation"]
@@ -570,6 +577,8 @@ graph TD
     HOST --> CLI
     HOST --> UI
     HOST --> APP
+    HOST --> AGENT_HOST
+    AGENT_HOST --> APP
     CLI --> AGENTS
     CLI --> APP
     CLI --> TOOLS
@@ -585,16 +594,17 @@ graph TD
     TOOLS --> CORE
 ```
 
-| Package           | Responsibility                                                                             |
-| ----------------- | ------------------------------------------------------------------------------------------ |
-| `packages/core`   | Agent execution kernel: loop, tool coordination, access planning, context, events, ports   |
-| `packages/models` | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence       |
-| `packages/app`    | Package Catalog, Agent Service, application lifecycle, extensions, sessions, configuration |
-| `packages/tools`  | Domain-neutral filesystem, shell, search, and web tools                                    |
-| `packages/ui`     | Browser and terminal interaction, presentation, adapters, formatting, and delivery         |
-| `packages/cli`    | Commands, Agent creation/use-case orchestration, sessions, and onboarding workflow         |
-| `apps/omni`       | Binary entry, CLI/UI composition, signals, Trace preview lifecycle, and process exit       |
-| `agents/*`        | Independently packaged business agents                                                     |
+| Package               | Responsibility                                                                             |
+| --------------------- | ------------------------------------------------------------------------------------------ |
+| `packages/core`       | Agent execution kernel: loop, tool coordination, access planning, context, events, ports   |
+| `packages/models`     | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence       |
+| `packages/app`        | Package Catalog, Agent Service, application lifecycle, extensions, sessions, configuration |
+| `packages/agent-host` | Loopback WebSocket Protocol v1, authentication, streaming, and transport cancellation      |
+| `packages/tools`      | Domain-neutral filesystem, shell, search, and web tools                                    |
+| `packages/ui`         | Browser and terminal interaction, presentation, adapters, formatting, and delivery         |
+| `packages/cli`        | Commands, Agent creation/use-case orchestration, sessions, and onboarding workflow         |
+| `apps/omni`           | Binary entry, CLI/UI composition, signals, Trace preview lifecycle, and process exit       |
+| `agents/*`            | Independently packaged business agents                                                     |
 
 ### Dependency direction
 
@@ -605,7 +615,8 @@ app    -> core, models
 agents -> app, core, tools
 ui     -> app, core
 cli    -> app, core, tools, agents/*
-apps/omni -> app, cli, ui
+agent-host -> app
+apps/omni -> agent-host, app, core, tools, cli, ui
 ```
 
 Reverse dependencies are not allowed. CLI and UI do not import each other; `apps/omni` is their
@@ -627,6 +638,7 @@ must never import the CLI, UI, or another agent package.
 | `AgentPackageCatalogPort`     | Lists Service-eligible Agents and loads exact Manifest-first Agent packages              |
 | `AgentFactory`                | The only runtime assembly entry: resolves a package into one immutable Plan and instance |
 | `AgentServicePort`            | Host-neutral Agent discovery, Session ownership, FIFO Runs, cancellation, and events     |
+| `AgentHostServer`             | WebSocket transport lifecycle; `AgentServicePort` is its only business interface         |
 | `AgentBlueprint`              | The `agentBlueprint` value each agent package exports                                    |
 | `AgentExtension`              | Declarative contribution unit; validated and rolled back atomically                      |
 
@@ -654,11 +666,12 @@ omni-agent/
 │   ├── core/     Agent loop, tool coordination, access, execution, context engine, ports
 │   ├── models/   Model runtime, vendor plugins, catalogs, credentials, cache
 │   ├── app/      Package Catalog, Agent Service, lifecycle, sessions, config, workspaces
+│   ├── agent-host/ WebSocket Protocol v1 adapter for AgentServicePort
 │   ├── tools/    Filesystem, shell, search, web, and user-input tools
 │   ├── ui/       Browser and terminal presentation, interaction adapters, delivery
 │   └── cli/      Arg parsing, commands, Agent run and onboarding orchestration
 ├── apps/
-│   └── omni/     Binary entry, CLI/UI composition, signals, process lifecycle
+│   └── omni/     `omni`/`omni-host` entries, composition, signals, process lifecycle
 ├── agents/
 │   ├── coding/              Default coding agent (skills, fs, shell, search, web)
 │   └── financial-analysis/  Read-only deterministic indicator agent
@@ -676,6 +689,7 @@ omni-agent/
 | [`docs/architecture.md`](docs/architecture.md)                                                     | Layers, dependency rules, contracts, composition, and subsystem design |
 | [`docs/agent-package.md`](docs/agent-package.md)                                                   | Manifest v2, Blueprint, composition, package loading, and ownership    |
 | [`docs/agent-service.md`](docs/agent-service.md)                                                   | Host-neutral discovery, Session/Run lifecycle, failures, and adapters  |
+| [`docs/agent-host.md`](docs/agent-host.md)                                                         | WebSocket v1, authentication, cancellation, and companion process      |
 | [`docs/build-an-agent-in-five-minutes.md`](docs/build-an-agent-in-five-minutes.md)                 | Executable minimal Agent tutorial and dynamic YAML assembly            |
 | [`docs/tracing.md`](docs/tracing.md)                                                               | Runtime Observation, Assembly Evidence, local Trace, and replay        |
 | [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | Authoritative Tool access, execution, cancellation, sandbox            |
@@ -694,6 +708,7 @@ pnpm install
 pnpm dev                           # coding agent (default)
 pnpm run dev:coding                # coding agent, explicitly
 pnpm run dev:financial-analysis    # read-only financial analysis agent
+pnpm run verify:host               # verify the local WebSocket companion; no manual Token
 pnpm run dev -- run <agent-id>     # any installed agent package
 pnpm run dev -- agent describe coding
 pnpm run dev -- agent validate coding

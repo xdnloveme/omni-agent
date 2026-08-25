@@ -15,6 +15,8 @@ export type {
   HostTermination,
 } from "./host-services";
 export { createProcessExecutionRuntime } from "./process-runtime";
+export { createDefaultAgentPackageCatalog } from "./agents/default-agent-package-catalog";
+export type { DefaultAgentPackageCatalogOptions } from "./agents/default-agent-package-catalog";
 
 export async function main(
   args: readonly string[],

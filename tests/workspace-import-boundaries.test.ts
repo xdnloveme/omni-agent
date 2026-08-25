@@ -5,13 +5,15 @@ import { describe, expect, it } from "vitest";
 
 const root = join(import.meta.dirname, "..");
 
-type Layer = "core" | "tools" | "models" | "app" | "agents" | "ui" | "cli" | "host" | "examples";
+type Layer =
+  "core" | "tools" | "models" | "app" | "agentHost" | "agents" | "ui" | "cli" | "host" | "examples";
 
 const roots: readonly { readonly directory: string; readonly layer: Layer }[] = [
   { directory: "packages/core", layer: "core" },
   { directory: "packages/tools", layer: "tools" },
   { directory: "packages/models", layer: "models" },
   { directory: "packages/app", layer: "app" },
+  { directory: "packages/agent-host", layer: "agentHost" },
   { directory: "agents", layer: "agents" },
   { directory: "packages/ui", layer: "ui" },
   { directory: "packages/cli", layer: "cli" },
@@ -24,10 +26,11 @@ const allowed: Readonly<Record<Layer, ReadonlySet<Layer>>> = {
   tools: new Set(["core"]),
   models: new Set(["core"]),
   app: new Set(["core", "models"]),
+  agentHost: new Set(["app"]),
   agents: new Set(["app", "core", "tools"]),
   ui: new Set(["app", "core"]),
   cli: new Set(["app", "core", "tools", "agents"]),
-  host: new Set(["app", "cli", "ui"]),
+  host: new Set(["app", "agentHost", "cli", "core", "tools", "ui"]),
   examples: new Set(["app", "core", "tools"]),
 };
 
@@ -54,6 +57,7 @@ describe("workspace import boundaries", () => {
 });
 
 function importedLayer(importer: string, specifier: string): Layer | undefined {
+  if (specifier === "@omni-agent/agent-host") return "agentHost";
   if (specifier.startsWith("@omni-agent/agent-")) return "agents";
   const workspacePackage = /^@omni-agent\/(core|tools|models|app|ui|cli)(?:\/|$)/.exec(specifier);
   if (workspacePackage) return workspacePackage[1] as Layer;

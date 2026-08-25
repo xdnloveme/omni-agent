@@ -2,6 +2,8 @@ import {
   AgentPackageCatalogError,
   type AgentPackageCatalogErrorCode,
 } from "../../agent-packages/contracts";
+import { InteractionError } from "@omni-agent/core";
+import { AgentModelNotConfiguredError } from "../../assembly/errors";
 import { AgentApplicationLifecycleError } from "../agent-application";
 import {
   AgentServiceDisposalError,
@@ -18,6 +20,20 @@ export function toAgentServiceFailure(error: unknown): AgentServiceFailure {
   }
   if (error instanceof AgentApplicationLifecycleError) {
     return { code: error.code, message: error.message, retryable: false };
+  }
+  if (error instanceof AgentModelNotConfiguredError) {
+    return {
+      code: error.code,
+      message: "Model is not configured for this Agent",
+      retryable: false,
+    };
+  }
+  if (error instanceof InteractionError && error.code === "interaction_unavailable") {
+    return {
+      code: error.code,
+      message: "The current Host does not support this interaction",
+      retryable: false,
+    };
   }
   if (error instanceof AgentServiceDisposalError) {
     return {

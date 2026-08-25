@@ -6,8 +6,11 @@
     "composite": true
   },
   "references": [
+    { "path": "../../packages/agent-host" },
     { "path": "../../packages/app" },
     { "path": "../../packages/cli" },
+    { "path": "../../packages/core" },
+    { "path": "../../packages/tools" },
     { "path": "../../packages/ui" }
   ],
   "include": ["src/**/*.ts"],

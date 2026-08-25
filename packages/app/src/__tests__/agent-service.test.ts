@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
-import { AgentSessionNotFoundError, type StreamCallbacks } from "@omni-agent/core";
+import {
+  AgentSessionNotFoundError,
+  InteractionError,
+  type StreamCallbacks,
+} from "@omni-agent/core";
 import type { LoadedAgentPackage } from "../assembly/contracts";
+import { AgentModelNotConfiguredError } from "../assembly/errors";
 import {
   AgentPackageCatalogError,
   type AgentPackageCatalogPort,
@@ -137,6 +142,26 @@ describe("AgentService", () => {
       retryable: false,
     });
     expect(JSON.stringify(failure)).not.toContain("/private/internal");
+  });
+
+  it("projects missing model configuration as an actionable safe Failure", () => {
+    expect(toAgentServiceFailure(new AgentModelNotConfiguredError("coding"))).toEqual({
+      code: "agent_model_not_configured",
+      message: "Model is not configured for this Agent",
+      retryable: false,
+    });
+  });
+
+  it("projects an unavailable Host interaction without exposing its request", () => {
+    expect(
+      toAgentServiceFailure(
+        new InteractionError("interaction_unavailable", "Prompt at /private/project"),
+      ),
+    ).toEqual({
+      code: "interaction_unavailable",
+      message: "The current Host does not support this interaction",
+      retryable: false,
+    });
   });
 
   it("allows different Sessions to run concurrently", async () => {

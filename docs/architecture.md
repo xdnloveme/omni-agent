@@ -6,6 +6,7 @@
 packages/core   Agent execution kernel
 packages/models Model runtime, vendor catalog, provider plugins, and credentials
 packages/app    Application lifecycle and extension host
+packages/agent-host WebSocket Protocol v1 adapter for AgentServicePort
 packages/tools  Domain-neutral tool implementations
 packages/ui     User interaction and presentation surfaces
 packages/cli    Commands and Agent use-case orchestration
@@ -19,10 +20,11 @@ Allowed workspace dependencies:
 tools -> core
 models -> core
 app -> core, models
+agent-host -> app
 agents/* -> app, core, tools
 ui -> app, core
 cli -> app, core, tools, agents/*
-apps/omni -> app, cli, ui
+apps/omni -> agent-host, app, core, tools, cli, ui
 ```
 
 Core and app must not import a concrete agent. Agent packages must not import the
@@ -32,6 +34,12 @@ each other; `apps/omni` is the only package that composes both. UI must not crea
 Agents, load Blueprints, persist configuration, or branch on Agent identity.
 Domain tools stay with their owning agent; only
 domain-neutral tools may be promoted to `packages/tools`.
+
+`packages/agent-host` owns only loopback WebSocket connection state, authentication, strict wire
+validation, request correlation, bounded writes, heartbeat, and connection-created cancellation.
+`AgentServicePort` is its only business interface. Catalog, Factory, Session, model, Tool, and
+concrete Agent dependencies remain outside the package. `apps/omni` is the process owner that
+composes those dependencies for the standalone `omni-host` entry.
 
 ## Process and interaction lifecycle
 
@@ -382,13 +390,14 @@ opening lock or a second Session-locator abstraction. Session absence remains ow
 Repository as `AgentSessionNotFoundError`; the Service maps it to its stable `session_not_found`
 boundary error without parsing Repository messages.
 
-The default CLI still owns its existing Run and `ActiveAgentRun` lifecycle; v1 does not route it
-through `AgentService`. Future game, WebSocket, or IM Hosts may adapt the Service Port without
-changing Agent assembly, Core execution, Tool coordination, or Session persistence. Dynamic Agent
-registration, source merging, hot reload, transport protocols, and multi-process Session ownership
-are outside this boundary.
+The default CLI still owns its existing Run and `ActiveAgentRun` lifecycle; it does not route through
+`AgentService`. The concrete `packages/agent-host` WebSocket adapter calls only the Service Port and
+does not change Agent assembly, Core execution, Tool coordination, or Session persistence. Dynamic
+Agent registration, source merging, hot reload, additional transports, and multi-process Session
+ownership remain outside this boundary.
 
-The public Host integration contract is summarized in [`agent-service.md`](agent-service.md).
+The application contract is summarized in [`agent-service.md`](agent-service.md); the WebSocket
+transport and companion-process contract are in [`agent-host.md`](agent-host.md).
 
 ## Host interaction surface
 

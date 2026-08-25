@@ -41,6 +41,7 @@ export async function buildCliDistribution(): Promise<{
     absWorkingDir: repositoryRoot,
     entryPoints: {
       "cli-entry": join(repositoryRoot, "apps", "omni", "src", "index.ts"),
+      "host-entry": join(repositoryRoot, "apps", "omni", "src", "agent-host-entry.ts"),
     },
     outdir: outputDirectory,
     entryNames: "bin/[name]",
@@ -64,8 +65,12 @@ export async function buildCliDistribution(): Promise<{
     logLevel: "info",
   });
   assertApprovedExternals(result.metafile);
-  const launcherPath = join(binDirectory, "omni.js");
-  await writeFile(launcherPath, '#!/usr/bin/env node\nawait import("./cli-entry.js");\n', {
+  const cliLauncherPath = join(binDirectory, "omni.js");
+  await writeFile(cliLauncherPath, '#!/usr/bin/env node\nawait import("./cli-entry.js");\n', {
+    mode: 0o755,
+  });
+  const hostLauncherPath = join(binDirectory, "omni-host.js");
+  await writeFile(hostLauncherPath, '#!/usr/bin/env node\nawait import("./host-entry.js");\n', {
     mode: 0o755,
   });
 
@@ -74,7 +79,7 @@ export async function buildCliDistribution(): Promise<{
     version: cliPackage.version,
     description: "Omni Agent command-line interface",
     type: "module",
-    bin: { omni: "./bin/omni.js" },
+    bin: { omni: "./bin/omni.js", "omni-host": "./bin/omni-host.js" },
     engines: { node: ">=22.19.0" },
     dependencies: nativeDependencies,
     files: ["bin", "README.md", "LICENSE"],
@@ -95,7 +100,7 @@ export async function buildCliDistribution(): Promise<{
   const textOutputs = Object.keys(result.metafile.outputs)
     .filter((path) => path.endsWith(".js") || path.endsWith(".js.map"))
     .map((path) => resolve(repositoryRoot, path));
-  for (const outputPath of [launcherPath, ...textOutputs]) {
+  for (const outputPath of [cliLauncherPath, hostLauncherPath, ...textOutputs]) {
     const bundle = await readFile(outputPath, "utf8");
     for (const forbidden of ["workspace:*", repositoryRoot]) {
       if (bundle.includes(forbidden)) {
