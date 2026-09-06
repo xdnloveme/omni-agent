@@ -8,7 +8,8 @@ import type {
 
 export const AGENT_HOST_PROTOCOL_VERSION = 1 as const;
 export const AGENT_HOST_LISTEN_ADDRESS = "127.0.0.1" as const;
-export const AGENT_HOST_MAX_PAYLOAD_BYTES = 64 * 1024;
+export const AGENT_HOST_MAX_REQUEST_BYTES = 64 * 1024;
+export const AGENT_HOST_MAX_RESPONSE_BYTES = 1024 * 1024;
 export const AGENT_HOST_MAX_BUFFERED_BYTES = 1024 * 1024;
 
 export interface AgentHostOptions {

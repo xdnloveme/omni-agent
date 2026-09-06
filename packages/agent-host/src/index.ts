@@ -4,7 +4,8 @@ export { AgentHostProtocolValidator } from "./protocol-validator";
 export {
   AGENT_HOST_LISTEN_ADDRESS,
   AGENT_HOST_MAX_BUFFERED_BYTES,
-  AGENT_HOST_MAX_PAYLOAD_BYTES,
+  AGENT_HOST_MAX_REQUEST_BYTES,
+  AGENT_HOST_MAX_RESPONSE_BYTES,
   AGENT_HOST_PROTOCOL_VERSION,
   type AgentHostClientMessage,
   type AgentHostHelloMessage,

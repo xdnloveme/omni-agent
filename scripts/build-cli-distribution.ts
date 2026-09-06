@@ -42,6 +42,8 @@ export async function buildCliDistribution(): Promise<{
     entryPoints: {
       "cli-entry": join(repositoryRoot, "apps", "omni", "src", "index.ts"),
       "host-entry": join(repositoryRoot, "apps", "omni", "src", "agent-host-entry.ts"),
+      "im-gateway-entry": join(repositoryRoot, "apps", "omni", "src", "im-gateway-entry.ts"),
+      "im-host-entry": join(repositoryRoot, "apps", "omni", "src", "im-agent-host-entry.ts"),
     },
     outdir: outputDirectory,
     entryNames: "bin/[name]",
@@ -73,13 +75,30 @@ export async function buildCliDistribution(): Promise<{
   await writeFile(hostLauncherPath, '#!/usr/bin/env node\nawait import("./host-entry.js");\n', {
     mode: 0o755,
   });
+  const imGatewayLauncherPath = join(binDirectory, "omni-im-gateway.js");
+  await writeFile(
+    imGatewayLauncherPath,
+    '#!/usr/bin/env node\nawait import("./im-gateway-entry.js");\n',
+    { mode: 0o755 },
+  );
+  const imHostLauncherPath = join(binDirectory, "omni-im-host.js");
+  await writeFile(
+    imHostLauncherPath,
+    '#!/usr/bin/env node\nawait import("./im-host-entry.js");\n',
+    { mode: 0o755 },
+  );
 
   const distributionPackage = {
     name: cliPackage.name,
     version: cliPackage.version,
     description: "Omni Agent command-line interface",
     type: "module",
-    bin: { omni: "./bin/omni.js", "omni-host": "./bin/omni-host.js" },
+    bin: {
+      omni: "./bin/omni.js",
+      "omni-host": "./bin/omni-host.js",
+      "omni-im-gateway": "./bin/omni-im-gateway.js",
+      "omni-im-host": "./bin/omni-im-host.js",
+    },
     engines: { node: ">=22.19.0" },
     dependencies: nativeDependencies,
     files: ["bin", "README.md", "LICENSE"],
@@ -100,7 +119,13 @@ export async function buildCliDistribution(): Promise<{
   const textOutputs = Object.keys(result.metafile.outputs)
     .filter((path) => path.endsWith(".js") || path.endsWith(".js.map"))
     .map((path) => resolve(repositoryRoot, path));
-  for (const outputPath of [cliLauncherPath, hostLauncherPath, ...textOutputs]) {
+  for (const outputPath of [
+    cliLauncherPath,
+    hostLauncherPath,
+    imGatewayLauncherPath,
+    imHostLauncherPath,
+    ...textOutputs,
+  ]) {
     const bundle = await readFile(outputPath, "utf8");
     for (const forbidden of ["workspace:*", repositoryRoot]) {
       if (bundle.includes(forbidden)) {

@@ -5,6 +5,7 @@ import {
   createModelService,
   resolveWorkspaceContext,
   type AgentServicePort,
+  type ExtensionSourceLoader,
   type ModelService,
 } from "@omni-agent/app";
 import { createDefaultAgentPackageCatalog } from "@omni-agent/cli";
@@ -13,10 +14,12 @@ import { createProcessExecutionRuntime, type HostRuntimeEnvironment } from "@omn
 
 export interface AgentHostCompositionOptions {
   readonly cwd: string;
+  readonly configurationCwd?: string;
   readonly globalDirectory: string;
   readonly resolutionBase: string;
   readonly agentPackagesDirectory: string;
   readonly hostRuntime: HostRuntimeEnvironment;
+  readonly extensionSourceLoader?: ExtensionSourceLoader;
 }
 
 export interface AgentHostComposition {
@@ -28,12 +31,13 @@ export async function createAgentHostComposition(
   options: AgentHostCompositionOptions,
 ): Promise<AgentHostComposition> {
   const workspace = await resolveWorkspaceContext(options.cwd);
+  const configurationCwd = options.configurationCwd ?? workspace.root;
   const configService = new ConfigService({
-    cwd: workspace.root,
+    cwd: configurationCwd,
     globalDirectory: options.globalDirectory,
   });
   const modelService = await createModelService({
-    cwd: workspace.root,
+    cwd: configurationCwd,
     globalDirectory: options.globalDirectory,
   });
   try {
@@ -47,6 +51,7 @@ export async function createAgentHostComposition(
       globalDirectory: options.globalDirectory,
       configService,
       modelService,
+      extensionSourceLoader: options.extensionSourceLoader,
       host: {
         interactionSurface: new RejectingInteractionSurface(),
         accessConsentBroker: new DenyAccessConsentBroker(),

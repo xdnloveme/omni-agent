@@ -4,7 +4,7 @@ import type { Duplex } from "node:stream";
 import { WebSocketServer } from "ws";
 import {
   AGENT_HOST_LISTEN_ADDRESS,
-  AGENT_HOST_MAX_PAYLOAD_BYTES,
+  AGENT_HOST_MAX_REQUEST_BYTES,
   type AgentHostOptions,
   type AgentHostServer,
   type AgentHostTermination,
@@ -30,7 +30,7 @@ export async function startAgentHost(options: AgentHostOptions): Promise<AgentHo
   });
   const webSocketServer = new WebSocketServer({
     noServer: true,
-    maxPayload: AGENT_HOST_MAX_PAYLOAD_BYTES,
+    maxPayload: AGENT_HOST_MAX_REQUEST_BYTES,
     perMessageDeflate: false,
   });
   let state: HostState = "starting";

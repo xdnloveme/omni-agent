@@ -44,9 +44,10 @@ only connection-level active IDs and AbortControllers; it does not add business 
 queues. Responses are `result`, `event`, or a safe `error` containing only `code`, `message`, and
 `retryable`.
 
-One bounded writer serializes Socket writes without combining or reordering Service events. Inbound
-messages are limited to 64 KiB, text input to 32,768 characters, request IDs to 128 safe characters,
-and outbound buffering to 1 MiB. Compression and binary messages are disabled. Backpressure,
+One bounded writer serializes Socket writes without combining or reordering Service events. Client
+messages are limited to 64 KiB, server messages and outbound buffering to 1 MiB, text input to
+32,768 characters, and request IDs to 128 safe characters. Compression and binary messages are
+disabled. Backpressure,
 disconnect, and explicit cancel stop consumption of the Service `AsyncIterable` and abort the
 connection-owned signal.
 
@@ -187,6 +188,7 @@ internal errors become `agent_service_operation_failed`.
 | Authenticated clients   | 1                 |
 | Authentication deadline | 5 seconds         |
 | Inbound message         | 64 KiB            |
+| Server message          | 1 MiB             |
 | Run text                | 32,768 characters |
 | Request ID              | 128 characters    |
 | Session ID              | 256 characters    |

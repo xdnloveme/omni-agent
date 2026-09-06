@@ -1,0 +1,25 @@
+{
+  "name": "@omni-agent/im-gateway",
+  "version": "0.0.1",
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@larksuiteoapi/node-sdk": "^1.73.3",
+    "@omni-agent/agent-host": "workspace:*",
+    "@omni-agent/core": "workspace:*",
+    "ajv": "8.20.0",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.5",
+    "@types/ws": "^8.18.1",
+    "typescript": "^5.9.2"
+  }
+}

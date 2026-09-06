@@ -120,6 +120,10 @@ lifecycle; developers can run `pnpm verify:host` without creating or copying a T
 configuration must already exist for actual Runs. See [`docs/agent-host.md`](docs/agent-host.md) for
 the machine-readable startup and Protocol v1 contract.
 
+An optional same-machine Feishu/Lark gateway is available through `pnpm dev:im`. It keeps IM
+credentials outside Agent processes, binds each bot to one workspace and Agent, and communicates
+with an IM-specific Host through Protocol v1. See [`docs/im-gateway.md`](docs/im-gateway.md).
+
 `omni doctor` never mutates state. It reports eight checks: Node.js version, resolved workspace
 root and ID, global directory accessibility, configuration validity, coding Agent package
 availability, and the resolvability of the `keytar`, `tree-sitter`, and `tree-sitter-bash` native
