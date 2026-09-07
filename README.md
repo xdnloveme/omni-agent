@@ -118,7 +118,7 @@ The distribution also includes `omni-host`, a loopback-only WebSocket companion 
 4.7.2 graybox client connects to it directly during development. Its parent process owns the
 ephemeral authentication Token and child-process lifecycle; developers can run `pnpm verify:host`
 without creating or copying a Token. Model configuration must already exist for actual Runs. See
-[`docs/agent-host.md`](docs/agent-host.md) for the machine-readable startup and Protocol v1 contract.
+[`docs/agent-host.md`](docs/agent-host.md) for the machine-readable startup and Protocol v2 contract.
 
 With Godot 4.7.2 installed, run `pnpm game` to start both the Host and game without handling a Token.
 Run `pnpm run verify:game` for the headless protocol, Client lifecycle, and real Session harnesses. See
@@ -134,15 +134,15 @@ modules.
 
 Typed at the prompt during a session:
 
-| Command        | Effect                                                        |
-| -------------- | ------------------------------------------------------------- |
-| `/config`      | Reconfigure vendor, connection, and model                     |
-| `/permissions` | Manage execution mode, controlled network, and approved roots |
-| `/new`         | Start a new conversation session                              |
-| `/clear`       | Clear the current session history                             |
-| `/help`        | List available commands                                       |
-| `/skills`      | List and manage available skills — see note below             |
-| `/trace`       | Control local Trace capture for the current Agent             |
+| Command        | Effect                                                           |
+| -------------- | ---------------------------------------------------------------- |
+| `/config`      | Reconfigure vendor, connection, and model                        |
+| `/permissions` | Manage execution mode, exact network targets, and approved roots |
+| `/new`         | Start a new conversation session                                 |
+| `/clear`       | Clear the current session history                                |
+| `/help`        | List available commands                                          |
+| `/skills`      | List and manage available skills — see note below                |
+| `/trace`       | Control local Trace capture for the current Agent                |
 
 `/skills` is registered conditionally: the CLI only builds the skill controller when the started
 agent exposes a `skills` capability. Agents without it never see the command. User-invocable
@@ -200,7 +200,10 @@ Bash accepts a caller-supplied timeout (`timeout_ms`).
 ### Execution modes
 
 `controlled` is the default: Process Tools run under Seatbelt, access stays in the workspace or
-user-approved filesystem roots, and network access requires one workspace-level enable decision.
+user-approved filesystem roots, and each unconfigured exact network target requires approval.
+Configure public, private, or local services once with
+`/permissions network add http://localhost:3000 https://example.com`; approvals are saved per
+workspace and Agent and reused without prompts.
 Approved roots distinguish read from read/write and can be revoked with `/permissions`.
 `autonomous` keeps Seatbelt but lets the Agent declare bounded per-call path and network scope.
 `unrestricted` requires explicit mode confirmation and runs Process Tools directly on the host
@@ -214,17 +217,17 @@ to global.
 
 The "Written by" column describes current behavior, not a guaranteed invariant.
 
-| File                                    | Scope   | Purpose                                  | Written by |
-| --------------------------------------- | ------- | ---------------------------------------- | ---------- |
-| `omni.config.json`                      | project | Shared model + per-agent model overrides | you        |
-| `omni.providers.json`                   | project | Custom vendor and connection definitions | you        |
-| `omni.extensions.mjs`                   | project | Local ESM extensions                     | you        |
-| `.env`                                  | project | Fallback environment credentials         | you        |
-| `~/.omni-agent/config.json`             | global  | CLI-selected model                       | the CLI    |
-| `~/.omni-agent/providers.json`          | global  | Interactively defined custom providers   | the CLI    |
-| `~/.omni-agent/extensions.mjs`          | global  | Global local extensions                  | you        |
-| `~/.omni-agent/execution-settings.json` | global  | Workspace mode, network, approved roots  | the CLI    |
-| `~/.omni-agent/.env`                    | global  | Global fallback environment credentials  | you        |
+| File                                    | Scope   | Purpose                                     | Written by |
+| --------------------------------------- | ------- | ------------------------------------------- | ---------- |
+| `omni.config.json`                      | project | Shared model + per-agent model overrides    | you        |
+| `omni.providers.json`                   | project | Custom vendor and connection definitions    | you        |
+| `omni.extensions.mjs`                   | project | Local ESM extensions                        | you        |
+| `.env`                                  | project | Fallback environment credentials            | you        |
+| `~/.omni-agent/config.json`             | global  | CLI-selected model                          | the CLI    |
+| `~/.omni-agent/providers.json`          | global  | Interactively defined custom providers      | the CLI    |
+| `~/.omni-agent/extensions.mjs`          | global  | Global local extensions                     | you        |
+| `~/.omni-agent/execution-settings.json` | global  | Mode, exact network targets, approved roots | the CLI    |
+| `~/.omni-agent/.env`                    | global  | Global fallback environment credentials     | you        |
 
 Today the CLI only writes the three global files marked above; it reads the project files and
 `.env` files without modifying them.
@@ -573,7 +576,7 @@ graph TD
     CLI["packages/cli<br/>commands, Agent orchestration"]
     AGENTS["agents/*<br/>coding, financial-analysis"]
     APP["packages/app<br/>Catalog, Service, lifecycle, sessions"]
-    AGENT_HOST["packages/agent-host<br/>WebSocket Protocol v1 adapter"]
+    AGENT_HOST["packages/agent-host<br/>WebSocket Protocol v2 adapter"]
     GAME["apps/omni-game<br/>Godot character + task UI"]
     MODELS["packages/models<br/>runtime, vendor plugins, credentials"]
     TOOLS["packages/tools<br/>fs, shell, search, web"]
@@ -606,7 +609,7 @@ graph TD
 | `packages/core`       | Agent execution kernel: loop, tool coordination, access planning, context, events, ports   |
 | `packages/models`     | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence       |
 | `packages/app`        | Package Catalog, Agent Service, application lifecycle, extensions, sessions, configuration |
-| `packages/agent-host` | Loopback WebSocket Protocol v1, authentication, streaming, and transport cancellation      |
+| `packages/agent-host` | Loopback WebSocket Protocol v2, authentication, streaming, and transport cancellation      |
 | `packages/tools`      | Domain-neutral filesystem, shell, search, and web tools                                    |
 | `packages/ui`         | Browser and terminal interaction, presentation, adapters, formatting, and delivery         |
 | `packages/cli`        | Commands, Agent creation/use-case orchestration, sessions, and onboarding workflow         |
@@ -625,7 +628,7 @@ ui     -> app, core
 cli    -> app, core, tools, agents/*
 agent-host -> app
 apps/omni -> agent-host, app, core, tools, cli, ui
-apps/omni-game -> WebSocket Protocol v1 only
+apps/omni-game -> WebSocket Protocol v2 only
 ```
 
 Reverse dependencies are not allowed. CLI and UI do not import each other; `apps/omni` is their
@@ -675,7 +678,7 @@ omni-agent/
 │   ├── core/     Agent loop, tool coordination, access, execution, context engine, ports
 │   ├── models/   Model runtime, vendor plugins, catalogs, credentials, cache
 │   ├── app/      Package Catalog, Agent Service, lifecycle, sessions, config, workspaces
-│   ├── agent-host/ WebSocket Protocol v1 adapter for AgentServicePort
+│   ├── agent-host/ WebSocket Protocol v2 adapter for AgentServicePort
 │   ├── tools/    Filesystem, shell, search, web, and user-input tools
 │   ├── ui/       Browser and terminal presentation, interaction adapters, delivery
 │   └── cli/      Arg parsing, commands, Agent run and onboarding orchestration

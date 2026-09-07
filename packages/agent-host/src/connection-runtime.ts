@@ -41,6 +41,7 @@ export class AgentHostConnection {
   #peerDisconnected = false;
   #closing = false;
   #closePromise: Promise<void> | undefined;
+  #detachPermissions: (() => void) | undefined;
 
   constructor(options: AgentHostConnectionOptions) {
     this.#socket = options.socket;
@@ -140,6 +141,22 @@ export class AgentHostConnection {
       if (this.#authenticationTimer) clearTimeout(this.#authenticationTimer);
       this.#authenticationTimer = undefined;
       this.#onAuthenticated();
+      this.#detachPermissions = this.#service.subscribePermissions?.((event) => {
+        if (event.type === "requested") {
+          const { type: _type, ...payload } = event;
+          return this.#writer.send({
+            v: AGENT_HOST_PROTOCOL_VERSION,
+            type: "permission.requested",
+            ...payload,
+          });
+        }
+        const { type: _type, ...payload } = event;
+        return this.#writer.send({
+          v: AGENT_HOST_PROTOCOL_VERSION,
+          type: "permission.resolved",
+          ...payload,
+        });
+      });
       await this.#writer.send({
         v: AGENT_HOST_PROTOCOL_VERSION,
         type: "ready",
@@ -158,7 +175,7 @@ export class AgentHostConnection {
       switch (request.type) {
         case "list_agents":
           await this.#writer.send({
-            v: 1,
+            v: 2,
             type: "result",
             id: request.id,
             result: { kind: "agents", agents: await this.#service.listAgents() },
@@ -166,7 +183,7 @@ export class AgentHostConnection {
           return;
         case "open_session":
           await this.#writer.send({
-            v: 1,
+            v: 2,
             type: "result",
             id: request.id,
             result: {
@@ -180,7 +197,7 @@ export class AgentHostConnection {
           return;
         case "create_session":
           await this.#writer.send({
-            v: 1,
+            v: 2,
             type: "result",
             id: request.id,
             result: {
@@ -195,7 +212,7 @@ export class AgentHostConnection {
             sessionId: request.sessionId,
           });
           await this.#writer.send({
-            v: 1,
+            v: 2,
             type: "result",
             id: request.id,
             result: { kind: "closed" },
@@ -208,10 +225,25 @@ export class AgentHostConnection {
           }
           controller.abort();
           await this.#writer.send({
-            v: 1,
+            v: 2,
             type: "result",
             id: request.id,
             result: { kind: "cancel_requested", requestId: request.requestId },
+          });
+          return;
+        }
+        case "resolve_permission": {
+          if (!this.#service.resolvePermission?.(request.permissionId, request.decision)) {
+            throw new AgentHostError(
+              "request_not_active",
+              "Agent Host permission request is not active",
+            );
+          }
+          await this.#writer.send({
+            v: AGENT_HOST_PROTOCOL_VERSION,
+            type: "result",
+            id: request.id,
+            result: { kind: "permission_resolved", permissionId: request.permissionId },
           });
           return;
         }
@@ -245,7 +277,7 @@ export class AgentHostConnection {
       );
       for await (const event of events) {
         await this.#writer.send({
-          v: 1,
+          v: 2,
           type: "event",
           requestId: request.id,
           event,
@@ -265,7 +297,7 @@ export class AgentHostConnection {
       error instanceof AgentHostError ? toAgentHostFailure(error) : toAgentServiceFailure(error);
     try {
       await this.#writer.send({
-        v: 1,
+        v: 2,
         type: "error",
         ...(id ? { id } : {}),
         error: failure,
@@ -309,6 +341,8 @@ export class AgentHostConnection {
     this.#socket.off("message", this.#handleMessage);
     this.#socket.off("pong", this.#handlePong);
     for (const controller of this.#runControllers.values()) controller.abort();
+    this.#detachPermissions?.();
+    this.#detachPermissions = undefined;
     try {
       await this.#writer.close();
     } catch (error) {

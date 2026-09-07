@@ -22,7 +22,7 @@ describe("omni-host process entry", () => {
     expect(result.code).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({
       type: "agent_host_verified",
-      version: 1,
+      version: 2,
       agents: ["coding", "financial-analysis"],
     });
     expect(result.stdout).not.toContain("token");
@@ -36,7 +36,7 @@ describe("omni-host process entry", () => {
 
     expect(result.code).toBe(1);
     expect(result.stdout.trim()).toBe(
-      JSON.stringify({ type: "agent_host_failed", version: 1, code: "host_start_failed" }),
+      JSON.stringify({ type: "agent_host_failed", version: 2, code: "host_start_failed" }),
     );
     expect(result.stderr).toContain("OMNI_AGENT_HOST_TOKEN is required");
     expect(result.stdout).not.toContain("token");

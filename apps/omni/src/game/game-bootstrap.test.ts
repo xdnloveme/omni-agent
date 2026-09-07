@@ -1,7 +1,10 @@
 import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const resolveGodotExecutable = vi.hoisted(() => vi.fn());
+vi.mock("./godot-executable-resolver", () => ({ resolveGodotExecutable }));
 import { parseAgentHostReady, startGameBootstrap } from "./game-bootstrap";
 
 const temporaryDirectories: string[] = [];
@@ -18,7 +21,7 @@ describe("GameBootstrap", () => {
       parseAgentHostReady(
         JSON.stringify({
           type: "agent_host_ready",
-          version: 1,
+          version: 2,
           host: "127.0.0.1",
           port: 43127,
         }),
@@ -29,7 +32,7 @@ describe("GameBootstrap", () => {
       parseAgentHostReady(
         JSON.stringify({
           type: "agent_host_ready",
-          version: 1,
+          version: 2,
           host: "127.0.0.1",
           port: 43127,
           token: "must-not-be-accepted",
@@ -49,6 +52,7 @@ describe("GameBootstrap", () => {
       "utf8",
     );
     await chmod(godot, 0o755);
+    resolveGodotExecutable.mockResolvedValueOnce(godot);
 
     await expect(
       startGameBootstrap({
@@ -58,6 +62,7 @@ describe("GameBootstrap", () => {
       }),
     ).rejects.toThrow("Agent Host failed to start");
 
-    expect((await readFile(invocationLog, "utf8")).trim()).toBe("--version");
-  });
+    expect(resolveGodotExecutable).toHaveBeenCalledOnce();
+    await expect(readFile(invocationLog, "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+  }, 25_000);
 });

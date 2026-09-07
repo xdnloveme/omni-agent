@@ -3,7 +3,7 @@ use std::path::{Path, PathBuf};
 
 use crate::SandboxError;
 
-pub(crate) const PROTOCOL_VERSION: &str = "3";
+pub(crate) const PROTOCOL_VERSION: &str = "4";
 const MAX_SCOPE_ENTRIES: usize = 256;
 const MAX_ARGUMENTS: usize = 1024;
 const MAX_ARGUMENT_BYTES: usize = 256 * 1024;
@@ -20,10 +20,16 @@ pub(crate) struct PathScope {
     pub(crate) kind: ScopeKind,
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum NetworkPolicy {
+    Disabled,
+    LoopbackProxy { port: u16 },
+}
+
 pub(crate) struct Invocation {
     pub(crate) workspace: PathBuf,
     pub(crate) private_temp: PathBuf,
-    pub(crate) network: bool,
+    pub(crate) network: NetworkPolicy,
     pub(crate) read: Vec<PathScope>,
     pub(crate) write: Vec<PathScope>,
     pub(crate) protected_write_roots: Vec<PathBuf>,
@@ -55,6 +61,7 @@ impl Invocation {
         let mut workspace = None;
         let mut private_temp = None;
         let mut network = None;
+        let mut network_proxy_port = None;
         let mut read = Vec::new();
         let mut write = Vec::new();
         let mut protected_write_roots = Vec::new();
@@ -84,10 +91,16 @@ impl Invocation {
                 }
                 Some("--network") => {
                     network = Some(match value.to_str() {
-                        Some("enabled") => true,
-                        Some("disabled") => false,
+                        Some("disabled") => NetworkPolicy::Disabled,
+                        Some("loopback_proxy") => NetworkPolicy::LoopbackProxy { port: 0 },
                         _ => return Err(usage()),
                     })
+                }
+                Some("--network-proxy-port") => {
+                    network_proxy_port = value
+                        .to_str()
+                        .and_then(|port| port.parse::<u16>().ok())
+                        .filter(|port| *port > 0)
                 }
                 Some("--read-exact") => read.push(path_scope(value, ScopeKind::Exact)?),
                 Some("--read-subtree") => read.push(path_scope(value, ScopeKind::Subtree)?),
@@ -142,10 +155,17 @@ impl Invocation {
                 "relative executable paths containing separators are not supported",
             ));
         }
+        let network = match network.ok_or_else(usage)? {
+            NetworkPolicy::Disabled if network_proxy_port.is_none() => NetworkPolicy::Disabled,
+            NetworkPolicy::LoopbackProxy { .. } => NetworkPolicy::LoopbackProxy {
+                port: network_proxy_port.ok_or_else(usage)?,
+            },
+            _ => return Err(usage()),
+        };
         Ok(Self {
             workspace: workspace.ok_or_else(usage)?,
             private_temp: private_temp.ok_or_else(usage)?,
-            network: network.ok_or_else(usage)?,
+            network,
             read,
             write,
             protected_write_roots,
@@ -235,7 +255,7 @@ mod tests {
     fn rejects_relative_policy_paths() {
         let result = Invocation::parse(vec![
             "--protocol-version".into(),
-            "3".into(),
+            "4".into(),
             "--diagnostic-token".into(),
             "0123456789abcdef0123456789abcdef".into(),
             "--mode".into(),

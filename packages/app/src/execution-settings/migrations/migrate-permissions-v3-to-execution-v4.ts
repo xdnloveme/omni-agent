@@ -16,8 +16,8 @@ export function migratePermissionsV3Agent(
   return {
     settings: {
       mode: "controlled",
-      controlledNetworkEnabled: false,
       approvedFilesystemRoots: [],
+      approvedNetworkTargets: [],
     },
     discardedApprovals: Array.isArray(agent.persistentApprovals)
       ? agent.persistentApprovals.length

@@ -60,7 +60,20 @@ export const bashTool: AgentToolDefinition = {
         description:
           "Declares network and external filesystem access needs. In controlled mode, missing path scopes may be offered to the user as persistent workspace access; in autonomous mode they apply only to this call; unrestricted mode does not use them.",
         properties: {
-          network: { type: "boolean" },
+          network_targets: {
+            type: "array",
+            maxItems: 32,
+            items: {
+              type: "object",
+              additionalProperties: false,
+              properties: {
+                scheme: { type: "string", enum: ["http", "https"] },
+                host: { type: "string", minLength: 1, maxLength: 253 },
+                port: { type: "integer", minimum: 1, maximum: 65_535 },
+              },
+              required: ["scheme", "host", "port"],
+            },
+          },
           read_paths: { type: "array", maxItems: 32, items: pathScopeSchema() },
           write_paths: { type: "array", maxItems: 32, items: pathScopeSchema() },
         },

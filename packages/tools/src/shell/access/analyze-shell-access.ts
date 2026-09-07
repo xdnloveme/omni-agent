@@ -43,6 +43,17 @@ export async function analyzeShellAccess(
     if (inspected.consent) controlledConsentCandidates.push(inspected.consent);
     invalidScope ??= inspected.denial;
   }
+  for (const fact of analysis.paths.filter((candidate) => candidate.location === "workspace")) {
+    const observed = {
+      kind: "filesystem" as const,
+      access: fact.access === "unknown" ? ("read" as const) : fact.access,
+      path: fact.path,
+      scope: "exact" as const,
+      location: "workspace" as const,
+      sensitivity: toAccessSensitivity(fact.sensitivity),
+    };
+    if (!resources.some((declared) => covers(declared, observed))) resources.push(observed);
+  }
   const uncoveredResources = analysis.paths
     .filter((fact) => fact.access !== "unknown" && fact.location === "external")
     .map((fact) => ({
@@ -54,15 +65,33 @@ export async function analyzeShellAccess(
       sensitivity: toAccessSensitivity(fact.sensitivity),
     }))
     .filter((observed) => !resources.some((declared) => covers(declared, observed)));
-  if (requested.network || analysis.effects.includes("network_transfer")) {
-    resources.push({ kind: "network" });
+  for (const target of requested.networkTargets) {
+    resources.push({ kind: "network", target, purpose: "Bash command network access" });
   }
+  const missingNetworkScope =
+    analysis.effects.includes("network_transfer") && requested.networkTargets.length === 0;
+  const unknownMutation = analysis.uncertainties.some(
+    (fact) =>
+      fact.kind === "mutation" ||
+      fact.kind === "execution_target" ||
+      fact.kind === "unsupported_syntax" ||
+      fact.kind === "analysis_limit",
+  );
+  const mayMutate =
+    unknownMutation ||
+    analysis.paths.some((fact) => fact.access === "write") ||
+    analysis.commands.some((command) => command.pathAccess !== "read");
+  const boundedMutation =
+    requested.write.length > 0 ||
+    (!unknownMutation && analysis.paths.some((path) => path.access === "write"));
   return {
     resources,
     executableRequirements: executableRequirements(analysis.commands),
+    filesystemMutation: mayMutate ? (boundedMutation ? "bounded" : "unbounded") : "none",
     ...(controlledConsentCandidates.length > 0 ? { controlledConsentCandidates } : {}),
     ...(uncoveredResources.length > 0 ? { uncoveredResources } : {}),
     ...(invalidScope ? { denial: invalidScope } : {}),
+    ...(missingNetworkScope ? { networkScopeRequired: true } : {}),
     ...(analysis.security.hardStop ? { hardStop: analysis.security.hardStop } : {}),
   };
 }
@@ -132,17 +161,44 @@ async function inspectRequestedScope(
 function parseRequestedScope(value: unknown): {
   read: readonly RequestedScope[];
   write: readonly RequestedScope[];
-  network: boolean;
+  networkTargets: readonly { scheme: "http" | "https"; host: string; port: number }[];
 } {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
-    return { read: [], write: [], network: false };
+    return { read: [], write: [], networkTargets: [] };
   }
   const record = value as Record<string, unknown>;
   return {
     read: parsePaths(record.read_paths),
     write: parsePaths(record.write_paths),
-    network: record.network === true,
+    networkTargets: parseNetworkTargets(record.network_targets),
   };
+}
+
+function parseNetworkTargets(
+  value: unknown,
+): readonly { scheme: "http" | "https"; host: string; port: number }[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) throw new Error("network_targets must be an array");
+  return value.map((entry) => {
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      throw new Error("Invalid network target");
+    }
+    const candidate = entry as Record<string, unknown>;
+    if (
+      (candidate.scheme !== "http" && candidate.scheme !== "https") ||
+      typeof candidate.host !== "string" ||
+      !Number.isInteger(candidate.port) ||
+      (candidate.port as number) < 1 ||
+      (candidate.port as number) > 65_535
+    ) {
+      throw new Error("Invalid network target");
+    }
+    return {
+      scheme: candidate.scheme,
+      host: candidate.host,
+      port: candidate.port as number,
+    };
+  });
 }
 
 function parsePaths(value: unknown): readonly RequestedScope[] {

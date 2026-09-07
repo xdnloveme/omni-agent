@@ -11,6 +11,7 @@ import {
   type ContextMiddlewarePort,
   type ExecutionMode,
   type FilesystemCapabilityScope,
+  type NetworkTarget,
   type EnvironmentContextControllerPort,
   type SessionSnapshot,
 } from "@omni-agent/core";
@@ -40,7 +41,7 @@ export class AgentApplicationLifecycleError extends Error {
 }
 
 export interface AgentResourceDisposalFailure {
-  readonly resource: "extensions" | "agent_module" | "run_observation";
+  readonly resource: "mcp" | "extensions" | "agent_module" | "run_observation";
   readonly error: unknown;
 }
 
@@ -57,6 +58,9 @@ export class AgentApplicationDisposalError extends AggregateError {
 }
 
 export class AgentApplication {
+  private readonly mcp?: import("../mcp/agent-mcp-controller").AgentMcpController;
+  private readonly baseTools: AgentConfig["tools"];
+  private readonly assemblyEvidence?: AgentAssemblyEvidence;
   readonly runner: AgentRunner;
   readonly extensions: ExtensionManager;
   readonly sessions: AgentSessionRepository;
@@ -78,6 +82,9 @@ export class AgentApplication {
   private disposePromise: Promise<void> | undefined;
 
   constructor(dependencies: AgentApplicationDependencies) {
+    this.mcp = dependencies.mcp;
+    this.baseTools = [...dependencies.agentConfig.tools];
+    this.assemblyEvidence = dependencies.assemblyEvidence;
     this.extensions = dependencies.extensions;
     this.sessions = dependencies.sessions;
     this.agentConfig = dependencies.agentConfig;
@@ -98,6 +105,7 @@ export class AgentApplication {
       configService: dependencies.configService,
       modelService: dependencies.modelService,
       assemblyEvidence: dependencies.assemblyEvidence,
+      additionalInstructions: () => this.mcp?.prompt() ?? "",
     });
     this.executionSettings = dependencies.executionSettings;
     this.workspaceId = dependencies.workspaceId;
@@ -216,6 +224,43 @@ export class AgentApplication {
     await this.configuration.refreshInstructions();
   }
 
+  listMcpServers() {
+    return this.mcp?.list() ?? [];
+  }
+
+  async initializeMcp(): Promise<void> {
+    await this.mutateSession(async () => {
+      await this.mcp?.initialize();
+      await this.refreshMcpComposition();
+    });
+  }
+
+  async setMcpEnabled(id: string, enabled: boolean): Promise<void> {
+    await this.mutateSession(async () => {
+      if (!this.mcp) throw new Error("MCP management unavailable");
+      try {
+        await this.mcp.setEnabled(id, enabled);
+      } finally {
+        // Catalog removal is already committed even when transport cleanup fails.
+        await this.refreshMcpComposition();
+      }
+    });
+  }
+
+  async retryMcp(id: string): Promise<void> {
+    await this.mutateSession(async () => {
+      if (!this.mcp) throw new Error("MCP management unavailable");
+      await this.mcp.retry(id);
+      await this.refreshMcpComposition();
+    });
+  }
+
+  private async refreshMcpComposition(): Promise<void> {
+    this.agentConfig.tools = [...this.baseTools, ...(this.mcp?.tools() ?? [])];
+    this.assemblyEvidence?.updateTools(this.agentConfig.tools.map((tool) => tool.name));
+    this.configuration.refreshAdditionalInstructions();
+  }
+
   async setAgentModel(selection: ModelSelection): Promise<void> {
     await this.configuration.setAgentModel(selection);
   }
@@ -241,12 +286,24 @@ export class AgentApplication {
     await this.refreshInstructions();
   }
 
-  setControlledNetworkEnabled(enabled: boolean): Promise<void> {
-    return this.executionSettings.setControlledNetworkEnabled(
+  addApprovedNetworkTargets(targets: readonly NetworkTarget[]): Promise<void> {
+    return this.executionSettings.addApprovedNetworkTargets(
       this.workspaceId,
       this.agentId,
-      enabled,
+      targets,
     );
+  }
+
+  revokeApprovedNetworkTarget(target: NetworkTarget): Promise<void> {
+    return this.executionSettings.revokeApprovedNetworkTarget(
+      this.workspaceId,
+      this.agentId,
+      target,
+    );
+  }
+
+  clearApprovedNetworkTargets(): Promise<void> {
+    return this.executionSettings.clearApprovedNetworkTargets(this.workspaceId, this.agentId);
   }
 
   revokeApprovedFilesystemRoot(root: FilesystemCapabilityScope) {
@@ -278,6 +335,7 @@ export class AgentApplication {
       readonly resource: AgentResourceDisposalFailure["resource"];
       readonly dispose: () => void | Promise<void> | undefined;
     }[] = [
+      { resource: "mcp", dispose: () => this.mcp?.close() },
       { resource: "extensions", dispose: () => this.extensions.dispose() },
       { resource: "agent_module", dispose: () => this.agentModule?.dispose?.() },
       { resource: "run_observation", dispose: () => this.runObservation.dispose() },
@@ -342,6 +400,7 @@ export class AgentApplication {
 }
 
 export interface AgentApplicationDependencies {
+  readonly mcp?: import("../mcp/agent-mcp-controller").AgentMcpController;
   readonly extensions: ExtensionManager;
   readonly agentModule?: AgentModule;
   readonly sessions: AgentSessionRepository;

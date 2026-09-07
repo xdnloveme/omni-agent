@@ -1,5 +1,12 @@
 # Tool Call Runtime, Access, and Sandbox
 
+Runtime reporting uses the existing TokenUsage, Tool metrics, and Observation paths rather than
+a separate cumulative Run counter. There is no Run budget configuration or cumulative-budget
+termination path. Tool deadlines, cancellation, per-operation
+size limits, prompt/catalog budgets, Hook recursion protection, and behavioral loop detection remain
+independent protections. Repeated-action detection is not a guarantee of eventual termination for
+all non-progressing workloads; users can cancel a Run.
+
 This document is the authoritative contract for Tool validation, access control, execution,
 cancellation, and the macOS process sandbox.
 
@@ -8,14 +15,20 @@ cancellation, and the macOS process sandbox.
 ```text
 LLM Tool Call
 -> ToolCallCoordinator
-   -> resolve registered Tool
-   -> validate JSON Schema
-   -> domain preflight
+   -> prepareBatch
+      -> resolve registered Tool
+      -> validate JSON Schema
+      -> bind input and domain preflight
+      -> assess access facts once
+   -> batch preparation policies (for example InstructionScopeGate)
+   -> authorizeAndRun
    -> ToolAccessController
       -> load workspace execution settings
       -> assess ToolAccessIntent
       -> obtain controlled network or filesystem consent when required
       -> create access grant and base process policy
+   -> NetworkRuntime (network grant only)
+      -> bound in-process client and per-call authenticated proxy
    -> ProcessExecutionPlanner (Process Tools only)
       -> create ProcessInvocation
       -> resolve executable provenance and runtime closure
@@ -31,7 +44,8 @@ LLM Tool Call
 -> structured ToolResult
 ```
 
-Schema and preflight failures never enter access control, lifecycle, middleware, or execution.
+Schema, preflight, and preparation-policy failures never enter authorization, lifecycle, middleware,
+or execution. A deferred batch does not count as executed Tool work.
 Access denials never enter lifecycle, middleware, or execution. Deadline timing begins only after
 access control completes.
 
@@ -39,13 +53,14 @@ access control completes.
 
 | Owner                     | Responsibility                                                            |
 | ------------------------- | ------------------------------------------------------------------------- |
-| `ToolCallCoordinator`     | Ordering, events, lifecycle, and total metrics                            |
+| `ToolCallCoordinator`     | Two-stage preparation/authorization, ordering, events, lifecycle, metrics |
 | `ToolAccessController`    | Mode evaluation, capability matching, consent, and access grant           |
 | `ProcessExecutionPlanner` | Invocation creation, executable trust, runtime closure, and final plan    |
 | Tool domain               | Path, shell, web, and other resource facts                                |
 | `ToolInvocationRunner`    | Authorized execution, middleware, timeout, abort, and late settlement     |
 | `ProcessExecutionRouter`  | Execute an already-final host or sandbox plan without adding capabilities |
 | Rust `omni-sandbox`       | Validate protocol, compile Seatbelt policy, apply limits, and exec target |
+| Network Gateway           | Exact targets, DNS/IP/redirect policy, body limits, and loopback proxy    |
 | App settings              | Persist mode, network, and approved roots by workspace and Agent          |
 | UI                        | Render mode management and access consent only                            |
 
@@ -85,14 +100,14 @@ Processes run under Seatbelt with workspace and private-call-temp writes. An ord
 path may propose a canonical read or read/write capability for user approval. Approved subtree
 capabilities cover descendants, are shared by file, search, and Bash Tools, and are persisted only
 for the current workspace and Agent. Ordinary subtree capabilities never cover sensitive files;
-sensitive reads require exact-file approval and sensitive writes remain denied. Network starts
-disabled; the first network Tool call asks whether to enable ordinary network access. The setting
-is shared by Bash and web Tools.
+sensitive reads require exact-file approval and sensitive writes remain denied. A network call asks
+for its missing exact targets; at most 64 targets may be persisted per workspace and Agent. Web
+Tools receive a bound client, while Process Tools can reach only their per-call proxy port.
 
 ### Autonomous
 
 Processes still run under Seatbelt. Bash may declare per-call `sandbox_scope` resources:
-`read_paths`, `write_paths`, and `network`. Ordinary external resources are allowed only for that
+`read_paths`, `write_paths`, and exact `network_targets`. Ordinary external resources are allowed only for that
 call. Sensitive reads must be exact; protected paths and sensitive writes remain denied. No access
 scope is persisted.
 
@@ -103,7 +118,8 @@ Access boundaries and shell hard-stops are skipped, but Schema validation, prefl
 abort, output limits, process-group cleanup, file type validation, and file consistency checks
 remain active.
 
-Controlled and autonomous never fall back to host execution. Missing binaries, protocol mismatch,
+Controlled and autonomous never fall back to host execution. Sandbox protocol v4 represents only
+`disabled` or an exact loopback proxy port. Missing binaries, protocol mismatch,
 policy errors, and launch failures return structured sandbox errors.
 
 ## Process Sandbox
@@ -128,8 +144,8 @@ The wrapper preserves stdio and the process group. `HostProcessRunner` remains t
 output collection, AbortSignal handling, SIGTERM/SIGKILL escalation, and close/error settlement.
 
 Seatbelt permits required system/runtime reads, workspace/private-temp writes, projected approved
-roots or per-call scopes, and optional network. The Runtime projects only roots needed by the
-current call, not the full approval history. Protocol v3 protects the workspace and projected
+roots or per-call scopes, and at most one authenticated loopback proxy port. The Runtime projects only roots needed by the
+current call, not the full approval history. Protocol v4 protects the workspace and projected
 read/write subtree roots from deletion or rename while allowing real changes below those roots.
 The runner verifies the binary's advertised protocol before each launch and fails closed on a
 mismatch. Each launch also carries a random diagnostic token so target stderr cannot be mistaken
@@ -171,16 +187,15 @@ no temporary-file recovery, rollback, or automatic backup.
 
 ## Settings and Migration
 
-`~/.omni-agent/execution-settings.json` uses version 5 and keys state by stable workspace ID and
-Agent ID. Each entry stores mode, controlled-network state, and at most 64 approved filesystem
-roots. New workspaces default to controlled mode with network disabled and no additional roots.
+`~/.omni-agent/execution-settings.json` uses version 6 and keys state by stable workspace ID and
+Agent ID. Each entry stores mode, at most 64 exact approved network targets, and at most 64 approved
+filesystem roots. New workspaces default to controlled mode with no network targets or extra roots.
 Updates use the shared inter-process lock, atomic JSON replacement, and file mode `0600`.
 
-The v4-to-v5 migration preserves every workspace and Agent mode/network setting and initializes
-approved roots empty. The one-way v3 migration maps both legacy modes to controlled, disables
-network, and discards old grants with a diagnostic. The old permissions file is retained for user
-inspection but never read after execution settings exist. Corruption or migration failure fails
-closed.
+The v5-to-v6 migration preserves mode and roots, deletes the coarse network boolean, initializes
+targets empty regardless of its old value, and diagnoses discarded coarse grants. Earlier one-way
+migrations remain isolated readers. Successful v6 persistence stops reading v5. Corruption or
+migration failure fails closed.
 
 ## Cancellation and Timeouts
 
@@ -195,7 +210,8 @@ after-middleware or enter the session, and late rejection is consumed.
 
 - Local extensions are trusted in-process code and are not sandboxed.
 - Autonomous scopes are requested by the Agent and remain bounded by Runtime validation.
-- Enabled network is intentionally coarse-grained.
+- A proxy-unaware Process cannot use its network grant.
+- Final instruction-manifest validation and OS execution retain a small external TOCTOU window.
 - Allowed deletion is real and has no automatic recovery.
 - Symlink TOCTOU and PATH executable replacement are not completely eliminated.
 - Dynamic executable plugins and dependencies that cannot be discovered before launch are not

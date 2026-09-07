@@ -15,10 +15,15 @@ export class SkillSlashPreloader {
     const skillName = match[1] as string;
     const request = (match[2] ?? "").trim();
     const skill = this.repository.get(skillName);
-    if (!skill || !skill.userInvocable) return null;
+    if (!skill) return null;
 
     const result = await this.readService.read(skillName, { explicit: true });
-    const explicitContext = renderExplicitSkillContext(result.skill, result.skill.body);
+    const explicitContext = [
+      renderExplicitSkillContext(result.skill, result.skill.body),
+      result.diagnostic?.message,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
     return {
       displayInput: input,
       modelInput: `${explicitContext}\n\nUser request:\n${request || `(No additional request provided after /${skillName}.)`}`,

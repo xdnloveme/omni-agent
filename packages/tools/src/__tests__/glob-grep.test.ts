@@ -219,7 +219,7 @@ describe("grepTool", () => {
 
     expect(result.isError).toBe(false);
     const text = result.content[0].text;
-    const matchingLines = text.split("\n").filter((line: string) => line.includes("match line"));
+    const matchingLines = text!.split("\n").filter((line: string) => line.includes("match line"));
     expect(matchingLines.length).toBe(5);
     expect(result.meta).toMatchObject({ returnedMatches: 5, totalMatches: 100, truncated: true });
   });
@@ -254,7 +254,7 @@ describe("grepTool", () => {
     });
 
     expect(result.isError).toBe(false);
-    expect(Buffer.byteLength(result.content[0].text)).toBeLessThanOrEqual(50 * 1024);
+    expect(Buffer.byteLength(result.content[0].text!)).toBeLessThanOrEqual(50 * 1024);
     expect(result.meta).toMatchObject({ totalMatches: 200, truncated: true });
     expect(result.meta?.returnedMatches).toBeLessThan(200);
   });

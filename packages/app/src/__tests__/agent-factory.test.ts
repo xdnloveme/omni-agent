@@ -144,6 +144,7 @@ async function factory(
     isConfigured: vi.fn(async () => ({ type: "api_key" as const })),
   } as unknown as ModelService;
   const configService = {
+    resolveMcpServers: vi.fn(async () => []),
     resolveModel: vi.fn(async () => selection),
   } as unknown as ConfigService;
   return new AgentFactory({
@@ -169,6 +170,7 @@ async function factory(
         },
       },
       hostRuntime: { platform: "linux", home: globalDirectory },
+      networkRuntime: { open: vi.fn() },
       reservedCommandNames: [],
     },
     extensionSourceLoader: options.extensionSourceLoader,

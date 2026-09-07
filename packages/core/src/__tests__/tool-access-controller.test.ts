@@ -1,13 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 import {
-  normalizeFilesystemCapabilities,
   ToolAccessController,
   type AccessConsentResponse,
-  type FilesystemCapabilityScope,
+  type ExecutionSettingsPort,
   type ToolAccessIntent,
   type WorkspaceExecutionSettings,
 } from "../access";
 import type { RegisteredAgentTool } from "../types";
+
+const networkTarget = { scheme: "https" as const, host: "example.com", port: 443 };
 
 const tool: RegisteredAgentTool = {
   name: "process_test",
@@ -27,7 +28,11 @@ const tool: RegisteredAgentTool = {
   createToolResult: () => ({ content: [{ type: "text", text: "ok" }], isError: false }),
 };
 
-function request(intent: ToolAccessIntent, toolCallId = "call") {
+function request(
+  intent: ToolAccessIntent,
+  toolCallId = "call",
+  onPermissionResolved?: NonNullable<import("../access").ToolAccessContext["onPermissionResolved"]>,
+) {
   return {
     tool: { ...tool, access: { kind: "dynamic" as const, assess: async () => intent } },
     input: {},
@@ -38,6 +43,7 @@ function request(intent: ToolAccessIntent, toolCallId = "call") {
       agentId: "coding",
       toolCallId,
       hostRuntime: { platform: "darwin" as const, home: "/home/test" },
+      ...(onPermissionResolved ? { onPermissionResolved } : {}),
     },
   };
 }
@@ -45,17 +51,12 @@ function request(intent: ToolAccessIntent, toolCallId = "call") {
 function runtime(initial: WorkspaceExecutionSettings, response: AccessConsentResponse = "deny") {
   let settings = initial;
   const broker = { request: vi.fn(async () => response) };
-  const enableControlledNetwork = vi.fn(async () => {
-    settings = { ...settings, controlledNetworkEnabled: true };
-  });
-  const addApprovedFilesystemRoots = vi.fn(
-    async (_workspaceId: string, _agentId: string, roots: readonly FilesystemCapabilityScope[]) => {
+  const addApprovedAccess = vi.fn<ExecutionSettingsPort["addApprovedAccess"]>(
+    async (_workspaceId, _agentId, { scopes, targets }) => {
       settings = {
         ...settings,
-        approvedFilesystemRoots: normalizeFilesystemCapabilities([
-          ...settings.approvedFilesystemRoots,
-          ...roots,
-        ]),
+        approvedNetworkTargets: [...settings.approvedNetworkTargets, ...targets],
+        approvedFilesystemRoots: [...settings.approvedFilesystemRoots, ...scopes],
       };
     },
   );
@@ -63,25 +64,171 @@ function runtime(initial: WorkspaceExecutionSettings, response: AccessConsentRes
     controller: new ToolAccessController({
       settings: {
         getSettings: async () => settings,
-        enableControlledNetwork,
-        addApprovedFilesystemRoots,
+        addApprovedAccess,
       },
       consent: broker,
     }),
     broker,
-    enableControlledNetwork,
-    addApprovedFilesystemRoots,
+    addApprovedAccess,
   };
 }
 
 const controlled = (): WorkspaceExecutionSettings => ({
   mode: "controlled",
-  controlledNetworkEnabled: false,
+  approvedNetworkTargets: [],
   approvedFilesystemRoots: [],
 });
 
 describe("ToolAccessController", () => {
-  it("routes sandboxed modes and bypasses assessment only in unrestricted mode", async () => {
+  const combinedIntent: ToolAccessIntent = {
+    resources: [
+      {
+        kind: "filesystem",
+        path: "/outside/report",
+        scope: "exact",
+        access: "write",
+        location: "external",
+        sensitivity: "ordinary",
+      },
+      { kind: "network", target: networkTarget, purpose: "download report" },
+    ],
+    controlledConsentCandidates: [
+      {
+        capability: { path: "/outside", scope: "subtree", access: "read_write" },
+        sensitivity: "ordinary",
+      },
+    ],
+  };
+
+  it("asks once for all missing access and reuses approval across tools", async () => {
+    const access = runtime(controlled(), "approve");
+    await expect(access.controller.authorize(request(combinedIntent))).resolves.toMatchObject({
+      outcome: "allowed",
+    });
+    const next = request(combinedIntent, "next");
+    await expect(
+      access.controller.authorize({ ...next, tool: { ...next.tool, name: "another_tool" } }),
+    ).resolves.toMatchObject({ outcome: "allowed" });
+    expect(access.broker.request).toHaveBeenCalledTimes(1);
+    expect(access.broker.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scopes: [{ path: "/outside", scope: "subtree", access: "read_write" }],
+        targets: [networkTarget],
+      }),
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("denies the combined request without changing either grant category", async () => {
+    const access = runtime(controlled());
+    await expect(access.controller.authorize(request(combinedIntent))).resolves.toMatchObject({
+      outcome: "denied",
+      result: { meta: { code: "access_consent_denied" } },
+    });
+    expect(access.broker.request).toHaveBeenCalledTimes(1);
+    expect(access.addApprovedAccess).not.toHaveBeenCalled();
+  });
+
+  it("does not save a late combined approval after its last waiter cancels", async () => {
+    let approve!: (response: AccessConsentResponse) => void;
+    const consent = {
+      request: vi.fn(
+        () =>
+          new Promise<AccessConsentResponse>((resolve) => {
+            approve = resolve;
+          }),
+      ),
+    };
+    const save = vi.fn(async () => {});
+    const controller = new ToolAccessController({
+      settings: { getSettings: async () => controlled(), addApprovedAccess: save },
+      consent,
+    });
+    const abort = new AbortController();
+    const call = request(combinedIntent);
+    const pending = controller.authorize({
+      ...call,
+      context: { ...call.context, signal: abort.signal },
+    });
+    await vi.waitFor(() => expect(consent.request).toHaveBeenCalledOnce());
+    abort.abort();
+    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
+    approve("approve");
+    await Promise.resolve();
+    expect(save).not.toHaveBeenCalled();
+  });
+
+  it.each(["autonomous", "unrestricted"] as const)(
+    "does not prompt for mixed access in %s",
+    async (mode) => {
+      const access = runtime({ ...controlled(), mode });
+      await expect(access.controller.authorize(request(combinedIntent))).resolves.toMatchObject({
+        outcome: "allowed",
+      });
+      expect(access.broker.request).not.toHaveBeenCalled();
+      expect(access.addApprovedAccess).not.toHaveBeenCalled();
+    },
+  );
+
+  it("persists a local target once and reuses it without repeat consent", async () => {
+    const access = runtime(controlled(), "approve");
+    const intent: ToolAccessIntent = {
+      resources: [
+        {
+          kind: "network",
+          target: { scheme: "http", host: "localhost", port: 3000 },
+          purpose: "local development",
+        },
+      ],
+    };
+    await expect(access.controller.authorize(request(intent))).resolves.toMatchObject({
+      outcome: "allowed",
+    });
+    await expect(access.controller.authorize(request(intent, "next"))).resolves.toMatchObject({
+      outcome: "allowed",
+    });
+    expect(access.broker.request).toHaveBeenCalledTimes(1);
+    expect(access.addApprovedAccess).toHaveBeenCalledWith("workspace", "coding", {
+      scopes: [],
+      targets: [{ scheme: "http", host: "localhost", port: 3000 }],
+    });
+  });
+
+  it.each(["controlled", "autonomous", "unrestricted"] as const)(
+    "applies undeclared process-network policy in %s at the access owner",
+    async (mode) => {
+      const result = await runtime({ ...controlled(), mode }).controller.authorize(
+        request({ resources: [{ kind: "process" }], networkScopeRequired: true }),
+      );
+      expect(result).toMatchObject(
+        mode === "unrestricted"
+          ? { outcome: "allowed", grant: { processAccess: { route: "host" } } }
+          : { outcome: "denied", result: { meta: { code: "network_scope_required" } } },
+      );
+    },
+  );
+  it("reports the broker correlation when controlled consent resolves", async () => {
+    const resolved = vi.fn();
+    const { controller } = runtime(controlled(), {
+      decision: "approve",
+      permissionId: "permission-1",
+      reason: "user",
+    });
+    await controller.authorize(
+      request(
+        { resources: [{ kind: "network", target: networkTarget, purpose: "test" }] },
+        "call",
+        resolved,
+      ),
+    );
+    expect(resolved).toHaveBeenCalledWith({
+      decision: "approve",
+      permissionId: "permission-1",
+      reason: "user",
+    });
+  });
+
+  it("routes sandboxed modes and still assesses unrestricted calls for bounded facts", async () => {
     for (const mode of ["controlled", "autonomous"] as const) {
       const result = await runtime({ ...controlled(), mode }).controller.authorize(
         request({ resources: [{ kind: "process" }] }),
@@ -92,9 +239,7 @@ describe("ToolAccessController", () => {
       });
     }
 
-    const assess = vi.fn(async () => {
-      throw new Error("must not assess unrestricted calls");
-    });
+    const assess = vi.fn(async () => ({ resources: [] }));
     const unrestrictedRequest = request({ resources: [] });
     const result = await runtime({ ...controlled(), mode: "unrestricted" }).controller.authorize({
       ...unrestrictedRequest,
@@ -104,7 +249,21 @@ describe("ToolAccessController", () => {
       outcome: "allowed",
       grant: { processAccess: { route: "host" } },
     });
-    expect(assess).not.toHaveBeenCalled();
+    expect(assess).toHaveBeenCalledOnce();
+  });
+
+  it("keeps hard stops and domain denials active in unrestricted mode", async () => {
+    const unrestricted = { ...controlled(), mode: "unrestricted" as const };
+    for (const intent of [
+      { resources: [], hardStop: { code: "unsafe_command", reason: "Unsafe command" } },
+      { resources: [], denial: { code: "invalid_target", reason: "Invalid target" } },
+    ] satisfies ToolAccessIntent[]) {
+      const result = await runtime(unrestricted).controller.authorize(request(intent));
+      expect(result).toMatchObject({ outcome: "denied", result: { isError: true } });
+      if (result.outcome === "denied") {
+        expect(result.result.meta?.code).toBe(intent.hardStop?.code ?? intent.denial?.code);
+      }
+    }
   });
 
   it("preserves structured executable requirements in the access grant", async () => {
@@ -161,7 +320,7 @@ describe("ToolAccessController", () => {
     const second = await access.controller.authorize(request(intent, "second"));
 
     expect(access.broker.request).toHaveBeenCalledTimes(1);
-    expect(access.addApprovedFilesystemRoots).toHaveBeenCalledTimes(1);
+    expect(access.addApprovedAccess).toHaveBeenCalledTimes(1);
     for (const result of [first, second]) {
       expect(result).toMatchObject({
         outcome: "allowed",
@@ -339,15 +498,19 @@ describe("ToolAccessController", () => {
     const controller = new ToolAccessController({
       settings: {
         getSettings: async () => settings,
-        enableControlledNetwork: async () => {
-          settings = { ...settings, controlledNetworkEnabled: true };
+        addApprovedAccess: async (_workspaceId, _agentId, { targets }) => {
+          settings = {
+            ...settings,
+            approvedNetworkTargets: [...settings.approvedNetworkTargets, ...targets],
+          };
         },
-        addApprovedFilesystemRoots: async () => undefined,
       },
       consent: { request: requestConsent },
     });
     const abort = new AbortController();
-    const intent = { resources: [{ kind: "network" as const }] };
+    const intent = {
+      resources: [{ kind: "network" as const, target: networkTarget, purpose: "test" }],
+    };
     const first = controller.authorize({
       ...request(intent),
       context: { ...request(intent).context, signal: abort.signal },
@@ -365,15 +528,16 @@ describe("ToolAccessController", () => {
     const controller = new ToolAccessController({
       settings: {
         getSettings: async () => controlled(),
-        enableControlledNetwork: async () => {
+        addApprovedAccess: async () => {
           throw new Error("save failed");
         },
-        addApprovedFilesystemRoots: async () => undefined,
       },
       consent: { request: async () => "approve" },
     });
     await expect(
-      controller.authorize(request({ resources: [{ kind: "network" }] })),
+      controller.authorize(
+        request({ resources: [{ kind: "network", target: networkTarget, purpose: "test" }] }),
+      ),
     ).rejects.toThrow("save failed");
   });
 

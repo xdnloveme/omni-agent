@@ -24,10 +24,15 @@ import {
 } from "./contracts";
 import { ServiceEventStream } from "./service-event-stream";
 import { toAgentServiceFailure } from "./agent-service-failure";
+import type {
+  AgentServiceAccessConsentBroker,
+  AgentServicePermissionEvent,
+} from "../permissions/service-access-consent-broker";
 
 export interface AgentServiceOptions {
   readonly catalog: AgentPackageCatalogPort;
   readonly factory: Pick<AgentFactory, "create">;
+  readonly permissions?: AgentServiceAccessConsentBroker;
 }
 
 interface OpeningRecord {
@@ -141,6 +146,16 @@ export class AgentService implements AgentServicePort {
       () => controller.abort(createAbortError()),
     );
     return stream;
+  }
+
+  subscribePermissions(
+    sink: (event: AgentServicePermissionEvent) => void | Promise<void>,
+  ): () => void {
+    return this.options.permissions?.subscribe(sink) ?? (() => undefined);
+  }
+
+  resolvePermission(permissionId: string, decision: "approve" | "deny"): boolean {
+    return this.options.permissions?.resolve(permissionId, decision) ?? false;
   }
 
   dispose(): Promise<void> {

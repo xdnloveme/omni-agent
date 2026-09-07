@@ -114,7 +114,7 @@ omni --version, -v      # CLI 版本
 分发包同时包含 `omni-host`，它是仅监听本机回环地址的 WebSocket 伴随进程。Godot 4.7.2 灰盒客户端在
 开发模式下直接连接该 Host。
 临时认证 Token 和子进程生命周期由父进程管理；开发者运行 `pnpm verify:host` 即可，不需要生成或复制
-Token。真正执行 Run 前仍需完成模型配置。机器可读启动协议和 Protocol v1 见
+Token。真正执行 Run 前仍需完成模型配置。机器可读启动协议和 Protocol v2 见
 [`docs/agent-host.md`](docs/agent-host.md)。
 
 安装 Godot 4.7.2 后，运行 `pnpm game` 可同时启动 Host 与游戏，无需处理 Token；运行
@@ -129,15 +129,15 @@ Token。真正执行 Run 前仍需完成模型配置。机器可读启动协议�
 
 在会话中于输入框直接键入：
 
-| 命令           | 作用                             |
-| -------------- | -------------------------------- |
-| `/config`      | 重新配置 Vendor、连接和模型      |
-| `/permissions` | 管理执行模式、受控网络与批准根   |
-| `/new`         | 开始一个新会话                   |
-| `/clear`       | 清空当前会话历史                 |
-| `/help`        | 列出可用命令                     |
-| `/skills`      | 查看和管理可用技能 —— 见下方说明 |
-| `/trace`       | 控制当前 Agent 的本地 Trace 捕获 |
+| 命令           | 作用                               |
+| -------------- | ---------------------------------- |
+| `/config`      | 重新配置 Vendor、连接和模型        |
+| `/permissions` | 管理执行模式、精确网络目标与批准根 |
+| `/new`         | 开始一个新会话                     |
+| `/clear`       | 清空当前会话历史                   |
+| `/help`        | 列出可用命令                       |
+| `/skills`      | 查看和管理可用技能 —— 见下方说明   |
+| `/trace`       | 控制当前 Agent 的本地 Trace 捕获   |
 
 `/skills` 是条件注册的：只有当启动的 Agent 暴露了 `skills` 能力时，CLI 才会构建技能控制器。不具备该
 能力的 Agent 根本看不到这个命令。此外，可由用户调用的技能会各自注册为独立的斜杠命令，并出现在 Tab
@@ -187,7 +187,9 @@ Agent 仍有活动捕获时，清理命令会拒绝删除数据。Web Viewer 始
 ### 执行模式
 
 `controlled` 是默认模式：Process Tool 在 Seatbelt 中运行，访问限制在工作区或用户批准的附加文件系统根，
-网络首次使用时按工作区询问是否启用。附加根区分只读和读写，并可通过 `/permissions` 撤销。
+未配置的精确网络目标首次使用时询问是否批准，按工作区和 Agent 保存，后续不重复询问。
+公网、私网和本地服务使用同一规则，可用 `/permissions network add http://localhost:3000 https://example.com` 一次配置多个目标。
+附加根区分只读和读写，并可通过 `/permissions` 撤销。
 `autonomous` 仍使用 Seatbelt，但允许 Agent 为当前调用声明有界的路径和网络范围。
 `unrestricted` 需要明确确认，Process Tool 随后直接在宿主运行，但 Schema、领域预检、超时、取消和
 输出上限等 Runtime 稳定性保护仍然生效。
@@ -208,7 +210,7 @@ Agent 仍有活动捕获时，清理命令会拒绝删除数据。Web Viewer 始
 | `~/.omni-agent/config.json`             | 全局 | CLI 选择的模型              | CLI    |
 | `~/.omni-agent/providers.json`          | 全局 | 交互式定义的自定义 Provider | CLI    |
 | `~/.omni-agent/extensions.mjs`          | 全局 | 全局本地扩展                | 你     |
-| `~/.omni-agent/execution-settings.json` | 全局 | 工作区模式、网络与批准根    | CLI    |
+| `~/.omni-agent/execution-settings.json` | 全局 | 模式、精确网络目标与批准根  | CLI    |
 | `~/.omni-agent/.env`                    | 全局 | 全局兜底环境变量凭证        | 你     |
 
 目前 CLI 只写入上表中标注的三个全局文件；它会读取项目文件和 `.env` 文件，但不修改它们。
@@ -533,7 +535,7 @@ graph TD
     CLI["packages/cli<br/>命令、Agent 编排"]
     AGENTS["agents/*<br/>coding、financial-analysis"]
     APP["packages/app<br/>Catalog、Service、生命周期、会话"]
-    AGENT_HOST["packages/agent-host<br/>WebSocket Protocol v1 Adapter"]
+    AGENT_HOST["packages/agent-host<br/>WebSocket Protocol v2 Adapter"]
     GAME["apps/omni-game<br/>Godot 角色与任务 UI"]
     MODELS["packages/models<br/>运行时、Vendor 插件、凭证"]
     TOOLS["packages/tools<br/>文件、Shell、搜索、Web"]
@@ -566,7 +568,7 @@ graph TD
 | `packages/core`       | Agent 执行内核：执行循环、工具协调、访问计划、上下文、事件、端口 |
 | `packages/models`     | 模型运行时、Vendor 插件、模型目录、协议转换、凭证持久化          |
 | `packages/app`        | Package Catalog、Agent Service、应用生命周期、扩展、会话与配置   |
-| `packages/agent-host` | 本机 WebSocket Protocol v1、认证、流转发与传输取消               |
+| `packages/agent-host` | 本机 WebSocket Protocol v2、认证、流转发与传输取消               |
 | `packages/tools`      | 领域无关的文件系统、Shell、搜索与 Web 工具                       |
 | `packages/ui`         | 浏览器与终端交互、展示投影、适配器、格式化与交付                 |
 | `packages/cli`        | 命令、Agent 创建与用例编排、会话及初始引导流程                   |
@@ -585,7 +587,7 @@ ui     -> app, core
 cli    -> app, core, tools, agents/*
 agent-host -> app
 apps/omni -> agent-host, app, core, tools, cli, ui
-apps/omni-game -> WebSocket Protocol v1 only
+apps/omni-game -> WebSocket Protocol v2 only
 ```
 
 不允许反向依赖。CLI 与 UI 不互相导入，`apps/omni` 是唯一组装根。`core` 和 `app` 绝不能导入具体 Agent，Agent 包也绝不能导入 CLI、UI 或另一个 Agent 包。
@@ -633,7 +635,7 @@ omni-agent/
 │   ├── core/     Agent 循环、工具协调、访问、执行、上下文引擎、端口
 │   ├── models/   模型运行时、Vendor 插件、模型目录、凭证、缓存
 │   ├── app/      Package Catalog、Agent Service、生命周期、会话、配置、工作区
-│   ├── agent-host/ AgentServicePort 的 WebSocket Protocol v1 Adapter
+│   ├── agent-host/ AgentServicePort 的 WebSocket Protocol v2 Adapter
 │   ├── tools/    文件系统、Shell、搜索、Web 与用户输入工具
 │   ├── ui/       浏览器与终端展示、交互适配器与交付层
 │   └── cli/      参数解析、命令、Agent 运行与初始引导编排

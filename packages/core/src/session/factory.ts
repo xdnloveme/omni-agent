@@ -1,4 +1,10 @@
-import type { TranscriptMessage, AssistantTranscriptMessage } from "../messages";
+import type {
+  TranscriptMessage,
+  AssistantTranscriptMessage,
+  ImageContent,
+  TextContent,
+} from "../messages";
+import type { JsonValue } from "../data";
 
 /**
  * Create a user message in the stable transcript wire format.
@@ -27,14 +33,16 @@ export function createAssistantMessage(
 export function createToolResultMessage(
   toolCallId: string,
   toolName: string,
-  content: Array<{ type: "text"; text: string }>,
+  content: Array<TextContent | ImageContent>,
   isError: boolean,
+  structuredContent?: JsonValue,
 ): TranscriptMessage {
   const msg: TranscriptMessage = {
     role: "toolResult",
     toolCallId,
     toolName,
     content,
+    ...(structuredContent === undefined ? {} : { structuredContent }),
     isError,
     timestamp: Date.now(),
   };

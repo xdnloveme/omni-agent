@@ -26,7 +26,7 @@ export class SkillValidator {
       return { skill: null, diagnostics };
     }
 
-    if (!draft.body.trim()) {
+    if (draft.bodyComplete && !draft.body.trim()) {
       diagnostics.push({
         type: SkillDiagnosticType.Warning,
         code: SkillDiagnosticCode.MissingBody,
@@ -48,6 +48,7 @@ export class SkillValidator {
 
     return {
       skill: {
+        sourceRoot: draft.sourceRoot,
         name,
         description: description.trim(),
         filePath: draft.filePath,

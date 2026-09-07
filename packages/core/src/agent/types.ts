@@ -3,6 +3,7 @@ export interface AgentDefinition<TContext = unknown> {
   description: string;
   instructions: string | ((context: TContext) => string | Promise<string>);
   maxTurns?: number;
+  toolBatchPreparationPolicies?: readonly import("../tool-calls").ToolBatchPreparationPolicy[];
 }
 
 export function defineAgent<TContext = unknown>(

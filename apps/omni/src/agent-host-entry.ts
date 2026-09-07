@@ -15,7 +15,7 @@ void run()
   .catch((error) => {
     if (!ready) {
       process.stdout.write(
-        `${JSON.stringify({ type: "agent_host_failed", version: 1, code: "host_start_failed" })}\n`,
+        `${JSON.stringify({ type: "agent_host_failed", version: 2, code: "host_start_failed" })}\n`,
       );
     }
     process.stderr.write(
@@ -49,7 +49,7 @@ async function run(): Promise<void> {
     process.stdout.write(
       `${JSON.stringify({
         type: "agent_host_ready",
-        version: 1,
+        version: 2,
         host: host.address.host,
         port: host.address.port,
       })}\n`,

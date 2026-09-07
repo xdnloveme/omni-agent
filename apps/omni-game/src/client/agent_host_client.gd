@@ -8,6 +8,8 @@ signal session_closed(request_id: String)
 signal run_event_received(request_id: String, event: Dictionary)
 signal request_failed(request_id: String, failure: Dictionary)
 signal transport_failed(failure: Dictionary)
+signal permission_requested(permission: Dictionary)
+signal permission_resolved(permission: Dictionary)
 
 enum ConnectionState { IDLE, CONNECTING, AUTHENTICATING, READY, CLOSING, CLOSED, FAILED }
 
@@ -67,6 +69,12 @@ func run(agent_id: String, session_id: String, text: String) -> String:
 
 func cancel_run(run_request_id: String) -> String:
 	return _submit("cancel", {"requestId": run_request_id}, "cancel")
+
+func resolve_permission(permission_id: String, decision: String) -> String:
+	if decision not in ["approve", "deny"]:
+		_emit_transport_failure("invalid_permission_decision", "权限决定无效。")
+		return ""
+	return _submit("resolve_permission", {"permissionId": permission_id, "decision": decision}, "permission")
 
 func shutdown() -> void:
 	if _state in [ConnectionState.CLOSING, ConnectionState.CLOSED]:
@@ -151,6 +159,10 @@ func _handle_message(message: Dictionary) -> void:
 			_handle_event(message)
 		"error":
 			_handle_error(message)
+		"permission.requested":
+			permission_requested.emit(message)
+		"permission.resolved":
+			permission_resolved.emit(message)
 
 func _handle_result(message: Dictionary) -> void:
 	var request_id: String = message["id"]
@@ -171,6 +183,8 @@ func _handle_result(message: Dictionary) -> void:
 		"closed":
 			session_closed.emit(request_id)
 		"cancel_requested":
+			pass
+		"permission_resolved":
 			pass
 
 func _handle_event(message: Dictionary) -> void:
@@ -223,6 +237,8 @@ func _result_matches_request(request_type: String, result_kind: String) -> bool:
 			return result_kind == "closed"
 		"cancel":
 			return result_kind == "cancel_requested"
+		"resolve_permission":
+			return result_kind == "permission_resolved"
 		_:
 			return false
 

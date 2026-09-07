@@ -7,7 +7,12 @@ export function createAuthInteraction(signal?: AbortSignal): ModelAuthInteractio
   return {
     signal,
     async prompt(prompt) {
-      const context = { signal: prompt.signal ?? signal };
+      const context = {
+        signal:
+          prompt.signal && signal
+            ? AbortSignal.any([prompt.signal, signal])
+            : (prompt.signal ?? signal),
+      };
       if (prompt.type === "select") {
         return normalizePromptResult(
           select(

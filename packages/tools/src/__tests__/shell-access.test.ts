@@ -15,6 +15,35 @@ async function resources(command: string, input: Record<string, unknown> = {}) {
 }
 
 describe("shell access intent", () => {
+  it.each([
+    'printf x > known.txt; printf y > "$TARGET"',
+    'touch known.txt; arbitrary_writer "$TARGET"',
+    'cat input.txt > "$TARGET"',
+  ])("does not let a known write mask an unresolved mutation: %s", async (command) => {
+    await expect(analyzeShellAccess({ command }, context)).resolves.toMatchObject({
+      filesystemMutation: "unbounded",
+    });
+    await expect(
+      analyzeShellAccess(
+        { command, sandbox_scope: { write_paths: [{ path: "/workspace", scope: "subtree" }] } },
+        context,
+      ),
+    ).resolves.toMatchObject({ filesystemMutation: "bounded" });
+  });
+
+  it.each([
+    ['printf x > known.txt; cat "$INPUT"', "bounded"],
+    ['cat "$INPUT"', "none"],
+    ['printf "%s" "$VALUE"', "none"],
+    ["touch one.txt two.txt", "bounded"],
+  ])(
+    "preserves statically bounded writes and dynamic reads: %s",
+    async (command, filesystemMutation) => {
+      await expect(analyzeShellAccess({ command }, context)).resolves.toMatchObject({
+        filesystemMutation,
+      });
+    },
+  );
   it("projects external executables but excludes Bash builtins", async () => {
     const intent = await analyzeShellAccess(
       { command: "echo ready && gh pr view | /usr/bin/sed -n 1p" },
@@ -73,9 +102,9 @@ describe("shell access intent", () => {
     await expect(resources("git status && pnpm test")).resolves.not.toContainEqual({
       kind: "network",
     });
-    await expect(resources("git fetch && pnpm install")).resolves.toContainEqual({
-      kind: "network",
-    });
+    await expect(
+      analyzeShellAccess({ command: "git fetch && pnpm install" }, context),
+    ).resolves.toMatchObject({ networkScopeRequired: true });
   });
 
   it("preserves nested hard-stops while allowing explicit network intent", async () => {
@@ -83,8 +112,16 @@ describe("shell access intent", () => {
       analyzeShellAccess({ command: 'echo "$(sudo id)"' }, context),
     ).resolves.toMatchObject({ hardStop: { code: "shell.hard.sudo" } });
     await expect(
-      resources("custom-cli", { sandbox_scope: { network: true } }),
-    ).resolves.toContainEqual({ kind: "network" });
+      resources("custom-cli", {
+        sandbox_scope: {
+          network_targets: [{ scheme: "https", host: "example.com", port: 443 }],
+        },
+      }),
+    ).resolves.toContainEqual({
+      kind: "network",
+      target: { scheme: "https", host: "example.com", port: 443 },
+      purpose: "Bash command network access",
+    });
   });
 
   it("does not turn observed external paths into undeclared sandbox access", async () => {

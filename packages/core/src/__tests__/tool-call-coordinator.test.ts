@@ -5,6 +5,108 @@ import { ToolCallCoordinator, ToolInputValidator } from "../tool-calls";
 import type { RegisteredAgentTool } from "../types";
 
 describe("ToolCallCoordinator process planning", () => {
+  it("revalidates after consent and stops before planning, lifecycle, or execution", async () => {
+    const order: string[] = [];
+    const approvedNetworkTargets: import("../network").NetworkTarget[] = [];
+    const tool: RegisteredAgentTool = {
+      name: "network_test",
+      originId: "test",
+      toolIdentity: "test:network_test",
+      description: "test",
+      schema: { type: "object" },
+      timeout: { kind: "none" },
+      execution: { kind: "in_process" },
+      access: {
+        kind: "dynamic",
+        assess: () => {
+          order.push("assess");
+          return {
+            resources: [
+              {
+                kind: "network",
+                target: { scheme: "https", host: "example.com", port: 443 },
+                purpose: "test",
+              },
+            ],
+          };
+        },
+      },
+      execute: async () => {
+        throw new Error("must not execute");
+      },
+    };
+    const coordinator = new ToolCallCoordinator({
+      inputValidator: new ToolInputValidator(),
+      hostRuntime: { platform: "darwin", home: "/home/test" },
+      accessController: new ToolAccessController({
+        settings: {
+          getSettings: async () => ({
+            mode: "controlled",
+            approvedNetworkTargets,
+            approvedFilesystemRoots: [],
+          }),
+          addApprovedAccess: async (_workspace, _agent, { targets }) => {
+            approvedNetworkTargets.push(...targets);
+          },
+        },
+        consent: {
+          request: async () => {
+            order.push("consent");
+            return "approve";
+          },
+        },
+      }),
+      processPlanner: {
+        prepare: async () => {
+          throw new Error("must not plan");
+        },
+      },
+      invocationRunner: new ToolInvocationRunner({
+        processRouter: {
+          run: async () => {
+            throw new Error("must not run");
+          },
+        },
+      }),
+    });
+    const environment = {
+      agentId: "coding",
+      workspaceId: "workspace",
+      workspaceRoot: "/workspace",
+      cwd: "/workspace",
+      middleware: [
+        {
+          beforeExecute: () => {
+            throw new Error("must not enter middleware");
+          },
+        },
+      ],
+      lifecycleAdapters: [],
+    };
+    const batch = await coordinator.prepareBatch({
+      tools: [tool],
+      calls: [{ toolName: tool.name, toolCallId: "call", input: {} }],
+      environment,
+    });
+    const events = [];
+    for await (const event of coordinator.authorizeAndRun(batch.calls[0]!, {
+      environment,
+      revalidate: async () => {
+        order.push("revalidate");
+        return {
+          content: [{ type: "text", text: "Rules changed during consent" }],
+          isError: false,
+          meta: { code: "project_instructions_loaded", executed: false, retryable: true },
+        };
+      },
+    }))
+      events.push(event);
+    expect(order).toEqual(["assess", "consent", "revalidate"]);
+    expect(events.find((event) => event.type === "tool_end")).toMatchObject({
+      result: { meta: { code: "project_instructions_loaded" } },
+      metrics: { executed: false },
+    });
+  });
   it("finalizes the process plan before lifecycle and executes it without re-planning", async () => {
     const order: string[] = [];
     const tool: RegisteredAgentTool = {
@@ -28,11 +130,10 @@ describe("ToolCallCoordinator process planning", () => {
         settings: {
           getSettings: async () => ({
             mode: "unrestricted",
-            controlledNetworkEnabled: false,
+            approvedNetworkTargets: [],
             approvedFilesystemRoots: [],
           }),
-          enableControlledNetwork: async () => undefined,
-          addApprovedFilesystemRoots: async () => undefined,
+          addApprovedAccess: async () => undefined,
         },
         consent: { request: async () => "deny" },
       }),
@@ -67,35 +168,37 @@ describe("ToolCallCoordinator process planning", () => {
       }),
     });
 
-    for await (const _event of coordinator.run(
-      [tool],
-      { toolName: tool.name, toolCallId: "call", input: {} },
-      {
-        agentId: "coding",
-        workspaceId: "workspace",
-        workspaceRoot: "/workspace",
-        cwd: "/workspace",
-        middleware: [
-          {
-            beforeExecute: () => void order.push("middleware-start"),
-            afterExecute: () => void order.push("middleware-end"),
+    const environment = {
+      agentId: "coding",
+      workspaceId: "workspace",
+      workspaceRoot: "/workspace",
+      cwd: "/workspace",
+      middleware: [
+        {
+          beforeExecute: () => void order.push("middleware-start"),
+          afterExecute: () => void order.push("middleware-end"),
+        },
+      ],
+      lifecycleAdapters: [
+        {
+          supports: () => true,
+          onStart: () => {
+            order.push("lifecycle-start");
+            return [];
           },
-        ],
-        lifecycleAdapters: [
-          {
-            supports: () => true,
-            onStart: () => {
-              order.push("lifecycle-start");
-              return [];
-            },
-            onEnd: () => {
-              order.push("lifecycle-end");
-              return [];
-            },
+          onEnd: () => {
+            order.push("lifecycle-end");
+            return [];
           },
-        ],
-      },
-    )) {
+        },
+      ],
+    };
+    const batch = await coordinator.prepareBatch({
+      tools: [tool],
+      calls: [{ toolName: tool.name, toolCallId: "call", input: {} }],
+      environment,
+    });
+    for await (const _event of coordinator.authorizeAndRun(batch.calls[0]!, { environment })) {
       // Consume the coordinator event stream.
     }
 

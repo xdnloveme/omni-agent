@@ -15,7 +15,8 @@ macOS architectures.
 
 ## Protocol
 
-Protocol v3 accepts canonical workspace, private-temp, read/write scope, network, sensitive-read,
+Protocol v4 accepts canonical workspace, private-temp, read/write scope, an optional exact loopback
+proxy port, sensitive-read,
 protected-write-root, and per-launch diagnostic-token arguments before `-- <command> <args...>`.
 Node and Rust validate policy
 paths independently. Read scopes preserve lexical paths where dynamic loaders or PATH symlinks

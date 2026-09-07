@@ -13,6 +13,8 @@
   "dependencies": {
     "@omni-agent/core": "workspace:*",
     "@omni-agent/models": "workspace:*",
+    "@modelcontextprotocol/client": "2.0.0",
+    "keytar": "^7.9.0",
     "yaml": "^2.9.0"
   },
   "devDependencies": {

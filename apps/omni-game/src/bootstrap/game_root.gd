@@ -6,6 +6,8 @@ extends Node
 @onready var _connection_status: Label = %ConnectionStatus
 @onready var _character_panel: CharacterSelectionPanel = %CharacterSelectionPanel
 @onready var _task_panel: TaskPanel = %TaskPanel
+@onready var _permission_panel: PermissionPanel = %PermissionPanel
+var _panel_before_permission := "characters"
 
 func _ready() -> void:
 	_controller.configure(_client)
@@ -25,6 +27,8 @@ func _notification(what: int) -> void:
 
 func _wire_ui() -> void:
 	_client.connection_state_changed.connect(_on_connection_state_changed)
+	_client.permission_requested.connect(_on_permission_requested)
+	_client.permission_resolved.connect(_on_permission_resolved)
 	_controller.agents_changed.connect(_character_panel.render_agents)
 	_controller.workspace_changed.connect(_on_workspace_changed)
 	_controller.workspace_closed.connect(_on_workspace_closed)
@@ -37,6 +41,24 @@ func _wire_ui() -> void:
 	_task_panel.new_session_requested.connect(_controller.create_new_session)
 	_task_panel.run_requested.connect(_controller.submit_task)
 	_task_panel.cancel_requested.connect(_controller.cancel_active_run)
+	_permission_panel.decision_selected.connect(_client.resolve_permission)
+
+func _on_permission_requested(permission: Dictionary) -> void:
+	_panel_before_permission = "task" if _task_panel.visible else "characters"
+	_character_panel.visible = false
+	_task_panel.visible = false
+	_permission_panel.present(permission)
+
+func _on_permission_resolved(_permission: Dictionary) -> void:
+	_close_permission_overlay()
+
+func _close_permission_overlay() -> void:
+	var was_presented := _permission_panel.visible
+	_permission_panel.clear()
+	if not was_presented:
+		return
+	_task_panel.visible = _panel_before_permission == "task"
+	_character_panel.visible = _panel_before_permission == "characters"
 
 func _on_connection_state_changed(state: int) -> void:
 	match state:
@@ -48,8 +70,10 @@ func _on_connection_state_changed(state: int) -> void:
 			_connection_status.text = "本地 Agent Host 已连接"
 		AgentHostClient.ConnectionState.FAILED:
 			_connection_status.text = "Agent Host 连接失败"
+			_close_permission_overlay()
 		AgentHostClient.ConnectionState.CLOSED:
 			_connection_status.text = "Agent Host 已关闭"
+			_close_permission_overlay()
 
 func _on_workspace_changed(agent: Dictionary, session: Dictionary) -> void:
 	_character_panel.visible = false

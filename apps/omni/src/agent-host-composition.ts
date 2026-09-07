@@ -1,6 +1,7 @@
 import {
   AgentFactory,
   AgentService,
+  AgentServiceAccessConsentBroker,
   ConfigService,
   createModelService,
   resolveWorkspaceContext,
@@ -8,7 +9,8 @@ import {
   type ModelService,
 } from "@omni-agent/app";
 import { createDefaultAgentPackageCatalog } from "@omni-agent/cli";
-import { DenyAccessConsentBroker, RejectingInteractionSurface } from "@omni-agent/core";
+import { RejectingInteractionSurface } from "@omni-agent/core";
+import { createNetworkRuntime } from "@omni-agent/network";
 import { createProcessExecutionRuntime, type HostRuntimeEnvironment } from "@omni-agent/tools";
 
 export interface AgentHostCompositionOptions {
@@ -42,6 +44,7 @@ export async function createAgentHostComposition(
       agentPackagesDirectory: options.agentPackagesDirectory,
     });
     const processExecution = createProcessExecutionRuntime(options.hostRuntime);
+    const permissions = new AgentServiceAccessConsentBroker();
     const factory = new AgentFactory({
       workspace,
       globalDirectory: options.globalDirectory,
@@ -49,14 +52,16 @@ export async function createAgentHostComposition(
       modelService,
       host: {
         interactionSurface: new RejectingInteractionSurface(),
-        accessConsentBroker: new DenyAccessConsentBroker(),
+        accessConsentBroker: permissions,
         processRouter: processExecution.router,
         processPlanner: processExecution.planner,
         hostRuntime: processExecution.hostRuntime,
+        networkRuntime: createNetworkRuntime(),
+        mcpEnvironment: Object.freeze({ ...process.env }),
         reservedCommandNames: [],
       },
     });
-    const service = new AgentService({ catalog, factory });
+    const service = new AgentService({ catalog, factory, permissions });
     let disposePromise: Promise<void> | undefined;
     return {
       service,

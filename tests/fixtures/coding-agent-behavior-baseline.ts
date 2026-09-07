@@ -28,6 +28,7 @@ export const CODING_AGENT_BEHAVIOR_BASELINE = Object.freeze({
     "clear",
     "skills",
     "trace",
+    "mcp",
   ]),
   promptAnchors: Object.freeze([
     "# Communication",

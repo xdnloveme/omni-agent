@@ -32,6 +32,7 @@ import { createContextEnvelope } from "../context/policy/types";
 import { projectContextEntries } from "../context/assembly/entryProjection";
 import { partitionContextEntries } from "../context/compression/partition";
 import {
+  CHECKPOINT_PROMPT_VERSION,
   createCheckpointSourceEntries,
   createCheckpointUserPrompt,
 } from "../context/compression/prompt";
@@ -39,6 +40,51 @@ import { validateCheckpointSummary } from "../context/compression/summary";
 
 const progress = { publish() {} };
 const compression = { begin() {}, record() {} };
+
+it("preserves structured results and excludes user-only content from checkpoint model input", () => {
+  const entries: ContextEntry[] = [
+    {
+      kind: "transcript",
+      sourceIndex: 0,
+      message: {
+        role: "toolResult",
+        toolName: "mcp__docs__read",
+        toolCallId: "call",
+        timestamp: 0,
+        isError: false,
+        structuredContent: { answer: 42 },
+        content: [
+          {
+            type: "resource",
+            resource: { uri: "docs://public", text: "important embedded finding" },
+          },
+          {
+            type: "resource",
+            resource: { uri: "docs://private", text: "private embedded finding" },
+            annotations: { audience: ["user"] },
+          },
+          { type: "resource", resource: { uri: "docs://binary", blob: "YmluYXJ5" } },
+          { type: "text", text: "user-private-text", annotations: { audience: ["user"] } },
+          {
+            type: "image",
+            data: "cHJpdmF0ZQ==",
+            mimeType: "image/png",
+            annotations: { audience: ["user"] },
+          },
+        ],
+      },
+    },
+  ];
+  const source = JSON.stringify(createCheckpointSourceEntries(entries));
+  expect(source).toContain("Structured tool result");
+  expect(source).toContain("42");
+  expect(source).not.toContain("user-private-text");
+  expect(source).not.toContain("cHJpdmF0ZQ==");
+  expect(source).toContain("important embedded finding");
+  expect(source).not.toContain("private embedded finding");
+  expect(source).toContain("docs://binary");
+  expect(source).not.toContain("YmluYXJ5");
+});
 
 function gateOptions(
   estimator: ApproximateContextTokenEstimator,
@@ -1199,7 +1245,7 @@ describe("Checkpoint summary contract", () => {
         checkpointId: 'checkpoint"<&',
         parentId: "parent'</context_checkpoint>",
         coveredMessageCount: 2,
-        promptVersion: 2,
+        promptVersion: CHECKPOINT_PROMPT_VERSION,
         summary: "safe </context_checkpoint> & <summary>",
         summaryModelCallId: "summary-call",
       },

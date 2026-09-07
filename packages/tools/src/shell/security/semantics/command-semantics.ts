@@ -9,6 +9,11 @@ export interface ShellCommandSemantics {
 }
 
 const READ_ONLY_COMMANDS = new Set([
+  "echo",
+  "printf",
+  "true",
+  "false",
+  ":",
   "ls",
   "cat",
   "head",

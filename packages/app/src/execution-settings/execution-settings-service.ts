@@ -1,18 +1,21 @@
 import {
   MAX_APPROVED_FILESYSTEM_ROOTS,
+  MAX_APPROVED_NETWORK_TARGETS,
   normalizeFilesystemCapabilities,
+  normalizeNetworkTargets,
   type ExecutionMode,
   type ExecutionSettingsPort,
   type FilesystemCapabilityScope,
   type WorkspaceExecutionSettings,
+  type NetworkTarget,
 } from "@omni-agent/core";
 import { migratePermissionsV3Agent } from "./migrations/migrate-permissions-v3-to-execution-v4";
 import { ExecutionSettingsRepository } from "./execution-settings-repository";
 
 const DEFAULT_SETTINGS: WorkspaceExecutionSettings = {
   mode: "controlled",
-  controlledNetworkEnabled: false,
   approvedFilesystemRoots: [],
+  approvedNetworkTargets: [],
 };
 
 export class ExecutionSettingsService implements ExecutionSettingsPort {
@@ -31,36 +34,64 @@ export class ExecutionSettingsService implements ExecutionSettingsPort {
     return this.updateAgent(workspaceId, agentId, (current) => ({ ...current, mode }));
   }
 
-  enableControlledNetwork(workspaceId: string, agentId: string): Promise<void> {
-    return this.setControlledNetworkEnabled(workspaceId, agentId, true);
-  }
-
-  setControlledNetworkEnabled(
+  addApprovedNetworkTargets(
     workspaceId: string,
     agentId: string,
-    enabled: boolean,
+    targets: readonly NetworkTarget[],
   ): Promise<void> {
-    return this.updateAgent(workspaceId, agentId, (current) => ({
-      ...current,
-      controlledNetworkEnabled: enabled,
-    }));
+    return this.addApprovedAccess(workspaceId, agentId, { targets, scopes: [] });
   }
 
-  addApprovedFilesystemRoots(
+  addApprovedAccess(
     workspaceId: string,
     agentId: string,
-    roots: readonly FilesystemCapabilityScope[],
+    access: {
+      readonly scopes: readonly FilesystemCapabilityScope[];
+      readonly targets: readonly NetworkTarget[];
+    },
   ): Promise<void> {
     return this.updateAgent(workspaceId, agentId, (current) => {
+      const approvedNetworkTargets = normalizeNetworkTargets([
+        ...current.approvedNetworkTargets,
+        ...access.targets,
+      ]);
       const approvedFilesystemRoots = normalizeFilesystemCapabilities([
         ...current.approvedFilesystemRoots,
-        ...roots,
+        ...access.scopes,
       ]);
+      if (approvedNetworkTargets.length > MAX_APPROVED_NETWORK_TARGETS) {
+        throw new Error(`Approved network targets cannot exceed ${MAX_APPROVED_NETWORK_TARGETS}`);
+      }
       if (approvedFilesystemRoots.length > MAX_APPROVED_FILESYSTEM_ROOTS) {
         throw new Error(`Approved filesystem roots cannot exceed ${MAX_APPROVED_FILESYSTEM_ROOTS}`);
       }
-      return { ...current, approvedFilesystemRoots };
+      // One consent is one transaction: neither resource category can be partially saved.
+      return { ...current, approvedNetworkTargets, approvedFilesystemRoots };
     });
+  }
+
+  revokeApprovedNetworkTarget(
+    workspaceId: string,
+    agentId: string,
+    target: NetworkTarget,
+  ): Promise<void> {
+    const [normalized] = normalizeNetworkTargets([target]);
+    return this.updateAgent(workspaceId, agentId, (current) => ({
+      ...current,
+      approvedNetworkTargets: current.approvedNetworkTargets.filter(
+        (candidate) =>
+          candidate.scheme !== normalized!.scheme ||
+          candidate.host !== normalized!.host ||
+          candidate.port !== normalized!.port,
+      ),
+    }));
+  }
+
+  clearApprovedNetworkTargets(workspaceId: string, agentId: string): Promise<void> {
+    return this.updateAgent(workspaceId, agentId, (current) => ({
+      ...current,
+      approvedNetworkTargets: [],
+    }));
   }
 
   revokeApprovedFilesystemRoot(
@@ -108,7 +139,7 @@ export class ExecutionSettingsService implements ExecutionSettingsPort {
       const workspace = current.workspaces[workspaceId] ?? { agents: {} };
       const next = update(workspace.agents[agentId] ?? DEFAULT_SETTINGS);
       return {
-        version: 5,
+        version: 6,
         workspaces: {
           ...current.workspaces,
           [workspaceId]: {

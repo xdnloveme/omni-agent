@@ -11,7 +11,7 @@ fn permits_child_mutation_but_preserves_the_protected_root() {
     let status = Command::new(env!("CARGO_BIN_EXE_omni-sandbox"))
         .args([
             "--protocol-version",
-            "3",
+            "4",
             "--diagnostic-token",
             "0123456789abcdef0123456789abcdef",
             "--mode",

@@ -10,7 +10,9 @@ import type {
 import { iterateObserved, type RuntimeTurnObservation } from "../../runtime-observation";
 import type { StreamSession } from "../../stream";
 import type { ToolCallCoordinator, ToolCallMetrics, ValidatedToolResult } from "../../tool-calls";
+import { evaluateToolBatchPolicies } from "../../tool-calls/preparation-policies";
 import type { AgentConfig, AgentEvent } from "../../types";
+import { dispatchPostEventHooks } from "../../hooks";
 import { createToolBatchDescriptor, firstTurnBarrierIndex } from "../toolBatch";
 import type { PublishAgentEvent, ToolBatchPhaseResult } from "./types";
 
@@ -51,64 +53,99 @@ export async function* executeToolBatchPhase(
       batch: cloneData(batch),
     });
 
+    const environment = {
+      agentId: input.agentId,
+      workspaceId: input.workspaceId,
+      workspaceRoot: input.workspaceRoot,
+      batchId: batch.batchId,
+      cwd: input.environment.snapshot.workspace.cwd,
+      middleware: input.config.middleware ?? [],
+      lifecycleAdapters: input.config.toolLifecycleAdapters ?? [],
+      onPermissionResolved: (event: {
+        readonly permissionId: string;
+        readonly decision: "approve" | "deny";
+        readonly reason: string;
+      }) =>
+        dispatchPostEventHooks(
+          { type: "permission.resolved", ...event },
+          {
+            config: input.config,
+            coordinator: input.coordinator,
+            environment: hookEnvironment(input),
+            signal: input.signal,
+          },
+        ),
+    };
+    const preparedBatch = await input.coordinator.prepareBatch({
+      tools: input.config.tools,
+      calls: toolCalls.map((call) => ({
+        toolName: call.name,
+        toolCallId: call.id,
+        input: call.arguments,
+        signal: input.signal,
+      })),
+      environment,
+      observation,
+    });
+    const policies = input.config.toolBatchPreparationPolicies ?? [];
+    const preparationDecision = await evaluateToolBatchPolicies(policies, preparedBatch, {
+      origin: "agent",
+    });
+    let policyResult = preparationDecision.kind === "executable" ? undefined : preparationDecision;
+    if (preparationDecision.kind === "deferred") {
+      yield input.publish({
+        type: "tool_batch_deferred",
+        batchId: batch.batchId,
+        code: preparationDecision.code,
+        retryable: true,
+      });
+    }
+
     const turnBarrierIndex = firstTurnBarrierIndex(toolCalls, input.config.tools);
 
     for (const [index, call] of toolCalls.entries()) {
       throwIfAborted(input.signal);
       const position = { batchId: batch.batchId, index, total: toolCalls.length };
       const preview = batch.members[index]!.preview;
+      const preparedCall = preparedBatch.calls[index]!;
+      const policyStopped = preparedCall.preparation === "ready" && policyResult !== undefined;
 
       let result: ValidatedToolResult | undefined;
-      if (turnBarrierIndex !== undefined && index !== turnBarrierIndex) {
-        result = deferredToolResult();
-        const deferredMetrics = { accessMs: 0, executionMs: 0, totalMs: 0 };
-        observeDeferredToolCall(
-          observation,
-          call,
-          batch.batchId,
-          result,
-          deferredMetrics,
-          input.config.tools.find((tool) => tool.name === call.name)?.access.hiddenInputKeys,
-        );
-        yield publishToolStart(
-          input.session,
-          call.name,
-          call.id,
-          call.arguments,
-          preview,
-          position,
-        );
-        yield publishToolEnd(
-          input.session,
-          call.name,
-          call.id,
-          result,
-          0,
-          position,
-          deferredMetrics,
-        );
-      } else {
-        for await (const event of iterateObserved(observation, () =>
-          input.coordinator.run(
-            input.config.tools,
-            {
-              toolName: call.name,
-              toolCallId: call.id,
-              input: call.arguments,
-              signal: input.signal,
-            },
-            {
-              agentId: input.agentId,
-              workspaceId: input.workspaceId,
-              workspaceRoot: input.workspaceRoot,
-              batchId: batch.batchId,
-              cwd: input.environment.snapshot.workspace.cwd,
-              middleware: input.config.middleware ?? [],
-              lifecycleAdapters: input.config.toolLifecycleAdapters ?? [],
-            },
-            observation,
-          ),
-        )) {
+      let executed = false;
+      let durationMs = 0;
+      const turnBarrierStopped =
+        preparedCall.preparation === "ready" &&
+        turnBarrierIndex !== undefined &&
+        index !== turnBarrierIndex;
+      const events = policyStopped
+        ? input.coordinator.defer(
+            preparedCall,
+            { environment, observation },
+            policyStoppedToolResult(policyResult!),
+          )
+        : turnBarrierStopped
+          ? input.coordinator.defer(
+              preparedCall,
+              { environment, observation },
+              deferredToolResult(
+                "tool_batch_deferred",
+                "This call was not executed because the batch contained a turn barrier. Reissue it if it is still needed.",
+              ),
+            )
+          : input.coordinator.authorizeAndRun(preparedCall, {
+              environment,
+              observation,
+              revalidate: async () => {
+                const decision = await evaluateToolBatchPolicies(policies, preparedBatch, {
+                  origin: "agent",
+                });
+                if (decision.kind === "executable") return undefined;
+                policyResult = decision;
+                return policyStoppedToolResult(decision);
+              },
+            });
+      {
+        for await (const event of iterateObserved(observation, () => events)) {
           if (event.type === "tool_start") {
             yield publishToolStart(
               input.session,
@@ -120,6 +157,8 @@ export async function* executeToolBatchPhase(
             );
           } else if (event.type === "tool_end") {
             result = event.result;
+            executed = event.metrics?.executed === true;
+            durationMs = event.durationMs;
             yield publishToolEnd(
               input.session,
               event.toolName,
@@ -137,17 +176,49 @@ export async function* executeToolBatchPhase(
       }
       throwIfAborted(input.signal);
       if (!result) throw new Error(`Tool call completed without a result: ${call.name}`);
-      input.loopProtection.observeToolResult({
-        call,
-        toolIdentity: input.config.tools.find((tool) => tool.name === call.name)?.toolIdentity,
-        result,
-      });
+      const preparationDeferred =
+        policyResult?.kind === "deferred" && preparedCall.preparation === "ready";
+      if (preparationDeferred && !policyStopped) {
+        yield input.publish({
+          type: "tool_batch_deferred",
+          batchId: batch.batchId,
+          code: policyResult!.code,
+          retryable: true,
+        });
+      }
+      if (!policyStopped && !preparationDeferred) {
+        input.loopProtection.observeToolResult({
+          call,
+          toolIdentity: input.config.tools.find((tool) => tool.name === call.name)?.toolIdentity,
+          result,
+        });
+      }
+      if (executed) {
+        await dispatchPostEventHooks(
+          {
+            type: "tool.completed",
+            toolName: call.name,
+            toolCallId: call.id,
+            isError: result.isError,
+            durationMs,
+          },
+          {
+            config: input.config,
+            coordinator: input.coordinator,
+            environment,
+            signal: input.signal,
+          },
+        );
+      }
 
       toolResultMessages.push({
         role: "toolResult",
         toolCallId: call.id,
         toolName: call.name,
         content: result.content,
+        ...(result.structuredContent === undefined
+          ? {}
+          : { structuredContent: cloneData(result.structuredContent) }),
         ...(result.transcriptDetails === undefined
           ? {}
           : { details: cloneData(result.transcriptDetails) }),
@@ -186,14 +257,28 @@ export async function* executeToolBatchPhase(
   return { kind: "continue", messages: toolResultMessages };
 }
 
-function deferredToolResult(): ValidatedToolResult {
-  const details = { code: "tool_batch_deferred", retryable: true } as const;
+function hookEnvironment(
+  input: ToolBatchPhaseInput,
+): import("../../tool-calls").ToolCallEnvironment {
+  return {
+    agentId: input.agentId,
+    workspaceId: input.workspaceId,
+    workspaceRoot: input.workspaceRoot,
+    cwd: input.environment.snapshot.workspace.cwd,
+    middleware: input.config.middleware ?? [],
+    lifecycleAdapters: input.config.toolLifecycleAdapters ?? [],
+    origin: "hook",
+  };
+}
+
+function deferredToolResult(code: string, message: string): ValidatedToolResult {
+  const details = { code, retryable: true, executed: false } as const;
   return {
     isError: true,
     content: [
       {
         type: "text",
-        text: "This call was not executed because the batch contained a turn barrier. Reissue it if it is still needed.",
+        text: message,
       },
     ],
     meta: details,
@@ -201,29 +286,34 @@ function deferredToolResult(): ValidatedToolResult {
   };
 }
 
-function observeDeferredToolCall(
-  batchObservation: import("../../runtime-observation").RuntimeToolBatchObservation,
-  call: ToolCallContent,
-  batchId: string,
-  result: ValidatedToolResult,
-  metrics: ToolCallMetrics,
-  hiddenInputKeys?: readonly string[],
-): void {
-  const observation = batchObservation.startCall({
-    toolName: call.name,
-    toolCallId: call.id,
-    batchId,
-    input: call.arguments,
-    ...(hiddenInputKeys ? { hiddenInputKeys } : {}),
-  });
-  observation.result({
-    toolName: call.name,
-    toolCallId: call.id,
-    batchId,
-    result,
-    metrics,
-  });
-  observation.complete({ result });
+function policyStoppedToolResult(
+  decision: Exclude<
+    import("../../tool-calls").ToolBatchPreparationDecision,
+    { kind: "executable" }
+  >,
+): ValidatedToolResult {
+  if (decision.kind === "deferred") {
+    const update = (decision.promptSections ?? []).map((section) => section.content).join("\n\n");
+    return deferredToolResult(
+      decision.code,
+      [
+        decision.message,
+        update
+          ? "Updated preparation context follows. This call was not executed; reconsider it using this context."
+          : "",
+        update,
+      ]
+        .filter(Boolean)
+        .join("\n\n"),
+    );
+  }
+  const details = { code: decision.code, retryable: false, executed: false } as const;
+  return {
+    isError: true,
+    content: [{ type: "text", text: decision.message }],
+    meta: details,
+    transcriptDetails: details,
+  };
 }
 
 function publishToolStart(

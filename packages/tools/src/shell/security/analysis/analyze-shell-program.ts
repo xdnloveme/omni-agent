@@ -516,9 +516,19 @@ async function analyzePathsForCommand(
   return {
     ...emptyAnalysis(context),
     paths: [...pathAnalysis.facts],
-    uncertainties: pathAnalysis.unresolved
-      ? [{ kind: "path", reason: "A shell path cannot be resolved statically" }]
-      : [],
+    uncertainties: [
+      ...(pathAnalysis.unresolved
+        ? [{ kind: "path" as const, reason: "A shell path cannot be resolved statically" }]
+        : []),
+      ...(pathAnalysis.unresolvedMutation
+        ? [
+            {
+              kind: "mutation" as const,
+              reason: "A command's write targets cannot be bounded statically",
+            },
+          ]
+        : []),
+    ],
   };
 }
 

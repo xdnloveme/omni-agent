@@ -1,7 +1,7 @@
 class_name AgentHostProtocol
 extends RefCounted
 
-const VERSION := 1
+const VERSION := 2
 const REQUEST_ID_PATTERN := "^[A-Za-z0-9._:-]{1,128}$"
 
 static func encode_hello(token: String) -> String:
@@ -33,6 +33,10 @@ static func parse_server_message(raw: String) -> Dictionary:
 			return _parse_event(object)
 		"error":
 			return _parse_error(object)
+		"permission.requested":
+			return _parse_permission_requested(object)
+		"permission.resolved":
+			return _parse_permission_resolved(object)
 		_:
 			return _failure("Server message type is unknown")
 
@@ -71,6 +75,9 @@ static func _parse_result(object: Dictionary) -> Dictionary:
 		"cancel_requested":
 			if not _exact_keys(result, ["kind", "requestId"]) or not _request_id(result.get("requestId")):
 				return _failure("cancel result is invalid")
+		"permission_resolved":
+			if not _exact_keys(result, ["kind", "permissionId"]) or not _request_id(result.get("permissionId")):
+				return _failure("permission result is invalid")
 		_:
 			return _failure("result kind is unknown")
 	return _success(object)
@@ -114,6 +121,32 @@ static func _parse_error(object: Dictionary) -> Dictionary:
 		or not _valid_failure(object["error"])
 	):
 		return _failure("error payload is invalid")
+	return _success(object)
+
+static func _parse_permission_requested(object: Dictionary) -> Dictionary:
+	if not _exact_keys(object, ["v", "type", "requestId", "permissionId", "expiresAt", "presentation"]):
+		return _failure("permission.requested has unexpected fields")
+	if not _request_id(object.get("requestId")) or not _request_id(object.get("permissionId")):
+		return _failure("permission correlation is invalid")
+	if typeof(object.get("expiresAt")) not in [TYPE_INT, TYPE_FLOAT] or typeof(object.get("presentation")) != TYPE_DICTIONARY:
+		return _failure("permission request is invalid")
+	var presentation: Dictionary = object["presentation"]
+	if not _exact_keys(presentation, ["title", "resources"]):
+		return _failure("permission presentation is invalid")
+	if not _nonempty_string(presentation.get("title")) or presentation["title"].length() > 4096 or typeof(presentation.get("resources")) != TYPE_ARRAY or presentation["resources"].size() > 128:
+		return _failure("permission presentation fields are invalid")
+	for resource: Variant in presentation["resources"]:
+		if typeof(resource) != TYPE_STRING or resource.length() > 512:
+			return _failure("permission resource is invalid")
+	return _success(object)
+
+static func _parse_permission_resolved(object: Dictionary) -> Dictionary:
+	if not _exact_keys(object, ["v", "type", "requestId", "permissionId", "decision", "reason"]):
+		return _failure("permission.resolved has unexpected fields")
+	if not _request_id(object.get("requestId")) or not _request_id(object.get("permissionId")):
+		return _failure("permission correlation is invalid")
+	if object.get("decision") not in ["approve", "deny"] or object.get("reason") not in ["user", "expired", "cancelled", "disconnected"]:
+		return _failure("permission resolution is invalid")
 	return _success(object)
 
 static func _valid_agent(value: Variant) -> bool:

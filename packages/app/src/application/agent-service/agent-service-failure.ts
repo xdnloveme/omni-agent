@@ -3,7 +3,7 @@ import {
   type AgentPackageCatalogErrorCode,
 } from "../../agent-packages/contracts";
 import { InteractionError } from "@omni-agent/core";
-import { AgentModelNotConfiguredError } from "../../assembly/errors";
+import { AgentAssemblyError, AgentModelNotConfiguredError } from "../../assembly/errors";
 import { AgentApplicationLifecycleError } from "../agent-application";
 import {
   AgentServiceDisposalError,
@@ -25,6 +25,13 @@ export function toAgentServiceFailure(error: unknown): AgentServiceFailure {
     return {
       code: error.code,
       message: "Model is not configured for this Agent",
+      retryable: false,
+    };
+  }
+  if (error instanceof AgentAssemblyError) {
+    return {
+      code: error.code,
+      message: `Agent assembly failed during ${error.stage}`,
       retryable: false,
     };
   }

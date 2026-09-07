@@ -49,38 +49,32 @@ export class TuiAccessConsentBroker implements AccessConsentBroker {
     signal?: AbortSignal,
   ): Promise<AccessConsentResponse> {
     const fieldId = "access";
-    const filesystem = request.kind === "filesystem";
     const response = await this.surface.request(
       {
         requestId: crypto.randomUUID(),
-        title: consentTitle(request),
+        title: "Approve and save access for this workspace and Agent?",
         tone: "warning",
         detail: consentDetail(request),
-        message: filesystem
-          ? "This access will remain available in controlled mode until it is revoked."
-          : "Network access is currently disabled in controlled mode.",
-        status: `awaiting ${filesystem ? "filesystem" : "network"} access: ${request.toolName}`,
+        message:
+          "All listed access will be saved together and reused in controlled mode until revoked.",
+        status: `awaiting access: ${request.toolName}`,
         completionStatus: `running: ${request.toolName}...`,
         fields: [
           {
             type: "single",
             id: fieldId,
-            label: filesystem ? "Filesystem access" : "Network access",
+            label: "Requested access",
             options: [
               {
                 id: "approve",
-                label: filesystem ? "Approve access" : "Enable network",
-                description: filesystem
-                  ? "Add these paths to the controlled workspace boundary"
-                  : "Enable normal network access for this workspace",
+                label: "Approve and save",
+                description: "Save all listed paths and destinations for this workspace and Agent",
                 tone: "positive",
               },
               {
                 id: "deny",
-                label: filesystem ? "Keep restricted" : "Keep disabled",
-                description: filesystem
-                  ? "Do not add these filesystem paths"
-                  : "Do not run this network operation",
+                label: "Deny this request",
+                description: "Do not run this operation; keep existing permissions unchanged",
                 tone: "negative",
               },
             ],
@@ -104,26 +98,17 @@ interface PendingConsent {
   onAbort?: () => void;
 }
 
-function consentTitle(request: AccessConsentRequest): string {
-  if (request.kind === "network") return "Enable network for this workspace?";
-  if (request.scopes.every((scope) => scope.scope === "exact")) {
-    return "Approve file access for this workspace?";
-  }
-  if (request.scopes.every((scope) => scope.scope === "subtree")) {
-    return "Approve folder access for this workspace?";
-  }
-  return "Approve filesystem access for this workspace?";
-}
-
 function consentDetail(request: AccessConsentRequest): string {
-  const heading = `Agent: ${safeText(request.agentId)}\nTool: ${safeText(request.toolName)}`;
-  if (request.kind === "network") return heading;
+  const heading = `Workspace: ${safeText(request.workspaceId)}\nAgent: ${safeText(request.agentId)}\nTool: ${safeText(request.toolName)}`;
+  const targets = request.targets.map(
+    (target) => `${target.scheme}://${safeText(target.host)}:${target.port}`,
+  );
   const scopes = request.scopes.map((scope) => {
     const path = safeText(scope.path, 4_096);
     const target = scope.scope === "subtree" ? `${path} and all descendants` : path;
     return `${scope.access === "read_write" ? "Read/write" : "Read"}: ${target}`;
   });
-  return `${heading}\n\n${scopes.join("\n")}`;
+  return `${heading}\nPurpose: ${safeText(request.purpose)}\n\n${[...scopes, ...targets].join("\n")}`;
 }
 
 function safeText(value: string, maxLength = 256): string {

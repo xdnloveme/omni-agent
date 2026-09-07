@@ -13,7 +13,7 @@ export const agentHostHelloSchema = {
   additionalProperties: false,
   required: ["v", "type", "token"],
   properties: {
-    v: { const: 1 },
+    v: { const: 2 },
     type: { const: "hello" },
     token: {
       type: "string",
@@ -40,6 +40,11 @@ export const agentHostRequestSchema = {
       ["agentId", "sessionId", "text"],
     ),
     operation("cancel", { requestId }, ["requestId"]),
+    operation(
+      "resolve_permission",
+      { permissionId: requestId, decision: { enum: ["approve", "deny"] } },
+      ["permissionId", "decision"],
+    ),
   ],
 } as const;
 
@@ -53,7 +58,7 @@ function operation(
     additionalProperties: false,
     required: ["v", "id", "type", ...required],
     properties: {
-      v: { const: 1 },
+      v: { const: 2 },
       id: requestId,
       type: { const: type },
       ...properties,

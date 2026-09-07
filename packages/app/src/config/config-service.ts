@@ -4,6 +4,7 @@ import { containsSecretField, type ConfigurationScope } from "@omni-agent/models
 import { AtomicJsonFile } from "../persistence/atomic-json-file";
 import type { ModelSelection } from "../models/model-service";
 import type { ConfigDiagnostic, OmniConfig, ResolvedModelConfiguration } from "./types";
+import { validateMcpServerConfigs, type McpServerConfig } from "../mcp/config/types";
 
 export interface ConfigServiceOptions {
   readonly cwd: string;
@@ -66,6 +67,14 @@ export class ConfigService {
     if (layers.project.config) return layers.project.config.model;
     if (layers.global.present && !layers.global.config) return null;
     return layers.global.config?.model ?? null;
+  }
+
+  async resolveMcpServers(): Promise<readonly McpServerConfig[]> {
+    const layers = await this.loadLayers();
+    if (layers.project.present && !layers.project.config) return [];
+    if (layers.project.config?.mcp) return layers.project.config.mcp.servers;
+    if (layers.global.present && !layers.global.config) return [];
+    return layers.global.config?.mcp?.servers ?? [];
   }
 
   async saveSharedModel(
@@ -173,12 +182,25 @@ function parseOmniConfig(value: unknown): OmniConfig | null {
   if (value.version !== undefined && value.version !== 3) return null;
   const { version: _legacyVersion, ...config } = value;
   if (!isModelSelection(config.model)) return null;
-  if (config.agents === undefined) return config as unknown as OmniConfig;
-  if (!isRecord(config.agents)) return null;
-  const validAgents = Object.entries(config.agents).every(
-    ([agentId, entry]) => isAgentId(agentId) && isRecord(entry) && isModelSelection(entry.model),
-  );
-  return validAgents ? (config as unknown as OmniConfig) : null;
+  if (config.agents !== undefined) {
+    if (!isRecord(config.agents)) return null;
+    if (
+      !Object.entries(config.agents).every(
+        ([agentId, entry]) =>
+          isAgentId(agentId) && isRecord(entry) && isModelSelection(entry.model),
+      )
+    )
+      return null;
+  }
+  if (config.mcp !== undefined) {
+    if (!isRecord(config.mcp) || !Array.isArray(config.mcp.servers)) return null;
+    try {
+      validateMcpServerConfigs(config.mcp.servers as McpServerConfig[]);
+    } catch {
+      return null;
+    }
+  }
+  return config as unknown as OmniConfig;
 }
 
 function withoutAgentModel(config: OmniConfig, agentId: string): OmniConfig {

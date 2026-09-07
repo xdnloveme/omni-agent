@@ -17,7 +17,7 @@ func _ready() -> void:
 	_client.session_closed.connect(_on_session_closed)
 	_client.request_failed.connect(
 		func(_request_id: String, failure: Dictionary) -> void:
-			_fail("Agent Host request failed: %s" % failure.get("code", "unknown"))
+			_fail("Agent Host request failed: %s: %s" % [failure.get("code", "unknown"), failure.get("message", "")])
 	)
 	_client.transport_failed.connect(
 		func(failure: Dictionary) -> void:

@@ -23,6 +23,7 @@ export interface ShellCommandFact {
   executionKind: "builtin" | "shell_function" | "external" | "dynamic";
   wrapperChain: readonly string[];
   effects: readonly ShellEffect[];
+  pathAccess: "read" | "write" | "unknown";
 }
 
 export interface ShellPathFact {
@@ -34,7 +35,7 @@ export interface ShellPathFact {
 }
 
 export interface ShellUncertaintyFact {
-  kind: "execution_target" | "path" | "unsupported_syntax" | "analysis_limit";
+  kind: "execution_target" | "path" | "mutation" | "unsupported_syntax" | "analysis_limit";
   reason: string;
 }
 

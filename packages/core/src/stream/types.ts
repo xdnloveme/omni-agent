@@ -108,6 +108,13 @@ export interface ErrorEvent {
   failure: AgentFailure;
 }
 
+export interface ToolBatchDeferredEvent {
+  readonly type: "tool_batch_deferred";
+  readonly batchId: string;
+  readonly code: string;
+  readonly retryable: true;
+}
+
 /** Union of all stream events */
 export type StreamEvent =
   | TextDeltaEvent
@@ -122,13 +129,15 @@ export type StreamEvent =
   | ToolUseStartEvent
   | ToolUseEndEvent
   | ToolBatchCompletedEvent
+  | ToolBatchDeferredEvent
   | ExtensionEvent
   | DoneEvent
   | ErrorEvent;
 
 /** Tool result payload (mirrors core ToolResult but decoupled) */
 export interface ToolResultPayload {
-  content: Array<{ type: "text"; text: string }>;
+  content: import("../types").ToolResultContent[];
+  structuredContent?: import("../data").JsonValue;
   isError: boolean;
   meta?: import("../types").ToolResultMetadata;
 }

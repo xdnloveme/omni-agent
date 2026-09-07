@@ -17,6 +17,7 @@ const SAFE_REDIRECTION_TARGET = /^\/dev\/(?:null|stdin|stdout|stderr|tty|fd\/\d+
 export interface PathAnalysis {
   facts: readonly ShellPathFact[];
   unresolved: boolean;
+  unresolvedMutation: boolean;
 }
 
 interface PathCandidate {
@@ -53,6 +54,7 @@ export async function analyzeCommandPaths(
     candidates,
   };
   let unresolved = context.cwd === "unknown";
+  let unresolvedWriteRedirection = false;
 
   let skippedPatterns = 0;
   let pathOperands = 0;
@@ -155,6 +157,7 @@ export async function analyzeCommandPaths(
     const target = resolveShellWord(redirection.target, context);
     if (target === undefined) {
       unresolved = true;
+      unresolvedWriteRedirection ||= redirection.operator.includes(">");
       continue;
     }
     if (SAFE_REDIRECTION_TARGET.test(target)) continue;
@@ -168,7 +171,13 @@ export async function analyzeCommandPaths(
     }
   }
 
-  if (context.cwd === "unknown") return { facts: [], unresolved: true };
+  const unresolvedMutation =
+    unresolvedWriteRedirection ||
+    semantics.pathAccess === "unknown" ||
+    (semantics.pathAccess === "write" &&
+      (unresolved || !candidates.some((candidate) => candidate.access === "write"))) ||
+    (context.cwd === "unknown" && candidates.some((candidate) => candidate.access === "write"));
+  if (context.cwd === "unknown") return { facts: [], unresolved: true, unresolvedMutation };
   const facts: ShellPathFact[] = [];
   for (const candidate of candidates) {
     const absolute = path.isAbsolute(candidate.value)
@@ -183,7 +192,7 @@ export async function analyzeCommandPaths(
       source: candidate.source,
     });
   }
-  return { facts, unresolved };
+  return { facts, unresolved, unresolvedMutation };
 }
 
 function processOptionOperands(

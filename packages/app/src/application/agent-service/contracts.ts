@@ -46,6 +46,12 @@ export interface AgentServicePort {
    * returning from the iterator cancels queued or active work.
    */
   run(request: AgentServiceRunRequest, signal?: AbortSignal): AsyncIterable<AgentServiceEvent>;
+  subscribePermissions?(
+    sink: (
+      event: import("../permissions/service-access-consent-broker").AgentServicePermissionEvent,
+    ) => void | Promise<void>,
+  ): () => void;
+  resolvePermission?(permissionId: string, decision: "approve" | "deny"): boolean;
   dispose(): Promise<void>;
 }
 

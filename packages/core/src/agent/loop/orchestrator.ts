@@ -14,6 +14,7 @@ import { maxTurnsFailure, runtimeFailure } from "./failures";
 import { streamModelPhase } from "./modelPhase";
 import { executeToolBatchPhase } from "./toolBatchPhase";
 import { captureEnvironmentPhase, prepareContextPhase } from "./preparation";
+import { dispatchPostEventHooks } from "../../hooks";
 
 export interface LoopIterationInput {
   readonly turn: number;
@@ -75,6 +76,12 @@ export async function* runLoopIteration(
       signal: input.signal,
     });
 
+    const checkpointId = prepared.context.manifest.checkpoint?.checkpointId;
+    if (checkpointId) {
+      for (const policy of input.config.toolBatchPreparationPolicies ?? [])
+        await policy.onContextCheckpoint?.(checkpointId);
+    }
+
     const model = yield* streamModelPhase({
       turn: input.turn,
       agentId: input.agentId,
@@ -90,6 +97,15 @@ export async function* runLoopIteration(
       signal: input.signal,
     });
     if (model.kind === "failed") {
+      await dispatchPostEventHooks(
+        { type: "run.failed", failure: model.event.failure },
+        {
+          config: input.config,
+          coordinator: input.toolCallCoordinator,
+          environment: hookEnvironment(input, prepared.environment.snapshot.workspace.cwd),
+          signal: input.signal,
+        },
+      );
       turnObservation.fail({ turn: input.turn, failure: model.event.failure });
       yield publish(model.event, { type: "error", failure: model.event.failure });
       return { kind: "failed", usage: input.lastUsage };
@@ -105,6 +121,15 @@ export async function* runLoopIteration(
         yield publish(finalResponseEvent);
       }
       input.session?.handle({ type: "done", usage: model.usage });
+      await dispatchPostEventHooks(
+        { type: "run.completed", usage: model.usage },
+        {
+          config: input.config,
+          coordinator: input.toolCallCoordinator,
+          environment: hookEnvironment(input, prepared.environment.snapshot.workspace.cwd),
+          signal: input.signal,
+        },
+      );
       turnObservation.complete({ turn: input.turn, usage: model.usage });
       yield { type: "done", produced: input.conversation.produced(), usage: model.usage };
       return { kind: "completed", usage: model.usage };
@@ -127,6 +152,15 @@ export async function* runLoopIteration(
     });
     for (const message of tools.messages) input.conversation.append(message);
     if (tools.kind === "halt") {
+      await dispatchPostEventHooks(
+        { type: "run.failed", failure: tools.failure },
+        {
+          config: input.config,
+          coordinator: input.toolCallCoordinator,
+          environment: hookEnvironment(input, prepared.environment.snapshot.workspace.cwd),
+          signal: input.signal,
+        },
+      );
       turnObservation.fail({ turn: input.turn, failure: tools.failure });
       yield publish(
         {
@@ -161,6 +195,21 @@ export async function* runLoopIteration(
     }
     throw error;
   }
+}
+
+function hookEnvironment(
+  input: LoopIterationInput,
+  cwd: string,
+): import("../../tool-calls").ToolCallEnvironment {
+  return {
+    agentId: input.agentId,
+    workspaceId: input.workspaceId,
+    workspaceRoot: input.workspaceRoot,
+    cwd,
+    middleware: input.config.middleware ?? [],
+    lifecycleAdapters: input.config.toolLifecycleAdapters ?? [],
+    origin: "hook",
+  };
 }
 
 function isFinalTextResponse(message: AssistantTranscriptMessage): boolean {

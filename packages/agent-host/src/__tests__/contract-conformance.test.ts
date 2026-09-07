@@ -18,17 +18,17 @@ describe("Agent Host Contract conformance", () => {
 
     socket.send(
       JSON.stringify({
-        v: 1,
+        v: 2,
         id: "open",
         type: "open_session",
         agentId: "coding",
         sessionId: "existing",
       }),
     );
-    socket.send(JSON.stringify({ v: 1, id: "create", type: "create_session", agentId: "coding" }));
+    socket.send(JSON.stringify({ v: 2, id: "create", type: "create_session", agentId: "coding" }));
     socket.send(
       JSON.stringify({
-        v: 1,
+        v: 2,
         id: "close",
         type: "close_session",
         agentId: "coding",
@@ -68,7 +68,7 @@ describe("Agent Host Contract conformance", () => {
     const pending = deferred<readonly []>();
     const service = serviceFixture({ listAgents: vi.fn(() => pending.promise) });
     const { socket, messages } = await connect(service);
-    const request = JSON.stringify({ v: 1, id: "same", type: "list_agents" });
+    const request = JSON.stringify({ v: 2, id: "same", type: "list_agents" });
 
     socket.send(request);
     socket.send(request);
@@ -94,7 +94,7 @@ describe("Agent Host Contract conformance", () => {
     const { server, socket, messages } = await connect(service);
     socket.send(
       JSON.stringify({
-        v: 1,
+        v: 2,
         id: "run",
         type: "run",
         agentId: "coding",
@@ -125,7 +125,7 @@ async function connect(service: AgentServicePort): Promise<{
   });
   cleanups.push(() => socket.terminate());
   const messages = messageQueue(socket);
-  socket.send(JSON.stringify({ v: 1, type: "hello", token }));
+  socket.send(JSON.stringify({ v: 2, type: "hello", token }));
   await messages.next();
   return { server, socket, messages };
 }

@@ -1,10 +1,11 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=7 format=3]
 
 [ext_resource type="Script" path="res://src/bootstrap/game_root.gd" id="1_root"]
 [ext_resource type="Script" path="res://src/client/agent_host_client.gd" id="2_client"]
 [ext_resource type="Script" path="res://src/features/character_workspace_controller.gd" id="3_controller"]
 [ext_resource type="PackedScene" path="res://scenes/CharacterSelectionPanel.tscn" id="4_characters"]
 [ext_resource type="PackedScene" path="res://scenes/TaskPanel.tscn" id="5_task"]
+[ext_resource type="PackedScene" path="res://scenes/PermissionPanel.tscn" id="6_permission"]
 
 [node name="Main" type="Node"]
 script = ExtResource("1_root")
@@ -48,6 +49,12 @@ size_flags_horizontal = 3
 size_flags_vertical = 3
 
 [node name="TaskPanel" parent="Layout/Content" instance=ExtResource("5_task")]
+unique_name_in_owner = true
+visible = false
+size_flags_horizontal = 3
+size_flags_vertical = 3
+
+[node name="PermissionPanel" parent="Layout/Content" instance=ExtResource("6_permission")]
 unique_name_in_owner = true
 visible = false
 size_flags_horizontal = 3
