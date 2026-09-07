@@ -359,7 +359,12 @@ function gatewayFetch(client: AuthorizedNetworkClient, signal?: AbortSignal): Fe
       maxDecompressedBytes: MCP_MAX_TRANSPORT_BYTES,
       signal: signal ? AbortSignal.any([signal, request.signal]) : request.signal,
     });
-    return new Response(response.body, { status: response.status, headers: response.headers });
+    const headers = new Headers();
+    for (const [name, value] of Object.entries(response.headers)) {
+      if (value === undefined) continue;
+      for (const entry of Array.isArray(value) ? value : [value]) headers.append(name, entry);
+    }
+    return new Response(response.body, { status: response.status, headers });
   };
 }
 

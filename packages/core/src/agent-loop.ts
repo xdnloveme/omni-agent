@@ -27,6 +27,37 @@ export interface AgentLoopOptions {
  */
 export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<AgentEvent> {
   const conversation = WorkingConversation.from(input.snapshot);
+  for await (const event of runIterations(input, conversation)) {
+    // Dispatch before yielding: consumers may stop reading as soon as a terminal event arrives.
+    if (event.type === "done" || event.type === "error") {
+      await dispatchPostEventHooks(
+        event.type === "done"
+          ? { type: "run.completed", usage: event.usage }
+          : { type: "run.failed", failure: event.failure },
+        {
+          config: input.config,
+          coordinator: input.toolCallCoordinator,
+          environment: {
+            agentId: input.agentId,
+            workspaceId: input.workspaceId,
+            workspaceRoot: input.workspaceRoot,
+            cwd: conversation.snapshot().environment?.snapshot.workspace.cwd ?? input.workspaceRoot,
+            middleware: input.config.middleware ?? [],
+            lifecycleAdapters: input.config.toolLifecycleAdapters ?? [],
+            origin: "hook",
+          },
+          signal: input.signal,
+        },
+      );
+    }
+    yield event;
+  }
+}
+
+async function* runIterations(
+  input: AgentLoopInput,
+  conversation: WorkingConversation,
+): AsyncGenerator<AgentEvent> {
   const maxTurns = input.config.maxTurns;
   const session = input.options?.session;
   const loopProtection = createLoopProtection();
@@ -70,23 +101,6 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
   } catch (error) {
     if (isAbortError(error, input.signal)) throw error;
     const failure = runtimeFailure("agent_run_failed", error, false);
-    await dispatchPostEventHooks(
-      { type: "run.failed", failure },
-      {
-        config: input.config,
-        coordinator: input.toolCallCoordinator,
-        environment: {
-          agentId: input.agentId,
-          workspaceId: input.workspaceId,
-          workspaceRoot: input.workspaceRoot,
-          cwd: input.workspaceRoot,
-          middleware: input.config.middleware ?? [],
-          lifecycleAdapters: input.config.toolLifecycleAdapters ?? [],
-          origin: "hook",
-        },
-        signal: input.signal,
-      },
-    );
     session?.handle({ type: "error", failure });
     yield { type: "error", failure, produced: conversation.produced(), usage: lastUsage };
   }

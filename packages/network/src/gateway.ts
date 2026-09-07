@@ -149,7 +149,7 @@ export class NetworkGateway {
   private requestOnce(
     request: NetworkRequest,
     address: ResolvedAddress,
-  ): Promise<{ status: number; headers: Record<string, string>; stream: http.IncomingMessage }> {
+  ): Promise<{ status: number; headers: http.IncomingHttpHeaders; stream: http.IncomingMessage }> {
     const url = new URL(request.url);
     const transport = url.protocol === "https:" ? https : http;
     const lookup: LookupFunction = (_host, options, callback) => {
@@ -167,12 +167,11 @@ export class NetworkGateway {
           signal: request.signal,
         },
         (response) => {
-          const headers: Record<string, string> = {};
-          for (const [name, value] of Object.entries(response.headers)) {
-            if (value !== undefined)
-              headers[name] = Array.isArray(value) ? value.join(", ") : value;
-          }
-          resolve({ status: response.statusCode ?? 0, headers, stream: response });
+          resolve({
+            status: response.statusCode ?? 0,
+            headers: response.headers,
+            stream: response,
+          });
         },
       );
       client.once("error", reject);
@@ -207,7 +206,7 @@ function byteLimit(
 
 function boundedBody(
   source: http.IncomingMessage,
-  originalHeaders: Record<string, string>,
+  originalHeaders: http.IncomingHttpHeaders,
   request: NetworkRequest,
 ) {
   const headers = { ...originalHeaders };

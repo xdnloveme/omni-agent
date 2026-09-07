@@ -12,7 +12,7 @@ export interface NetworkCapability {
 export interface NetworkRequest {
   readonly url: string;
   readonly method: "GET" | "HEAD" | "POST" | "PUT" | "PATCH" | "DELETE" | "OPTIONS";
-  readonly headers?: Readonly<Record<string, string>>;
+  readonly headers?: Readonly<Record<string, string | string[]>>;
   /** Bounded protocol payload. The owning adapter remains responsible for its semantics. */
   readonly body?: Uint8Array;
   readonly maxCompressedBytes: number;
@@ -24,7 +24,8 @@ export interface NetworkResponse {
   readonly requestedUrl: string;
   readonly finalUrl: string;
   readonly status: number;
-  readonly headers: Readonly<Record<string, string>>;
+  /** Preserve separate field values, notably Set-Cookie, across transport adapters. */
+  readonly headers: Readonly<Record<string, string | string[] | undefined>>;
   readonly body: Uint8Array;
   readonly compressedBytes: number;
   readonly redirectCount: number;

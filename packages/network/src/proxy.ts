@@ -159,8 +159,8 @@ export async function openCapabilityProxy(
   };
 }
 
-function forwardHeaders(headers: http.IncomingHttpHeaders): Record<string, string> {
-  const forwarded: Record<string, string> = {};
+function forwardHeaders(headers: http.IncomingHttpHeaders): Record<string, string | string[]> {
+  const forwarded: Record<string, string | string[]> = {};
   const connectionHeaders = new Set(
     (headers.connection ?? "")
       .toLowerCase()
@@ -184,7 +184,7 @@ function forwardHeaders(headers: http.IncomingHttpHeaders): Record<string, strin
     ) {
       continue;
     }
-    forwarded[normalized] = Array.isArray(value) ? value.join(", ") : value;
+    forwarded[normalized] = value;
   }
   return forwarded;
 }

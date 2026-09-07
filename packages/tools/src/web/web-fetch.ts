@@ -67,7 +67,8 @@ export const webFetchTool: AgentToolDefinition = {
         status: response.status,
       });
     }
-    const contentType = parseContentType(response.headers["content-type"]);
+    const header = response.headers["content-type"];
+    const contentType = parseContentType(Array.isArray(header) ? header[0] : header);
     if (!isSupported(contentType.mimeType)) {
       return error(
         "web_content_type_unsupported",
