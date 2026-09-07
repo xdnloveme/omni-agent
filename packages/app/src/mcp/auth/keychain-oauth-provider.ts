@@ -56,7 +56,7 @@ export class KeychainMcpOAuthProvider implements OAuthClientProvider {
     value: StoredOAuthClientInformation,
     context?: OAuthClientInformationContext,
   ): Promise<void> {
-    return this.write("client", value, issuer(context));
+    return this.saveIssuerCredential("client", value, issuer(context));
   }
   async tokens(context?: OAuthClientInformationContext): Promise<StoredOAuthTokens | undefined> {
     const issuerValue = issuer(context);
@@ -68,13 +68,7 @@ export class KeychainMcpOAuthProvider implements OAuthClientProvider {
     value: StoredOAuthTokens,
     context?: OAuthClientInformationContext,
   ): Promise<void> {
-    const issuerValue = issuer(context);
-    const previousIssuer = await this.credentials.get(this.key("tokens-latest-issuer"));
-    if (issuerValue && previousIssuer && previousIssuer !== issuerValue) {
-      await this.credentials.delete(this.key("tokens", previousIssuer));
-    }
-    await this.write("tokens", value, issuerValue);
-    if (issuerValue) await this.credentials.set(this.key("tokens-latest-issuer"), issuerValue);
+    await this.saveIssuerCredential("tokens", value, issuer(context));
   }
   redirectToAuthorization(url: URL): void | Promise<void> {
     return this.interaction.redirectToAuthorization(this.config.id, url);
@@ -132,7 +126,9 @@ export class KeychainMcpOAuthProvider implements OAuthClientProvider {
       scope === "all" ? ["client", "tokens", "verifier", "discovery", "state"] : [scope];
     await Promise.all(
       names.map((name) =>
-        name === "tokens" ? this.deleteLatestTokens() : this.credentials.delete(this.key(name)),
+        name === "tokens" || name === "client"
+          ? this.deleteIssuerCredential(name)
+          : this.credentials.delete(this.key(name)),
       ),
     );
   }
@@ -160,13 +156,30 @@ export class KeychainMcpOAuthProvider implements OAuthClientProvider {
   private write(name: string, value: unknown, issuerValue?: string): Promise<void> {
     return this.credentials.set(this.key(name, issuerValue), JSON.stringify(value));
   }
-  private async deleteLatestTokens(): Promise<void> {
-    const latestIssuer = await this.credentials.get(this.key("tokens-latest-issuer"));
+  private async saveIssuerCredential(
+    name: "client" | "tokens",
+    value: unknown,
+    issuerValue?: string,
+  ): Promise<void> {
+    const index = this.key(`${name}-latest-issuer`);
+    const previousIssuer = await this.credentials.get(index);
+    if (previousIssuer && previousIssuer !== issuerValue)
+      await this.credentials.delete(this.key(name, previousIssuer));
+    // Publish the cleanup target before the credential, so partial writes remain reclaimable.
+    if (issuerValue) {
+      await this.credentials.set(index, issuerValue);
+      await this.credentials.delete(this.key(name));
+    } else await this.credentials.delete(index);
+    await this.write(name, value, issuerValue);
+  }
+  private async deleteIssuerCredential(name: "client" | "tokens"): Promise<void> {
+    const index = this.key(`${name}-latest-issuer`);
+    const latestIssuer = await this.credentials.get(index);
     await Promise.all([
-      this.credentials.delete(this.key("tokens")),
-      this.credentials.delete(this.key("tokens-latest-issuer")),
-      ...(latestIssuer ? [this.credentials.delete(this.key("tokens", latestIssuer))] : []),
+      this.credentials.delete(this.key(name)),
+      ...(latestIssuer ? [this.credentials.delete(this.key(name, latestIssuer))] : []),
     ]);
+    await this.credentials.delete(index);
   }
 }
 

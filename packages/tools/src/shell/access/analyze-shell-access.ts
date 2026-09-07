@@ -52,7 +52,8 @@ export async function analyzeShellAccess(
       location: "workspace" as const,
       sensitivity: toAccessSensitivity(fact.sensitivity),
     };
-    if (!resources.some((declared) => covers(declared, observed))) resources.push(observed);
+    // Permission coverage must not erase exact targets used by instruction discovery.
+    resources.push(observed);
   }
   const uncoveredResources = analysis.paths
     .filter((fact) => fact.access !== "unknown" && fact.location === "external")

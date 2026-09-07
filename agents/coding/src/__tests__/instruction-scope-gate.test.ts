@@ -1,11 +1,48 @@
-import { mkdir, mkdtemp, writeFile, unlink } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, unlink, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import type { PreparedToolBatch } from "@omni-agent/core";
 import { InstructionScopeGate } from "../instructions";
+import { bashTool } from "@omni-agent/tools";
 
 describe("InstructionScopeGate", () => {
+  it("loads exact Bash target rules even when a workspace subtree already covers access", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "omni-scope-coverage-")));
+    try {
+      await mkdir(join(root, "nested"));
+      await writeFile(join(root, "nested", "AGENTS.md"), "Do not edit generated files.");
+      if (bashTool.access.kind !== "dynamic") throw new Error("Expected dynamic Bash access");
+      const intent = await bashTool.access.assess(
+        {
+          command: "printf x > nested/output.txt",
+          sandbox_scope: { write_paths: [{ path: root, scope: "subtree" }] },
+        },
+        {
+          cwd: root,
+          workspaceRoot: root,
+          workspaceId: "review",
+          agentId: "coding",
+          toolCallId: "call",
+          hostRuntime: { platform: "darwin", home: "/Users/test" },
+        },
+      );
+      const gate = await InstructionScopeGate.create(root);
+      await gate.contributor(root);
+      const batch = {
+        calls: [{ preparation: "ready", accessIntent: intent }],
+      } as unknown as PreparedToolBatch;
+      const decision = await gate.evaluate(batch, { origin: "agent" });
+      expect(decision.kind).toBe("deferred");
+      if (decision.kind !== "deferred") throw new Error("Expected scoped rules");
+      expect(decision.promptSections?.[0]?.content).toContain("Do not edit generated files.");
+      await expect(gate.evaluate(batch, { origin: "agent" })).resolves.toEqual({
+        kind: "executable",
+      });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
   it("activates more than sixteen small manifests while keeping digest reuse", async () => {
     const root = await mkdtemp(join(tmpdir(), "omni-instructions-many-"));
     const paths: string[] = [];

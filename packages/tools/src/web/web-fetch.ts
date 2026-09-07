@@ -1,6 +1,7 @@
 import * as cheerio from "cheerio";
 import { type AgentToolDefinition, type JsonValue, type ToolResult } from "@omni-agent/core";
 import { createWebAccess } from "./access/web-access-assessor";
+import { truncateUtf8Text } from "../text/utf8";
 
 const DEFAULT_TIMEOUT_MS = 10_000;
 const MAX_COMPRESSED_BYTES = 8 * 1024 * 1024;
@@ -97,28 +98,22 @@ export const webFetchTool: AgentToolDefinition = {
     } else {
       content = decoded;
     }
-    const bounded = truncateUtf8(content, MAX_MODEL_BYTES);
-    let result: WebFetchResult = {
+    const boundedTitle = truncateUtf8Text(title ?? "", 1024);
+    const result = boundResult({
       requestedUrl: response.requestedUrl,
       finalUrl: response.finalUrl,
       status: response.status,
       mimeType: contentType.mimeType,
       ...(contentType.charset ? { charset: contentType.charset } : {}),
-      ...(title ? { title } : {}),
-      content: bounded.content,
+      ...(title ? { title: boundedTitle.text } : {}),
+      content,
       receivedBytes: response.body.byteLength,
-      truncated: bounded.truncated,
-    };
-    let modelText = render(result);
-    const boundedModelText = truncateUtf8(modelText, MAX_MODEL_BYTES);
-    if (boundedModelText.truncated && !result.truncated) {
-      result = { ...result, truncated: true };
-      modelText = truncateUtf8(render(result), MAX_MODEL_BYTES).content;
-    } else {
-      modelText = boundedModelText.content;
-    }
+      truncated: boundedTitle.truncated,
+    });
+    if (!result)
+      return error("web_metadata_limit_exceeded", "Response metadata exceeds output budget");
     return {
-      content: [{ type: "text", text: modelText }],
+      content: [{ type: "text", text: render(result) }],
       structuredContent: result as unknown as JsonValue,
       isError: false,
       meta: {
@@ -154,15 +149,28 @@ function normalizeText(value: string): string {
     .trim();
 }
 
-function truncateUtf8(value: string, maximum: number): { content: string; truncated: boolean } {
-  const bytes = Buffer.from(value);
-  if (bytes.length <= maximum) return { content: value, truncated: false };
-  let end = maximum;
-  let content = new TextDecoder().decode(bytes.subarray(0, end));
-  while (Buffer.byteLength(content) > maximum) {
-    content = new TextDecoder().decode(bytes.subarray(0, --end));
+function boundResult(value: WebFetchResult): WebFetchResult | undefined {
+  const bounded = truncateUtf8Text(value.content, MAX_MODEL_BYTES);
+  value = { ...value, content: bounded.text, truncated: value.truncated || bounded.truncated };
+  // Both projections reach the model. Account for JSON escaping and leave framing room;
+  // never truncate the rendered text independently from its structured source.
+  const fits = (result: WebFetchResult) =>
+    Buffer.byteLength(render(result)) + Buffer.byteLength(JSON.stringify(result)) <=
+    MAX_MODEL_BYTES - 256;
+  if (fits(value)) return value;
+  let result = { ...value, content: "", truncated: true };
+  if (!fits(result)) return undefined;
+  let low = 0;
+  let high = Math.min(Buffer.byteLength(value.content), MAX_MODEL_BYTES);
+  while (low < high) {
+    const limit = Math.ceil((low + high) / 2);
+    const candidate = { ...result, content: truncateUtf8Text(value.content, limit).text };
+    if (fits(candidate)) {
+      low = limit;
+      result = candidate;
+    } else high = limit - 1;
   }
-  return { content, truncated: true };
+  return result;
 }
 
 function render(result: WebFetchResult): string {

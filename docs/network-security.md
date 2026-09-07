@@ -33,6 +33,9 @@ The HTTP process proxy forwards GET, HEAD, POST, PUT, PATCH, DELETE, and OPTIONS
 same Gateway. Uploads are buffered up to 8 MiB per request; larger uploads return 413 before
 upstream dispatch. Non-GET redirects remain rejected, so mutation requests are not replayed.
 `web_fetch` remains GET-only. These are per-operation bounds, not cumulative Run limits.
+Its title is limited to 1 KiB. Readable text and serialized structured output share a 64 KiB
+budget with reserved framing space; both derive from the same truncated body. JSON escaping is
+included in the budget, and oversized metadata fails explicitly rather than hiding navigation facts.
 
 The bound client and any per-call proxy expire when the Tool call settles, is cancelled, or times
 out. In-process calls do not open a proxy listener. Unrestricted mode skips target consent but does

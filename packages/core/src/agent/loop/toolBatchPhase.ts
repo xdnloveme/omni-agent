@@ -2,6 +2,7 @@ import { cloneData } from "../../dataCopy";
 import { isAbortError, throwIfAborted } from "../../execution";
 import type { EnvironmentContextRecord } from "../../environment";
 import type { LoopProtection } from "../../loop-protection";
+import type { ToolResultObservation } from "../../loop-protection/types";
 import type {
   AssistantTranscriptMessage,
   ToolCallContent,
@@ -117,6 +118,13 @@ export async function* executeToolBatchPhase(
         preparedCall.preparation === "ready" &&
         turnBarrierIndex !== undefined &&
         index !== turnBarrierIndex;
+      let disposition: ToolResultObservation["disposition"] = policyStopped
+        ? policyResult!.kind === "deferred"
+          ? "context_deferred"
+          : "result"
+        : turnBarrierStopped
+          ? "turn_barrier_deferred"
+          : "result";
       const events = policyStopped
         ? input.coordinator.defer(
             preparedCall,
@@ -141,6 +149,7 @@ export async function* executeToolBatchPhase(
                 });
                 if (decision.kind === "executable") return undefined;
                 policyResult = decision;
+                disposition = decision.kind === "deferred" ? "context_deferred" : "result";
                 return policyStoppedToolResult(decision);
               },
             });
@@ -176,8 +185,7 @@ export async function* executeToolBatchPhase(
       }
       throwIfAborted(input.signal);
       if (!result) throw new Error(`Tool call completed without a result: ${call.name}`);
-      const preparationDeferred =
-        policyResult?.kind === "deferred" && preparedCall.preparation === "ready";
+      const preparationDeferred = disposition === "context_deferred";
       if (preparationDeferred && !policyStopped) {
         yield input.publish({
           type: "tool_batch_deferred",
@@ -186,13 +194,12 @@ export async function* executeToolBatchPhase(
           retryable: true,
         });
       }
-      if (!policyStopped && !preparationDeferred) {
-        input.loopProtection.observeToolResult({
-          call,
-          toolIdentity: input.config.tools.find((tool) => tool.name === call.name)?.toolIdentity,
-          result,
-        });
-      }
+      input.loopProtection.observeToolResult({
+        call,
+        toolIdentity: input.config.tools.find((tool) => tool.name === call.name)?.toolIdentity,
+        result,
+        disposition,
+      });
       if (executed) {
         await dispatchPostEventHooks(
           {

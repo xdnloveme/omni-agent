@@ -4,6 +4,8 @@
 targets, Bash cwd, static ShellProgram paths, and bounded declared write scopes. Existing targets use
 canonical paths; missing targets use the nearest existing ancestor plus a validated lexical suffix.
 Files scan through their parent, directories through themselves.
+Static Bash targets remain discovery facts even when a declared subtree already covers their
+filesystem permission. Broader approval must not suppress a descendant's instruction lineage.
 
 Lineages apply root to leaf. Deeper files override ancestors only within the same lineage; sibling
 manifests remain separate and are labelled by `appliesTo`. A call spanning siblings receives all

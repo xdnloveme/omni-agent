@@ -103,6 +103,14 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
         total += estimateContextTextTokens(block.name);
         total += estimateContextTextTokens(serializeContextValue(block.arguments));
         if (block.thoughtSignature) total += estimateContextTextTokens(block.thoughtSignature);
+      } else if (block.type === "resource") {
+        total += 256 + estimateContextTextTokens(block.resource.uri);
+        if ("text" in block.resource) total += estimateContextTextTokens(block.resource.text);
+        if (block.resource.mimeType) total += estimateContextTextTokens(block.resource.mimeType);
+      } else if (block.type === "resource_link") {
+        total += 256 + estimateContextTextTokens(block.uri) + estimateContextTextTokens(block.name);
+        if (block.description) total += estimateContextTextTokens(block.description);
+        if (block.mimeType) total += estimateContextTextTokens(block.mimeType);
       } else {
         total += 256;
       }

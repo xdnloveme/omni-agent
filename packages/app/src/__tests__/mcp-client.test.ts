@@ -143,17 +143,19 @@ describe("MCP client boundaries", () => {
   it("persists OAuth redirect state, PKCE and tokens through the credential port", async () => {
     const store = new InMemoryMcpCredentialStore();
     const redirected: string[] = [];
-    const provider = new KeychainMcpOAuthProvider(
-      {
-        id: "docs",
-        transport: "streamable_http",
-        url: "https://mcp.example/mcp",
-        oauthTargets: ["https://auth.example/authorize", "https://auth.example/token"],
-        oauth: { credentialId: "docs", redirectUrl: "http://127.0.0.1:48100/callback" },
-      },
-      store,
-      { redirectToAuthorization: (_serverId, url) => void redirected.push(url.toString()) },
-    );
+    const createProvider = () =>
+      new KeychainMcpOAuthProvider(
+        {
+          id: "docs",
+          transport: "streamable_http",
+          url: "https://mcp.example/mcp",
+          oauthTargets: ["https://auth.example/authorize", "https://auth.example/token"],
+          oauth: { credentialId: "docs", redirectUrl: "http://127.0.0.1:48100/callback" },
+        },
+        store,
+        { redirectToAuthorization: (_serverId, url) => void redirected.push(url.toString()) },
+      );
+    const provider = createProvider();
     const state = await provider.state();
     await provider.saveCodeVerifier("verifier-secret");
     await provider.saveTokens(
@@ -167,8 +169,8 @@ describe("MCP client boundaries", () => {
     await provider.redirectToAuthorization(
       new URL(`https://auth.example/authorize?state=${state}`),
     );
-    await expect(provider.codeVerifier()).resolves.toBe("verifier-secret");
-    await expect(provider.tokens()).resolves.toMatchObject({
+    await expect(createProvider().codeVerifier()).resolves.toBe("verifier-secret");
+    await expect(createProvider().tokens()).resolves.toMatchObject({
       access_token: "access-secret",
       refresh_token: "refresh-secret",
     });
@@ -189,6 +191,23 @@ describe("MCP client boundaries", () => {
       code: "mcp_oauth_state_mismatch",
     });
     expect(redirected).toHaveLength(1);
+    for (const scope of ["client", "all"] as const) {
+      const context = { issuer: "https://auth.example" };
+      await provider.saveClientInformation({ client_id: "expired-client" }, context);
+      const restored = createProvider();
+      await expect(restored.clientInformation(context)).resolves.toMatchObject({
+        client_id: "expired-client",
+      });
+      await restored.invalidateCredentials(scope);
+      const renewed = createProvider();
+      await expect(renewed.clientInformation(context)).resolves.toBeUndefined();
+      await renewed.saveClientInformation({ client_id: "new-client" }, context);
+      await expect(createProvider().clientInformation(context)).resolves.toMatchObject({
+        client_id: "new-client",
+      });
+    }
+    await createProvider().invalidateCredentials("all");
+    await expect(createProvider().tokens()).resolves.toBeUndefined();
   });
 
   it("requires explicit OAuth target URLs and a secure or loopback callback", () => {
