@@ -13,6 +13,7 @@ import { McpActivationStore } from "../mcp/activation-store";
 import { McpCatalogService } from "../mcp/catalog/mcp-catalog-service";
 import { ToolRegistry } from "../registry/tool-registry";
 import type { McpSdkClient } from "../mcp/client/sdk-client";
+import { parseMcpConfiguration } from "../mcp/config/types";
 
 const directories: string[] = [];
 afterEach(async () => {
@@ -63,10 +64,16 @@ async function fixture() {
   });
   const create = () =>
     new AgentMcpController(
-      [
-        { id: "docs", transport: "stdio", command: "configured-server" },
-        { id: "remote", transport: "streamable_http", url: "https://example.com/mcp" },
-      ],
+      parseMcpConfiguration(
+        {
+          servers: [
+            { id: "docs", transport: "stdio", command: "configured-server" },
+            { id: "remote", transport: "streamable_http", url: "https://example.com/mcp" },
+            { id: "linear", transport: "streamable_http", url: "invalid-url" },
+          ],
+        },
+        "project",
+      ),
       store,
       catalog,
       coordinator,
@@ -107,13 +114,22 @@ describe("Agent MCP activation", () => {
   });
   it("loads only persisted switches and removes tools and instructions on disable", async () => {
     const { create, store, discover } = await fixture();
+    await store.set("linear", true);
     const controller = create();
     await controller.initialize();
     expect(discover).not.toHaveBeenCalled();
+    expect(controller.list()).toContainEqual(
+      expect.objectContaining({
+        id: "linear",
+        status: "invalid",
+        configurationError: expect.objectContaining({ source: "project", index: 2 }),
+      }),
+    );
+    await expect(controller.setEnabled("linear", true)).rejects.toThrow();
     await controller.setEnabled("docs", true);
     expect(controller.tools().map((tool) => tool.name)).toEqual(["mcp__docs__search"]);
     expect(controller.prompt()).toContain("Search documentation");
-    expect(await store.read()).toEqual(["docs"]);
+    expect(await store.read()).toEqual(["docs", "linear"]);
     await controller.close();
     const restored = create();
     await restored.initialize();
@@ -121,7 +137,7 @@ describe("Agent MCP activation", () => {
     await restored.setEnabled("docs", false);
     expect(restored.tools()).toEqual([]);
     expect(restored.prompt()).toBe("");
-    expect(await store.read()).toEqual([]);
+    expect(await store.read()).toEqual(["linear"]);
   });
 
   it("keeps activation intent on failure and does not register a partial catalog", async () => {

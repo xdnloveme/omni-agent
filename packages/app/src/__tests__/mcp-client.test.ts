@@ -16,7 +16,7 @@ import {
   mapMcpToolResult,
   mcpToolName,
   validateMcpCatalog,
-  validateMcpServerConfigs,
+  parseMcpConfiguration,
 } from "../mcp";
 
 describe("MCP client boundaries", () => {
@@ -59,17 +59,27 @@ describe("MCP client boundaries", () => {
   });
 
   it("fails closed on server config collisions and credential-bearing URLs", () => {
-    expect(() =>
-      validateMcpServerConfigs([
-        { id: "docs", transport: "streamable_http", url: "https://secret@example.com/mcp" },
-      ]),
-    ).toThrow("contains credentials");
-    expect(() =>
-      validateMcpServerConfigs([
-        { id: "docs", transport: "stdio", command: "one" },
-        { id: "DOCS", transport: "stdio", command: "two" },
-      ]),
-    ).toThrow("collision");
+    expect(
+      parseMcpConfiguration(
+        {
+          servers: [
+            { id: "docs", transport: "streamable_http", url: "https://secret@example.com/mcp" },
+          ],
+        },
+        "project",
+      ).diagnostics[0]?.message,
+    ).toContain("contains credentials");
+    expect(
+      parseMcpConfiguration(
+        {
+          servers: [
+            { id: "docs", transport: "stdio", command: "one" },
+            { id: "DOCS", transport: "stdio", command: "two" },
+          ],
+        },
+        "project",
+      ).diagnostics[0]?.message,
+    ).toContain("collision");
   });
 
   it("preserves Phase A and Phase B content without flattening it", () => {
@@ -211,27 +221,37 @@ describe("MCP client boundaries", () => {
   });
 
   it("requires explicit OAuth target URLs and a secure or loopback callback", () => {
-    expect(() =>
-      validateMcpServerConfigs([
+    expect(
+      parseMcpConfiguration(
         {
-          id: "docs",
-          transport: "streamable_http",
-          url: "https://mcp.example/mcp",
-          bearerCredentialId: "bearer",
-          oauth: { credentialId: "oauth", redirectUrl: "https://app.example/callback" },
+          servers: [
+            {
+              id: "docs",
+              transport: "streamable_http",
+              url: "https://mcp.example/mcp",
+              bearerCredentialId: "bearer",
+              oauth: { credentialId: "oauth", redirectUrl: "https://app.example/callback" },
+            },
+          ],
         },
-      ]),
-    ).toThrow("cannot configure bearer and OAuth");
-    expect(() =>
-      validateMcpServerConfigs([
+        "project",
+      ).diagnostics[0]?.message,
+    ).toContain("cannot configure bearer and OAuth");
+    expect(
+      parseMcpConfiguration(
         {
-          id: "docs",
-          transport: "streamable_http",
-          url: "https://mcp.example/mcp",
-          oauth: { credentialId: "oauth", redirectUrl: "http://app.example/callback" },
+          servers: [
+            {
+              id: "docs",
+              transport: "streamable_http",
+              url: "https://mcp.example/mcp",
+              oauth: { credentialId: "oauth", redirectUrl: "http://app.example/callback" },
+            },
+          ],
         },
-      ]),
-    ).toThrow("must be HTTPS or loopback");
+        "project",
+      ).diagnostics[0]?.message,
+    ).toContain("must be HTTPS or loopback");
   });
 });
 

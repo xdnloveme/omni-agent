@@ -42,6 +42,84 @@ async function writeConfig(
 }
 
 describe("ConfigService", () => {
+  it("preserves Keychain references but isolates and never rewrites embedded MCP secrets", async () => {
+    const { service, projectPath } = await fixture();
+    const server = {
+      id: "linear",
+      transport: "streamable_http",
+      url: "https://linear.example/mcp",
+      oauth: { credentialId: "linear-login", redirectUrl: "http://localhost:48100/callback" },
+    };
+    await writeFile(
+      projectPath,
+      JSON.stringify({ model: model("project"), mcp: { servers: [server] } }),
+    );
+    await expect(service.resolveMcpServers()).resolves.toEqual({
+      servers: [server],
+      diagnostics: [],
+    });
+    await service.saveSharedModel(model("new"), { scope: "project" });
+    const original = JSON.stringify({
+      model: model("new"),
+      mcp: { servers: [{ ...server, accessToken: "do-not-expose-this-value" }] },
+    });
+    await writeFile(projectPath, original);
+    await expect(service.resolveModel("coding")).resolves.toEqual(model("new"));
+    const rejected = await service.resolveMcpServers();
+    expect(rejected.servers).toEqual([]);
+    expect(rejected.diagnostics).toHaveLength(1);
+    expect(JSON.stringify(rejected)).not.toContain("do-not-expose-this-value");
+    await expect(service.saveSharedModel(model("other"), { scope: "project" })).rejects.toThrow(
+      "Secret values",
+    );
+    await expect(readFile(projectPath, "utf8")).resolves.toBe(original);
+  });
+  it("isolates invalid MCP entries while preserving model resolution and configuration writes", async () => {
+    const { service, projectPath, globalPath } = await fixture();
+    await writeConfig(globalPath, model("global"));
+    const mcp = {
+      servers: [
+        { id: "linear", transport: "streamable_http", url: "not-a-url" },
+        { id: "notion", transport: "stdio", command: "notion-server" },
+        { id: "duplicate", transport: "stdio", command: "one" },
+        { id: "DUPLICATE", transport: "stdio", command: "two" },
+        { transport: "stdio", command: "missing-id" },
+        { id: "unknown", transport: "unknown", command: "must-not-spawn" },
+      ],
+    };
+    await writeFile(projectPath, JSON.stringify({ model: model("project"), mcp }));
+    await expect(service.resolveModel("coding")).resolves.toEqual(model("project"));
+    const resolved = await service.resolveMcpServers();
+    expect(resolved.servers).toEqual([mcp.servers[1]]);
+    expect(resolved.diagnostics.map(({ index, serverId }) => ({ index, serverId }))).toEqual([
+      { index: 0, serverId: "linear" },
+      { index: 2, serverId: "duplicate" },
+      { index: 3, serverId: "DUPLICATE" },
+      { index: 4, serverId: undefined },
+      { index: 5, serverId: "unknown" },
+    ]);
+    expect(resolved.diagnostics.every(({ source }) => source === "project")).toBe(true);
+    await service.saveSharedModel(model("changed"), { scope: "project" });
+    expect(JSON.parse(await readFile(projectPath, "utf8")).mcp).toEqual(mcp);
+    await expect(service.resolveModel("coding")).resolves.toEqual(model("changed"));
+  });
+
+  it("keeps malformed MCP sections local without falling back to global integrations", async () => {
+    const { service, projectPath, globalPath } = await fixture();
+    await writeFile(
+      globalPath,
+      JSON.stringify({
+        model: model("global"),
+        mcp: { servers: [{ id: "global", transport: "stdio", command: "server" }] },
+      }),
+    );
+    await writeFile(projectPath, JSON.stringify({ model: model("project"), mcp: null }));
+    await expect(service.resolveModel("coding")).resolves.toEqual(model("project"));
+    await expect(service.resolveMcpServers()).resolves.toEqual({
+      servers: [],
+      diagnostics: [{ source: "project", message: "MCP servers must be an array" }],
+    });
+  });
   it("writes new configuration globally by default without creating a project file", async () => {
     const { service, projectPath, globalPath } = await fixture();
 

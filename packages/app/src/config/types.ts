@@ -8,7 +8,8 @@ export interface AgentModelConfig {
 export interface OmniConfig {
   model: ModelSelection;
   agents?: Record<string, AgentModelConfig>;
-  mcp?: { readonly servers: readonly import("../mcp/config/types").McpServerConfig[] };
+  /** Preserved verbatim on model updates; MCP owns validation of this optional section. */
+  mcp?: unknown;
 }
 
 export interface ResolvedModelConfiguration {
