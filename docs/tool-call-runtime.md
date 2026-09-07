@@ -49,6 +49,12 @@ or execution. A deferred batch does not count as executed Tool work.
 Access denials never enter lifecycle, middleware, or execution. Deadline timing begins only after
 access control completes.
 
+Every settled model-requested Tool call is reported to `LoopProtection`, including schema,
+preparation-policy, and access failures. The Agent Loop supplies the runtime disposition;
+`LoopProtection` alone exempts context-update and turn-barrier deferrals from repetition statistics.
+Tool result metadata cannot request an exemption. Existing repetition thresholds and per-operation
+timeouts are unchanged; this does not introduce a cumulative Run limit.
+
 ## Responsibility Boundaries
 
 | Owner                     | Responsibility                                                            |

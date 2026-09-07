@@ -24,6 +24,7 @@ function completeBatch(
   protection.beginToolBatch(entries.map((entry) => entry.call));
   for (const entry of entries) {
     protection.observeToolResult({
+      disposition: "result",
       call: entry.call,
       result: entry.result,
       toolIdentity: entry.identity ?? `test:${entry.call.name}`,

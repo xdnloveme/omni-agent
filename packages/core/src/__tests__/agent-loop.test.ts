@@ -225,6 +225,109 @@ describe("runAgentLoop", () => {
     vi.clearAllMocks();
   });
 
+  it.each([
+    "policy_failure",
+    "post_authorization_failure",
+    "context_deferred",
+    "post_authorization_deferred",
+    "turn_barrier",
+    "tool_metadata",
+  ] as const)("routes %s through the shared loop protection", async (scenario) => {
+    const tool = makeTool();
+    const sibling = makeTool("sibling");
+    let executions = 0;
+    vi.mocked(tool.execute).mockImplementation(async () => ({
+      content: [
+        {
+          type: "text",
+          text: scenario === "tool_metadata" ? "same failure" : `progress ${++executions}`,
+        },
+      ],
+      isError: scenario === "tool_metadata",
+      // A tool cannot grant itself the runtime's deferral exemption.
+      meta: { code: "project_instructions_loaded", executed: false, retryable: true },
+    }));
+    const deferred = scenario === "context_deferred" || scenario === "post_authorization_deferred";
+    const postAuthorization =
+      scenario === "post_authorization_failure" || scenario === "post_authorization_deferred";
+    let evaluations = 0;
+    const config = makeConfig({
+      tools:
+        scenario === "turn_barrier"
+          ? [{ ...tool, scheduling: { batch: "turn_barrier" } }, sibling]
+          : [tool],
+      toolBatchPreparationPolicies:
+        scenario === "turn_barrier" || scenario === "tool_metadata"
+          ? []
+          : [
+              {
+                evaluate: async () => {
+                  evaluations++;
+                  if (
+                    (postAuthorization && evaluations % 2 === 1) ||
+                    (deferred && evaluations > (postAuthorization ? 8 : 4))
+                  )
+                    return { kind: "executable" as const };
+                  return deferred
+                    ? {
+                        kind: "deferred" as const,
+                        code: "project_instructions_loaded",
+                        message: "New rule snapshot",
+                      }
+                    : {
+                        kind: "failed" as const,
+                        code: "project_instruction_scope_undetermined",
+                        message: "Declare bounded write paths",
+                      };
+                },
+              },
+            ],
+    });
+    let modelCalls = 0;
+    streamModel.mockImplementation(() => {
+      modelCalls++;
+      return fakeStream([
+        {
+          type: "done",
+          message:
+            modelCalls > 8
+              ? { content: [{ type: "text", text: "Finished" }], stopReason: "stop" }
+              : {
+                  content: [
+                    { type: "toolCall", id: `call-${modelCalls}`, name: tool.name, arguments: {} },
+                    ...(scenario === "turn_barrier"
+                      ? [
+                          {
+                            type: "toolCall",
+                            id: `sibling-${modelCalls}`,
+                            name: sibling.name,
+                            arguments: {},
+                          },
+                        ]
+                      : []),
+                  ],
+                  stopReason: "toolUse",
+                },
+        },
+      ]) as never;
+    });
+    const events = await collectEvents(executeLoop(config, makeMessages("work")));
+    const shouldHalt = !deferred && scenario !== "turn_barrier";
+    if (shouldHalt) {
+      expect(modelCalls).toBe(4);
+      expect(events.at(-1)).toMatchObject({
+        type: "error",
+        failure: { code: "tool_loop_detected" },
+      });
+      expect(tool.execute).toHaveBeenCalledTimes(scenario === "tool_metadata" ? 4 : 0);
+    } else {
+      expect(modelCalls).toBe(9);
+      expect(events.at(-1)).toMatchObject({ type: "done" });
+      expect(tool.execute).toHaveBeenCalledTimes(deferred ? 4 : 8);
+    }
+    expect(sibling.execute).not.toHaveBeenCalled();
+  });
+
   it("starts each batch preparation policy at the Run boundary", async () => {
     const beginRun = vi.fn();
     streamModel.mockReturnValue(

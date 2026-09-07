@@ -45,6 +45,10 @@ class DefaultLoopProtection implements LoopProtection {
     const batch = this.activeBatch;
     if (!batch) return;
 
+    // Normal runtime deferrals are not failed attempts. Keep their calls in the batch so
+    // incomplete batches cannot manufacture cycle fingerprints from unexecuted results.
+    if (input.disposition !== "result") return;
+
     const signature = buildToolResultSignature(input.call, input.toolIdentity, input.result);
     if (signature) {
       batch.signatures.set(input.call.id, signature);

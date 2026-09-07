@@ -64,6 +64,14 @@ content through Session and Context. The model adapter emits only its supported 
 keeps the original rich content in internal message details, projects structured JSON as model-visible
 text, and omits user-only annotated content (including text/image) from model and checkpoint input.
 Checkpoint projection versions invalidate summaries generated under the previous projection contract.
+The existing Context estimator accounts for embedded resource text and resource-link descriptions,
+with conservative framing overhead rather than a fixed cost for arbitrarily large text.
 MCP `_meta` is accepted only as JSON up to 64 KiB and remains result
 metadata rather than model content. Known bearer, OAuth, verifier, state, and authorization-code
 values are exact-redacted from MCP results and errors at the App boundary.
+
+Issuer-scoped client registrations and tokens share the OAuth Provider's save/cleanup mechanism.
+New writes persist their cleanup index before the credential; invalidation removes the index only
+after credential deletion succeeds. Historical client records written without this index are not
+enumerated or migrated automatically; clearing pre-existing unindexed Keychain registrations remains
+a separate migration decision, not an implicit compatibility path.

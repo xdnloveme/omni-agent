@@ -97,12 +97,35 @@ describe("webFetchTool", () => {
     });
   });
 
-  it("keeps the complete model-facing projection within 64 KiB", async () => {
-    request.mockResolvedValueOnce(response("x".repeat(80 * 1024), { contentType: "text/plain" }));
-    const result = await invoke(webFetchTool, { url: "https://example.com/large" });
-    expect(Buffer.byteLength(result.content[0]?.text ?? "")).toBeLessThanOrEqual(64 * 1024);
-    expect(result.structuredContent).toMatchObject({ truncated: true });
-  });
+  it.each(["plain", "large-title", "escaped-json"])(
+    "bounds both output projections for %s",
+    async (kind) => {
+      const body =
+        kind === "plain"
+          ? "x".repeat(80 * 1024)
+          : kind === "large-title"
+            ? `<title>${"标".repeat(80 * 1024)}</title><body>BODY_SENTINEL</body>`
+            : JSON.stringify({ text: '\\"'.repeat(80 * 1024) });
+      request.mockResolvedValueOnce(
+        response(body, {
+          contentType:
+            kind === "plain"
+              ? "text/plain"
+              : kind === "escaped-json"
+                ? "application/json"
+                : "text/html",
+        }),
+      );
+      const result = await invoke(webFetchTool, { url: "https://example.com/large" });
+      expect(
+        Buffer.byteLength(result.content[0]?.text ?? "") +
+          Buffer.byteLength(JSON.stringify(result.structuredContent)),
+      ).toBeLessThanOrEqual(64 * 1024 - 256);
+      expect(result.structuredContent).toMatchObject({ truncated: true });
+      if (kind === "large-title") expect(result.content[0]?.text).toContain("BODY_SENTINEL");
+      expect(result.content[0]?.text).not.toContain("\uFFFD");
+    },
+  );
 });
 
 describe("webSearchTool", () => {
