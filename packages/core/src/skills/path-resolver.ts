@@ -23,17 +23,17 @@ export class SkillPathResolver {
     if (includeAgentsDirs) {
       dirs.push(projectDir(cwd, SKILL_DIR_NAMES.agents));
     }
-    for (const plugin of this.options.pluginSkillDirs ?? []) {
-      dirs.push({
-        dir: plugin.dir,
-        source: { scope: SkillSourceScope.Plugin, pluginId: plugin.pluginId, path: plugin.dir },
-      });
-    }
     if (includeOmniDirs) {
       dirs.push(userDir(SKILL_DIR_NAMES.omni));
     }
     if (includeAgentsDirs) {
       dirs.push(userDir(SKILL_DIR_NAMES.agents));
+    }
+    for (const plugin of this.options.pluginSkillDirs ?? []) {
+      dirs.push({
+        dir: plugin.dir,
+        source: { scope: SkillSourceScope.Plugin, pluginId: plugin.pluginId, path: plugin.dir },
+      });
     }
 
     return dirs;

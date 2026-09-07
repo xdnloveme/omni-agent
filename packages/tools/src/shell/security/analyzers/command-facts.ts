@@ -127,6 +127,7 @@ export function commandFact(
       : "dynamic",
     wrapperChain,
     effects: semantics.effects,
+    pathAccess: semantics.pathAccess,
   };
 }
 

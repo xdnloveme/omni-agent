@@ -1,4 +1,13 @@
-import { mkdtemp, mkdir, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  realpath,
+  writeFile,
+  stat,
+  rename,
+  symlink,
+  utimes,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -37,6 +46,119 @@ async function writeSkill(
 }
 
 describe("skills", () => {
+  it("uses current invocation policy and update diagnostics for slash preload", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "omni-skill-slash-update-"));
+    const file = await writeSkill(path.join(cwd, ".agents/skills"), "demo");
+    await writeFile(
+      file,
+      "---\nname: demo\ndescription: valid\nuser-invocable: false\n---\nOld body",
+    );
+    const registry = new SkillRegistry({ cwd });
+    await registry.initialize();
+    await writeSkill(path.join(cwd, ".agents/skills"), "demo", "Current body");
+    expect((await registry.resolveSlashPreload("/demo"))?.modelInput).toContain("Current body");
+    await writeFile(file, "---\nname: demo\n---\nInvalid body");
+    const preload = await registry.resolveSlashPreload("/demo");
+    expect(preload?.modelInput).toContain("Current body");
+    expect(preload?.modelInput).toContain("last validated version");
+    expect(preload?.modelInput).not.toContain("Invalid body");
+  });
+
+  it("activates validated edits on read and keeps content-identical versions cached", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "omni-skill-updates-"));
+    const file = await writeSkill(path.join(cwd, ".agents/skills"), "demo", "Old body");
+    const registry = new SkillRegistry({ cwd });
+    await registry.initialize();
+    const first = await registry.read("demo");
+    await utimes(file, new Date(), new Date(Date.now() + 1000));
+    const same = await registry.read("demo");
+    expect(same.status).toBe("cached");
+    expect(same.skill.version).toBe(first.skill.version);
+    expect(same.skill.loadedAt).toBe(first.skill.loadedAt);
+    await writeFile(file, "---\nname: demo\ndescription: updated description\n---\nNew body");
+    const next = await registry.read("demo");
+    expect(next.skill.body).toBe("New body");
+    expect(next.skill.description).toBe("updated description");
+    expect(next.skill.version).not.toBe(first.skill.version);
+    expect(registry.get("demo")?.description).toBe("updated description");
+    expect(next.renderedText).toContain("supersedes earlier loaded versions");
+    expect(first.skill.body).toContain("Old body");
+  });
+
+  it.each([true, false])(
+    "rejects invalid reload without mixing versions (cached: %s)",
+    async (cached) => {
+      const cwd = await mkdtemp(path.join(tmpdir(), "omni-skill-invalid-"));
+      const file = await writeSkill(path.join(cwd, ".agents/skills"), "demo", "Validated body");
+      const registry = new SkillRegistry({ cwd });
+      await registry.initialize();
+      if (cached) await registry.read("demo");
+      await writeFile(file, "---\nname: demo\n---\nRejected body");
+      expect((await registry.reload()).diagnostics).toContainEqual(
+        expect.objectContaining({ code: "missing-description" }),
+      );
+      if (cached) {
+        const result = await registry.read("demo");
+        expect(result.skill.body).toContain("Validated body");
+        expect(result.renderedText).not.toContain("Rejected body");
+        expect(result.diagnostic?.message).toContain("last validated version");
+        expect(registry.diagnostics()).toContainEqual(result.diagnostic);
+      } else await expect(registry.read("demo")).rejects.toThrow("description");
+    },
+  );
+
+  it("revalidates changed invocation flags before exposing the new body", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "omni-skill-policy-"));
+    const file = await writeSkill(path.join(cwd, ".agents/skills"), "demo");
+    const registry = new SkillRegistry({ cwd });
+    await registry.initialize();
+    await registry.read("demo");
+    await writeFile(
+      file,
+      "---\nname: demo\ndescription: updated\ndisable-model-invocation: true\n---\nExplicit only",
+    );
+    await expect(registry.read("demo")).rejects.toThrow("disabled for model invocation");
+    expect((await registry.read("demo", { explicit: true })).skill.body).toBe("Explicit only");
+  });
+
+  it.each(["parent", "source"])(
+    "does not rebase the trusted boundary after %s replacement",
+    async (target) => {
+      const cwd = await mkdtemp(path.join(tmpdir(), "omni-skill-boundary-"));
+      const source = path.join(cwd, ".agents/skills");
+      const file = await writeSkill(source, "demo", "Safe body");
+      const registry = new SkillRegistry({ cwd });
+      await registry.initialize();
+      await registry.read("demo");
+      const external = path.join(cwd, "outside");
+      await writeSkill(external, "demo", "Outside body");
+      const replaced = target === "parent" ? path.dirname(file) : source;
+      await rename(replaced, replaced + "-saved");
+      await symlink(target === "parent" ? path.join(external, "demo") : external, replaced);
+      if (target === "source")
+        expect((await registry.reload()).diagnostics).toContainEqual(
+          expect.objectContaining({ code: "read-error" }),
+        );
+      const result = await registry.read("demo");
+      expect(result.skill.body).toContain("Safe body");
+      expect(result.renderedText).not.toContain("Outside body");
+      expect(result.diagnostic).toBeDefined();
+    },
+  );
+
+  it("allows a regular replacement file and an in-root SKILL.md link", async () => {
+    const cwd = await mkdtemp(path.join(tmpdir(), "omni-skill-links-"));
+    const file = await writeSkill(path.join(cwd, ".agents/skills"), "demo", "Original");
+    const registry = new SkillRegistry({ cwd });
+    await registry.initialize();
+    const replacement = file + ".next";
+    await writeFile(replacement, "---\nname: demo\ndescription: valid\n---\nReplacement");
+    await rename(replacement, file);
+    expect((await registry.read("demo")).skill.body).toBe("Replacement");
+    await rename(file, file + ".body");
+    await symlink(file + ".body", file);
+    expect((await registry.read("demo")).skill.body).toBe("Replacement");
+  });
   it("loads metadata by precedence and records collisions", async () => {
     const cwd = await mkdtemp(path.join(tmpdir(), "omni-skills-"));
     const home = await mkdtemp(path.join(tmpdir(), "omni-skills-user-"));
@@ -55,7 +177,7 @@ describe("skills", () => {
 
     const matchingSkills = result.skills.filter((skill) => skill.name === "frontend-design");
     expect(matchingSkills).toHaveLength(1);
-    expect(matchingSkills[0].filePath).toBe(projectPath);
+    expect(matchingSkills[0].filePath).toBe(await realpath(projectPath));
     expect(result.diagnostics.some((d) => d.code === "collision")).toBe(true);
   });
 
@@ -104,7 +226,7 @@ describe("skills", () => {
       cwd,
       loader: {
         loadAll: async () => ({
-          skills: [metadataFor(activePath)],
+          skills: [await metadataFor(activePath)],
           diagnostics: [],
         }),
       },
@@ -160,8 +282,12 @@ describe("skills", () => {
   });
 });
 
-function metadataFor(filePath: string): SkillMetadata {
+async function metadataFor(filePath: string): Promise<SkillMetadata> {
+  filePath = await realpath(filePath);
+  const root = path.dirname(filePath);
+  const info = await stat(root);
   return {
+    sourceRoot: { path: root, dev: info.dev, ino: info.ino },
     name: "frontend-design",
     description: "frontend-design description",
     filePath,

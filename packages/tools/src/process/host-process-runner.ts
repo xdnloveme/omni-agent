@@ -4,6 +4,7 @@ import {
   throwIfAborted,
   type ProcessInvocation,
   type ProcessResult,
+  redactExactSensitiveText,
 } from "@omni-agent/core";
 import { decodeUtf8Prefix } from "../text/utf8";
 
@@ -66,8 +67,8 @@ export function runHostProcess(request: HostProcessRequest): Promise<ProcessResu
           return;
         }
         resolve({
-          stdout: stdout.text(),
-          stderr: stderr.text(),
+          stdout: redactExactSensitiveText(stdout.text(), request.sensitiveValues),
+          stderr: redactExactSensitiveText(stderr.text(), request.sensitiveValues),
           stdoutTruncated: stdout.truncated,
           stderrTruncated: stderr.truncated,
           exitCode,

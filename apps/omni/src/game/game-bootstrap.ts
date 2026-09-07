@@ -182,7 +182,7 @@ export function parseAgentHostReady(line: string): AgentHostReady {
     !isRecord(value) ||
     Object.keys(value).length !== 4 ||
     value.type !== "agent_host_ready" ||
-    value.version !== 1 ||
+    value.version !== 2 ||
     value.host !== "127.0.0.1" ||
     !Number.isInteger(value.port) ||
     (value.port as number) < 1 ||

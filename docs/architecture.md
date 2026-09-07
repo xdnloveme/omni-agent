@@ -4,9 +4,10 @@
 
 ```text
 packages/core   Agent execution kernel
+packages/network Target-scoped gateway, DNS policy, and authenticated loopback proxy
 packages/models Model runtime, vendor catalog, provider plugins, and credentials
 packages/app    Application lifecycle and extension host
-packages/agent-host WebSocket Protocol v1 adapter for AgentServicePort
+packages/agent-host WebSocket Protocol v2 adapter for AgentServicePort
 packages/tools  Domain-neutral tool implementations
 packages/ui     User interaction and presentation surfaces
 packages/cli    Commands and Agent use-case orchestration
@@ -19,14 +20,15 @@ Allowed workspace dependencies:
 
 ```text
 tools -> core
+network -> core
 models -> core
 app -> core, models
 agent-host -> app
 agents/* -> app, core, tools
 ui -> app, core
 cli -> app, core, tools, agents/*
-apps/omni -> agent-host, app, core, tools, cli, ui
-apps/omni-game -> WebSocket Protocol v1 only
+apps/omni -> network, agent-host, app, core, tools, cli, ui
+apps/omni-game -> WebSocket Protocol v2 only
 ```
 
 Core and app must not import a concrete agent. Agent packages must not import the
@@ -44,7 +46,7 @@ concrete Agent dependencies remain outside the package. `apps/omni` is the proce
 composes those dependencies for the standalone `omni-host` entry.
 
 `apps/omni-game` is a separate Godot application. Its concrete `AgentHostClient` connects directly
-to Protocol v1 and owns only Socket, authentication, strict response parsing, request correlation,
+to Protocol v2 and owns only Socket, authentication, strict response parsing, request correlation,
 and transport shutdown. `CharacterWorkspaceController` owns character, Session transition,
 foreground Run, transcript, and screen state. Godot UI scenes depend on that Controller and never
 access WebSocket or JSON. The game imports no Workspace package and does not create a Gateway Port,
@@ -873,11 +875,19 @@ reserve `hardStop` for security facts that override mode-specific evaluation.
 
 The modes are `controlled`, `autonomous`, and `unrestricted`. Controlled confines access to the
 canonical workspace plus filesystem roots explicitly approved for that workspace and Agent, and
-asks once before enabling network. Approved roots distinguish read from read/write and remain
+reuses persisted exact network targets without repeated consent. Targets can be preconfigured with
+`/permissions network add <URL> [URL ...]`. Public, private, and localhost services use the same
+target policy. Approved roots distinguish read from read/write and remain
 subject to sensitive-path policy. Autonomous retains Seatbelt while consuming bounded per-call
-path and network scope. Unrestricted requires explicit mode confirmation and routes Process Tools
+path and network scope without prompts or persistence. Unrestricted requires explicit mode confirmation and routes Process Tools
 directly to the host. It still keeps Schema, preflight, timeout, cancellation, output, and
 file-consistency protections.
+
+`packages/network` has one buffered/streaming HTTP implementation and a process proxy adapter.
+Core supplies the execution mode and call lifetime; the transport does not ask for consent.
+DNS and address checks are internal functions. Known cloud credential metadata addresses require
+unrestricted mode; localhost and private services do not. See `docs/network-security.md` for the
+revocation, redirect, and response-framing boundaries.
 
 Tree-sitter handles Shell syntax once; the tools-local semantic IR is recursively analyzed for
 command, path, effect, uncertainty, and hard-stop facts. A bounded context tracks static cwd,
@@ -915,13 +925,14 @@ ordinary external scope, exact sensitive reads, and rejects protected or sensiti
 Execution still revalidates mutable path state. The shared sensitive-policy snapshot drives both
 TypeScript access inspection and Rust policy construction.
 
-State lives in `~/.omni-agent/execution-settings.json`, keyed by workspace and Agent, and uses v5
-with the shared inter-process lock plus atomic JSON persistence. v4 mode/network settings migrate
-without loss and initialize approved roots empty; legacy permission modes migrate to controlled
-and discard grants. Invalid state fails closed to controlled with network disabled and no roots.
+State lives in `~/.omni-agent/execution-settings.json`, keyed by workspace and Agent, and uses v6
+with the shared inter-process lock plus atomic JSON persistence. The one-way v5 migration preserves
+mode and filesystem roots but discards coarse network grants; exact targets start empty. Earlier
+versions pass through the isolated migrations. Invalid state fails closed to controlled with no
+approved targets or roots.
 
 The formal Rust package under `sandbox/` enforces Process Tool policy with macOS Seatbelt.
-Protocol v3 protects the workspace and each projected read/write subtree root against deletion or
+Protocol v4 permits only the call's proxy port for sandboxed network access and protects the workspace and each projected read/write subtree root against deletion or
 rename while allowing mutations below it. A per-launch diagnostic token distinguishes Rust startup
 failures from target output. Controlled/autonomous never fall back to host.
 The package is rooted directly at `sandbox/`: development and repository builds compile the

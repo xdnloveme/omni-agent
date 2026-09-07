@@ -19,7 +19,7 @@ describe("WebSocket Agent Host", () => {
     const { server, socket, messages } = await connect(service);
 
     expect(server.address.host).toBe("127.0.0.1");
-    socket.send(JSON.stringify({ v: 1, id: "list", type: "list_agents" }));
+    socket.send(JSON.stringify({ v: 2, id: "list", type: "list_agents" }));
     await expect(messages.next()).resolves.toEqual(
       expect.objectContaining({
         type: "result",
@@ -50,7 +50,7 @@ describe("WebSocket Agent Host", () => {
 
     socket.send(
       JSON.stringify({
-        v: 1,
+        v: 2,
         id: "run-1",
         type: "run",
         agentId: "coding",
@@ -63,7 +63,7 @@ describe("WebSocket Agent Host", () => {
       requestId: "run-1",
       event: { type: "started" },
     });
-    socket.send(JSON.stringify({ v: 1, id: "cancel-1", type: "cancel", requestId: "run-1" }));
+    socket.send(JSON.stringify({ v: 2, id: "cancel-1", type: "cancel", requestId: "run-1" }));
     const terminalMessages = await Promise.all([messages.next(), messages.next()]);
 
     expect(terminalMessages).toEqual(
@@ -102,7 +102,7 @@ describe("WebSocket Agent Host", () => {
 
     socket.send(
       JSON.stringify({
-        v: 1,
+        v: 2,
         id: "run-with-backpressure",
         type: "run",
         agentId: "coding",
@@ -130,7 +130,7 @@ describe("WebSocket Agent Host", () => {
     openSockets.push(socket);
 
     socket.send(
-      JSON.stringify({ v: 1, type: "hello", token: randomBytes(32).toString("base64url") }),
+      JSON.stringify({ v: 2, type: "hello", token: randomBytes(32).toString("base64url") }),
     );
     await socketClosed(socket);
 
@@ -138,9 +138,9 @@ describe("WebSocket Agent Host", () => {
     const owner = await openSocket(server);
     openSockets.push(owner);
     const messages = messageQueue(owner);
-    owner.send(JSON.stringify({ v: 1, type: "hello", token }));
+    owner.send(JSON.stringify({ v: 2, type: "hello", token }));
     await expect(messages.next()).resolves.toMatchObject({ type: "ready" });
-    owner.send(JSON.stringify({ v: 1, id: "list", type: "list_agents" }));
+    owner.send(JSON.stringify({ v: 2, id: "list", type: "list_agents" }));
     await expect(messages.next()).resolves.toMatchObject({ type: "result", id: "list" });
     expect(service.listAgents).toHaveBeenCalledOnce();
   });
@@ -179,8 +179,8 @@ async function connect(service: AgentServicePort): Promise<{
   const socket = await openSocket(server);
   openSockets.push(socket);
   const messages = messageQueue(socket);
-  socket.send(JSON.stringify({ v: 1, type: "hello", token }));
-  await expect(messages.next()).resolves.toMatchObject({ type: "ready", v: 1 });
+  socket.send(JSON.stringify({ v: 2, type: "hello", token }));
+  await expect(messages.next()).resolves.toMatchObject({ type: "ready", v: 2 });
   return { server, socket, messages };
 }
 

@@ -9,7 +9,7 @@ main loop. After polling it drains all available text packets. Binary packets, m
 unknown fields, and unsupported Protocol versions fail the connection.
 
 The Client uses `send_text()` only after Host `ready`. It does not reconnect, replay, retry business
-operations, or create a Session queue. Those omissions are deliberate Protocol v1 constraints.
+operations, or create a Session queue. Those omissions are deliberate Protocol v2 constraints.
 
 ## Environment handoff
 

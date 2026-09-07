@@ -39,7 +39,7 @@ pnpm run verify:game
 
 This runs three Godot 4.7.2 headless checks:
 
-1. A strict Protocol v1 parser/encoder harness.
+1. A strict Protocol v2 parser/encoder harness.
 2. A deterministic real-transport harness that verifies ordered Run events, Cancel propagation,
    the real `cancelled` terminal event, and WebSocket shutdown settlement without an external model.
 3. A real `omni-host` composition harness that authenticates, lists the two registered built-in Agents, opens
@@ -75,7 +75,7 @@ GameRoot
   explicitly wires AgentHostClient, CharacterWorkspaceController, and graybox UI
 
 AgentHostClient
-  owns WebSocketPeer, hello/ready, Protocol v1 parsing, request IDs, and transport shutdown
+  owns WebSocketPeer, hello/ready, Protocol v2 parsing, request IDs, permission correlation, and transport shutdown
 
 CharacterWorkspaceController
   owns selected Agent, current Session, active foreground Run, transcript, and screen state
@@ -106,12 +106,13 @@ Included:
 - Current/new Session transition.
 - Task text input, streamed transcript, terminal status, and Cancel.
 - Safe model-configuration and unsupported-interaction messages.
+- Correlated access-consent presentation with approve, deny, expiry, disconnect, and close settlement.
 
 Deferred:
 
 - The independent side-scrolling environment.
 - Character information and Build/skill tree panels.
-- Foreground questions and access-consent UI.
+- Foreground questions.
 - Formal art, desktop distribution, reconnect, and a remote Gateway.
 
 See [`adr/0002-godot-agent-host-client.md`](adr/0002-godot-agent-host-client.md) for the decision and

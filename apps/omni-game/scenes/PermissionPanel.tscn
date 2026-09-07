@@ -1,0 +1,31 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/ui/permission_panel.gd" id="1_permission"]
+
+[node name="PermissionPanel" type="PanelContainer"]
+script = ExtResource("1_permission")
+
+[node name="Content" type="VBoxContainer" parent="."]
+theme_override_constants/separation = 16
+
+[node name="PermissionResources" type="RichTextLabel" parent="Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 350)
+size_flags_vertical = 3
+bbcode_enabled = false
+fit_content = false
+scroll_active = true
+
+[node name="Persistence" type="Label" parent="Content"]
+text = "批准后将为当前工作区和 Agent 保存以上全部权限，后续复用，直到撤销。\n拒绝仅阻止本次请求，不改变已有权限。"
+
+[node name="Actions" type="HBoxContainer" parent="Content"]
+
+[node name="Deny" type="Button" parent="Content/Actions"]
+text = "拒绝"
+
+[node name="Approve" type="Button" parent="Content/Actions"]
+text = "批准并保存"
+
+[connection signal="pressed" from="Content/Actions/Deny" to="." method="_on_deny_pressed"]
+[connection signal="pressed" from="Content/Actions/Approve" to="." method="_on_approve_pressed"]

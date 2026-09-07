@@ -1,6 +1,12 @@
 import { createAbortError, throwIfAborted } from "../execution";
 import type { ProcessAccessPlan, SandboxPathScope, SandboxPolicy } from "../execution";
 import type { ToolResult } from "../types";
+import {
+  MAX_APPROVED_NETWORK_TARGETS,
+  networkTargetKey,
+  normalizeNetworkTargets,
+  type NetworkCapability,
+} from "../network";
 import type { AccessConsentBroker, AccessConsentRequest } from "./access-consent-port";
 import {
   candidateCanAuthorize,
@@ -15,6 +21,7 @@ import type {
   ExecutionSettingsPort,
   FilesystemCapabilityScope,
   FilesystemConsentCandidate,
+  PreparedToolAccess,
   ToolAccessIntent,
   ToolAccessRequest,
   ToolAccessResult,
@@ -35,19 +42,62 @@ type AccessEvaluation =
 
 export class ToolAccessController {
   private readonly pendingConsent = new Map<string, ConsentFlight>();
+  private readonly preparedAccess = new WeakSet<object>();
 
   constructor(private readonly options: ToolAccessControllerOptions) {}
 
   async authorize(request: ToolAccessRequest): Promise<ToolAccessResult> {
     const startedAt = Date.now();
-    throwIfAborted(request.context.signal);
-    let settings = await this.readSettings(request);
-    const input = await this.bindInput(request);
-    if (settings.mode === "unrestricted") {
-      return this.allow(request, input, settings, { resources: [] }, [], startedAt);
-    }
+    return this.authorizePrepared(await this.prepare(request), startedAt);
+  }
 
+  async prepare(request: ToolAccessRequest): Promise<PreparedToolAccess> {
+    throwIfAborted(request.context.signal);
+    const input = await this.bindInput(request);
     const intent = await this.assess(request, input);
+    const prepared = Object.freeze({
+      tool: request.tool,
+      input: Object.freeze(input),
+      intent: structuredClone(intent),
+      context: Object.freeze({ ...request.context }),
+    }) as PreparedToolAccess;
+    this.preparedAccess.add(prepared);
+    return prepared;
+  }
+
+  async authorizePrepared(
+    prepared: PreparedToolAccess,
+    startedAt = Date.now(),
+  ): Promise<ToolAccessResult> {
+    if (!this.preparedAccess.has(prepared)) throw new Error("Prepared Tool access is invalid");
+    const request = { tool: prepared.tool, input: prepared.input, context: prepared.context };
+    let settings = await this.readSettings(request);
+    const input = prepared.input as Record<string, unknown>;
+    const intent = prepared.intent;
+    if (intent.hardStop) {
+      return {
+        ...denied(intent.hardStop.reason, intent.hardStop.code),
+        accessMs: Date.now() - startedAt,
+      };
+    }
+    if (intent.denial) {
+      return {
+        ...denied(intent.denial.reason, intent.denial.code),
+        accessMs: Date.now() - startedAt,
+      };
+    }
+    if (settings.mode === "unrestricted") {
+      return this.allow(request, input, settings, intent, [], startedAt);
+    }
+    if (intent.networkScopeRequired) {
+      return {
+        ...denied(
+          "Sandboxed network calls must declare exact network_targets.",
+          "network_scope_required",
+        ),
+        accessMs: Date.now() - startedAt,
+      };
+    }
     throwIfAborted(request.context.signal);
     const completedConsents = new Set<string>();
     while (true) {
@@ -63,16 +113,22 @@ export class ToolAccessController {
       if (completedConsents.has(key)) {
         throw new Error("Approved access consent did not satisfy the requested capability");
       }
-      const approved = await this.requestConsent(decision.request, request.context.signal);
+      const response = await this.requestConsent(decision.request, request.context.signal);
+      const approved =
+        typeof response === "string" ? response === "approve" : response.decision === "approve";
+      if (request.context.onPermissionResolved) {
+        const detail =
+          typeof response === "string"
+            ? { permissionId: request.context.toolCallId, decision: response, reason: "user" }
+            : response;
+        await request.context.onPermissionResolved(detail);
+      }
       throwIfAborted(request.context.signal);
       if (!approved) {
-        const filesystem = decision.request.kind === "filesystem";
         return {
           ...denied(
-            filesystem
-              ? "Filesystem access was not added to this controlled workspace."
-              : "Network access is disabled for this workspace.",
-            filesystem ? "filesystem_access_denied" : "network_disabled",
+            "The requested access was not approved. Existing permissions are unchanged.",
+            "access_consent_denied",
           ),
           accessMs: Date.now() - startedAt,
         };
@@ -82,7 +138,9 @@ export class ToolAccessController {
     }
   }
 
-  private readSettings(request: ToolAccessRequest): Promise<WorkspaceExecutionSettings> {
+  private readSettings(
+    request: Pick<ToolAccessRequest, "context">,
+  ): Promise<WorkspaceExecutionSettings> {
     return this.options.settings.getSettings(request.context.workspaceId, request.context.agentId);
   }
 
@@ -94,6 +152,7 @@ export class ToolAccessController {
     projected: readonly FilesystemCapabilityScope[],
     startedAt: number,
   ): Extract<ToolAccessResult, { outcome: "allowed" }> {
+    const network = networkCapability(intent);
     const processAccess = createProcessAccessPlan(
       settings,
       intent,
@@ -107,6 +166,7 @@ export class ToolAccessController {
         mode: settings.mode,
         processAccess,
         executableRequirements: uniqueExecutableRequirements(intent.executableRequirements ?? []),
+        ...(network ? { network } : {}),
       },
       accessMs: Date.now() - startedAt,
     };
@@ -144,7 +204,7 @@ export class ToolAccessController {
   private async requestConsent(
     request: AccessConsentRequest,
     signal?: AbortSignal,
-  ): Promise<boolean> {
+  ): Promise<import("./access-consent-port").AccessConsentResponse> {
     const key = consentKey(request);
     const flight = this.pendingConsent.get(key) ?? this.createConsentFlight(key, request);
     flight.waiters += 1;
@@ -183,27 +243,24 @@ export class ToolAccessController {
   private async performConsent(
     request: AccessConsentRequest,
     signal: AbortSignal,
-  ): Promise<boolean> {
+  ): Promise<import("./access-consent-port").AccessConsentResponse> {
     const response = await this.options.consent.request(request, signal);
     throwIfAborted(signal);
-    if (response !== "approve") return false;
-    if (request.kind === "network") {
-      await this.options.settings.enableControlledNetwork(request.workspaceId, request.agentId);
-    } else {
-      await this.options.settings.addApprovedFilesystemRoots(
-        request.workspaceId,
-        request.agentId,
-        request.scopes,
-      );
-    }
+    const approved =
+      typeof response === "string" ? response === "approve" : response.decision === "approve";
+    if (!approved) return response;
+    await this.options.settings.addApprovedAccess(request.workspaceId, request.agentId, {
+      scopes: request.scopes,
+      targets: request.targets,
+    });
     throwIfAborted(signal);
-    return true;
+    return response;
   }
 }
 
 interface ConsentFlight {
   readonly controller: AbortController;
-  readonly promise: Promise<boolean>;
+  readonly promise: Promise<import("./access-consent-port").AccessConsentResponse>;
   settled: boolean;
   waiters: number;
 }
@@ -261,29 +318,34 @@ function evaluateControlled(
         "filesystem_capability_limit",
       );
     }
-    return {
-      outcome: "consent",
-      request: {
-        kind: "filesystem",
-        workspaceId: request.context.workspaceId,
-        agentId: request.context.agentId,
-        toolName: request.tool.name,
-        scopes: normalizeFilesystemCapabilities([...missing.values()]),
-      },
-    };
   }
 
-  if (
-    intent.resources.some((resource) => resource.kind === "network") &&
-    !settings.controlledNetworkEnabled
-  ) {
+  const network = networkCapability(intent);
+  let missingTargets: NetworkCapability["targets"] = [];
+  if (network) {
+    const approved = new Set(settings.approvedNetworkTargets.map(networkTargetKey));
+    missingTargets = network.targets.filter((target) => !approved.has(networkTargetKey(target)));
+    if (
+      settings.approvedNetworkTargets.length + missingTargets.length >
+      MAX_APPROVED_NETWORK_TARGETS
+    ) {
+      return denied(
+        `Controlled network access is limited to ${MAX_APPROVED_NETWORK_TARGETS} approved targets.`,
+        "network_capability_limit",
+      );
+    }
+  }
+  if (missing.size > 0 || missingTargets.length > 0) {
     return {
       outcome: "consent",
       request: {
-        kind: "network",
         workspaceId: request.context.workspaceId,
         agentId: request.context.agentId,
         toolName: request.tool.name,
+        toolCallId: request.context.toolCallId,
+        targets: missingTargets,
+        scopes: normalizeFilesystemCapabilities([...missing.values()]),
+        purpose: network?.purpose ?? "Filesystem access requested by Tool",
       },
     };
   }
@@ -379,7 +441,7 @@ function createProcessAccessPlan(
   const policy: SandboxPolicy = {
     mode: settings.mode,
     workspaceRoot,
-    network: intent.resources.some((resource) => resource.kind === "network"),
+    network: { kind: "disabled" },
     read: uniqueSandboxScopes(read),
     write: uniqueSandboxScopes(write),
     protectedWriteRoots: [...protectedWriteRoots].sort(),
@@ -409,19 +471,31 @@ function uniqueSandboxScopes(scopes: readonly SandboxPathScope[]): readonly Sand
 }
 
 function consentKey(request: AccessConsentRequest): string {
-  if (request.kind === "network") {
-    return `${request.workspaceId}\0${request.agentId}\0network`;
-  }
-  return `${request.workspaceId}\0${request.agentId}\0filesystem\0${request.scopes
-    .map(capabilityKey)
-    .sort()
-    .join("\0")}`;
+  return JSON.stringify([
+    request.workspaceId,
+    request.agentId,
+    request.scopes.map(capabilityKey).sort(),
+    request.targets.map(networkTargetKey).sort(),
+  ]);
 }
 
-function waitForConsent(promise: Promise<boolean>, signal?: AbortSignal): Promise<boolean> {
+function networkCapability(intent: ToolAccessIntent): NetworkCapability | undefined {
+  const resources = intent.resources.filter(
+    (resource): resource is Extract<AccessResource, { kind: "network" }> =>
+      resource.kind === "network",
+  );
+  if (resources.length === 0) return undefined;
+  const targets = normalizeNetworkTargets(resources.map((resource) => resource.target));
+  const purpose = [...new Set(resources.map((resource) => resource.purpose.trim()).filter(Boolean))]
+    .sort()
+    .join("; ");
+  return { targets, purpose: purpose || "Network access requested by Tool" };
+}
+
+function waitForConsent<T>(promise: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return promise;
   throwIfAborted(signal);
-  return new Promise<boolean>((resolve, reject) => {
+  return new Promise<T>((resolve, reject) => {
     const onAbort = () => {
       cleanup();
       reject(createAbortError(signal));

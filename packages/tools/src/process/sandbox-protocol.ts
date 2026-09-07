@@ -1,6 +1,6 @@
 import { SandboxProcessError } from "./sandbox-process-error";
 
-export const SANDBOX_PROTOCOL_VERSION = "3";
+export const SANDBOX_PROTOCOL_VERSION = "4";
 export const SANDBOX_LAUNCH_FAILURE_EXIT_CODE = 125;
 
 export function sandboxLaunchFailure(

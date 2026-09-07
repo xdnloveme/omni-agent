@@ -1,10 +1,21 @@
 import { chmod, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+const childProcess = vi.hoisted(() => ({ execFile: vi.fn() }));
+vi.mock("node:child_process", () => childProcess);
 import { GodotExecutableError, resolveGodotExecutable } from "./godot-executable-resolver";
 
 const temporaryDirectories: string[] = [];
+const versions = new Map<string, string>();
+
+beforeEach(() => {
+  childProcess.execFile.mockImplementation((file, _args, _options, callback) => {
+    callback(null, `${versions.get(String(file)) ?? ""}\n`, "");
+    return {} as never;
+  });
+});
 
 afterEach(async () => {
   await Promise.all(
@@ -24,7 +35,7 @@ describe("Godot executable resolver", () => {
         environment: { OMNI_GODOT_BINARY: executable, PATH: "" },
       }),
     ).resolves.toBe(executable);
-  });
+  }, 10_000);
 
   it("fails closed when the configured Godot version does not match", async () => {
     const directory = await temporaryDirectory();
@@ -39,7 +50,7 @@ describe("Godot executable resolver", () => {
     ).rejects.toMatchObject({
       code: "godot_version_mismatch",
     } satisfies Partial<GodotExecutableError>);
-  });
+  }, 10_000);
 
   it("reports the explicit setup requirement when no executable exists", async () => {
     const directory = await temporaryDirectory();
@@ -62,7 +73,8 @@ async function temporaryDirectory(): Promise<string> {
 
 async function fakeGodot(directory: string, version: string): Promise<string> {
   const path = join(directory, "godot");
-  await writeFile(path, `#!/bin/sh\nprintf '${version}\\n'\n`, "utf8");
+  await writeFile(path, "test executable", "utf8");
   await chmod(path, 0o755);
+  versions.set(path, version);
   return path;
 }

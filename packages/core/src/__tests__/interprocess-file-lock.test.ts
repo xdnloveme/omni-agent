@@ -43,9 +43,8 @@ describe("InterprocessFileLock", () => {
 
   it("serializes contenders that race to reclaim the same stale lock", async () => {
     const path = await fixture();
-    await writeLock(path, { pid: 2_147_483_647, owner: "stale", createdAt: Date.now() - 60_000 });
-    const first = new InterprocessFileLock(path, { retryMs: 1, timeoutMs: 200, staleMs: 1 });
-    const second = new InterprocessFileLock(path, { retryMs: 1, timeoutMs: 200, staleMs: 1 });
+    const first = new InterprocessFileLock(path, { retryMs: 1, timeoutMs: 1_000, staleMs: 1 });
+    const second = new InterprocessFileLock(path, { retryMs: 1, timeoutMs: 1_000, staleMs: 1 });
     let active = 0;
     let maximumActive = 0;
 
@@ -53,12 +52,25 @@ describe("InterprocessFileLock", () => {
       lock.runExclusive(async () => {
         active += 1;
         maximumActive = Math.max(maximumActive, active);
-        await new Promise((resolve) => setTimeout(resolve, 10));
+        await new Promise((resolve) => setTimeout(resolve, 1));
         active -= 1;
       });
 
-    await Promise.all([enter(first), enter(second)]);
+    for (let iteration = 0; iteration < 100; iteration += 1) {
+      await writeLock(path, { pid: 2_147_483_647, owner: "stale", createdAt: Date.now() - 60_000 });
+      await Promise.all([enter(first), enter(second)]);
+    }
     expect(maximumActive).toBe(1);
+  });
+
+  it("atomically replaces an empty retired lock without exposing uninitialized ownership", async () => {
+    const path = await fixture();
+    await mkdir(path);
+    await new InterprocessFileLock(path).runExclusive(async () => {
+      expect(JSON.parse(await readFile(join(path, "owner.json"), "utf8"))).toMatchObject({
+        pid: process.pid,
+      });
+    });
   });
 
   it("does not unlink a lock whose owner changed before release", async () => {

@@ -64,6 +64,8 @@ export async function runAgentMode(
     const activeRun = new ActiveAgentRun();
     let instance: Awaited<ReturnType<AgentFactory["create"]>> | undefined;
     return runAgentModeScope(async () => {
+      // Restored MCP integrations can request consent during assembly; input must already be live.
+      const consoleCompletion = consoleView.start();
       instance = await new AgentFactory({
         workspace,
         globalDirectory: host.runtime.globalDirectory,
@@ -75,6 +77,28 @@ export async function runAgentMode(
           processRouter: host.processRouter,
           processPlanner: host.processPlanner,
           hostRuntime: host.hostRuntime,
+          networkRuntime: host.networkRuntime,
+          mcpEnvironment: host.mcpEnvironment,
+          mcpOAuthInteraction: {
+            async requestAuthorizationCallback(serverId, url, signal) {
+              consoleView.commandInteraction.pause();
+              try {
+                const interaction = host.createOnboardingInteraction().createAuthInteraction();
+                interaction.notify({
+                  type: "auth_url",
+                  url: url.toString(),
+                  instructions: `Open this URL to authorize MCP ${serverId}.`,
+                });
+                return await interaction.prompt({
+                  type: "secret",
+                  message: "Paste the complete callback URL from your browser:",
+                  signal,
+                });
+              } finally {
+                consoleView.commandInteraction.resume();
+              }
+            },
+          },
           reservedCommandNames: HOST_COMMAND_NAMES,
         },
       }).create(agentPackage);
@@ -203,7 +227,7 @@ export async function runAgentMode(
       } else {
         consoleView.showWelcome({ id: instance.id });
       }
-      const termination = await consoleView.start();
+      const termination = await consoleCompletion;
       await activeRun.close();
       return termination;
     }, [

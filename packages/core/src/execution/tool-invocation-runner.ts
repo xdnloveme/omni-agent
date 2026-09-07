@@ -1,5 +1,6 @@
 import type { ToolExecutionMiddleware } from "../middleware";
 import type { ToolResult } from "../types";
+import { redactExactSensitiveValue } from "../security";
 import { isAbortError, throwIfAborted } from "./abort";
 import {
   OperationDeadlineSupervisor,
@@ -62,7 +63,11 @@ export class ToolInvocationRunner {
       throwIfAborted(call.context.signal);
       for (const entry of middleware) await entry.beforeExecute?.(executionContext);
       throwIfAborted(call.context.signal);
-      const result = await observation.run(() => this.executeAuthorized(call));
+      const rawResult = await observation.run(() => this.executeAuthorized(call));
+      const result = redactExactSensitiveValue(
+        rawResult,
+        call.executionPlan.sensitiveValues,
+      ) as ToolResult;
       throwIfAborted(call.context.signal);
       for (const entry of middleware) await entry.afterExecute?.(executionContext, result);
       throwIfAborted(call.context.signal);
@@ -79,7 +84,10 @@ export class ToolInvocationRunner {
         observation.cancel({ error });
         throw error;
       }
-      const result = error instanceof ToolTimeoutError ? timeoutResult(error) : toolError(error);
+      const result = redactExactSensitiveValue(
+        error instanceof ToolTimeoutError ? timeoutResult(error) : toolError(error),
+        call.executionPlan.sensitiveValues,
+      ) as ToolResult;
       const executionMs = Date.now() - executionStartedAt;
       const fact = {
         toolName: call.tool.name,
@@ -105,7 +113,7 @@ export class ToolInvocationRunner {
   }
 
   private startExecution(call: AuthorizedToolCall, signal: AbortSignal): Promise<ToolResult> {
-    const context = { cwd: call.context.cwd, signal };
+    const context = { cwd: call.context.cwd, signal, network: call.context.network };
     const tool = call.tool;
     if (isInProcessTool(tool)) {
       return tool.execute(call.input, context);

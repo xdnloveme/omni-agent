@@ -5,6 +5,7 @@ import { createConfigCommand } from "./config";
 import { createHelpCommand } from "./help";
 import { createPermissionsCommand } from "./permissions";
 import { createTraceCommand } from "./trace";
+import { createMcpCommand } from "./mcp";
 import type { CliHostServices } from "../host-services";
 
 export const HOST_COMMAND_NAMES = [
@@ -15,6 +16,7 @@ export const HOST_COMMAND_NAMES = [
   "clear",
   "skills",
   "trace",
+  "mcp",
 ] as const;
 
 export function createCommandRegistry(
@@ -25,6 +27,7 @@ export function createCommandRegistry(
   const registry = new CommandRegistry();
   registry.register(createConfigCommand(app, host.createOnboardingInteraction, host.text));
   registry.register(createPermissionsCommand(app, host.text));
+  registry.register(createMcpCommand(app));
   if (trace) registry.register(createTraceCommand(trace));
   for (const command of app.extensions.commands.list()) {
     if (registry.has(command.name)) {

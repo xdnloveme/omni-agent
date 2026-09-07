@@ -8,6 +8,7 @@ export interface AgentModelConfig {
 export interface OmniConfig {
   model: ModelSelection;
   agents?: Record<string, AgentModelConfig>;
+  mcp?: { readonly servers: readonly import("../mcp/config/types").McpServerConfig[] };
 }
 
 export interface ResolvedModelConfiguration {

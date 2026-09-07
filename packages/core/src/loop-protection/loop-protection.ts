@@ -23,6 +23,7 @@ export interface LoopProtection {
   completeToolBatch(): LoopBatchDecision;
   leaseSystemPrompt(basePrompt: string, hasTools: boolean): RuntimePromptLease;
   markPromptDispatched(leaseId: string | undefined): void;
+  enqueueRuntimePrompt(section: import("../system-prompt").RuntimePromptSection): void;
 }
 
 export function createLoopProtection(): LoopProtection {
@@ -108,6 +109,10 @@ class DefaultLoopProtection implements LoopProtection {
 
   markPromptDispatched(leaseId: string | undefined): void {
     this.promptComposer.markDispatched(leaseId);
+  }
+
+  enqueueRuntimePrompt(section: import("../system-prompt").RuntimePromptSection): void {
+    this.promptComposer.enqueue(section);
   }
 }
 

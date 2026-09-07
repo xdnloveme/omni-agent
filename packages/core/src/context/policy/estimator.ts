@@ -78,6 +78,9 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
     } else if (message.role === "toolResult") {
       total += estimateContextTextTokens(message.toolCallId);
       total += estimateContextTextTokens(message.toolName);
+      if (message.structuredContent !== undefined) {
+        total += estimateContextTextTokens(serializeContextValue(message.structuredContent));
+      }
       total +=
         message.addedToolNames?.reduce((sum, name) => sum + estimateContextTextTokens(name), 0) ??
         0;
@@ -88,7 +91,8 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
       total += CONTENT_BLOCK_OVERHEAD_TOKENS;
       if (block.type === "text") {
         total += estimateContextTextTokens(block.text);
-        if (block.textSignature) total += estimateContextTextTokens(block.textSignature);
+        if ("textSignature" in block && block.textSignature)
+          total += estimateContextTextTokens(block.textSignature);
       } else if (block.type === "thinking") {
         total += estimateContextTextTokens(block.thinking);
         if (block.thinkingSignature) {

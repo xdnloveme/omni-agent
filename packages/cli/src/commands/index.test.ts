@@ -11,6 +11,7 @@ describe("Host command reservations", () => {
       "clear",
       "skills",
       "trace",
+      "mcp",
     ]);
   });
 });

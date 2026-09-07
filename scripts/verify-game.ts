@@ -14,7 +14,13 @@ import type {
 
 const repositoryRoot = resolve(import.meta.dirname, "..");
 const temporaryHome = await mkdtemp(join(tmpdir(), "omni-game-verify-"));
-const environment: NodeJS.ProcessEnv = { ...process.env, HOME: temporaryHome };
+const environment: NodeJS.ProcessEnv = {
+  ...process.env,
+  HOME: temporaryHome,
+  // The composition harness opens a Session but never starts a model request.
+  // A synthetic value keeps the check deterministic and independent of developer credentials.
+  ARK_AGENT_PLAN_API_KEY: "omni-verification-placeholder",
+};
 delete environment.OMNI_AGENT_HOST_TOKEN;
 delete environment.OMNI_AGENT_HOST_URL;
 let runtime: Awaited<ReturnType<typeof startGameBootstrap>> | undefined;
@@ -22,6 +28,14 @@ let failure: unknown;
 
 try {
   const godot = await resolveGodotExecutable({ cwd: repositoryRoot, environment });
+  const importExit = await runProcess(godot, [
+    "--headless",
+    "--editor",
+    "--quit",
+    "--path",
+    join(repositoryRoot, "apps/omni-game"),
+  ]);
+  if (importExit !== 0) throw new Error("Godot project import failed");
   const protocolExit = await runProcess(godot, [
     "--headless",
     "--path",
@@ -29,7 +43,7 @@ try {
     "--script",
     "res://tests/protocol_harness.gd",
   ]);
-  if (protocolExit !== 0) throw new Error("Godot Protocol v1 harness failed");
+  if (protocolExit !== 0) throw new Error("Godot Protocol v2 harness failed");
 
   await verifyClientLifecycle(godot);
 
@@ -46,7 +60,7 @@ try {
   process.stdout.write(
     `${JSON.stringify({
       type: "godot_agent_host_client_verified",
-      version: 1,
+      version: 2,
       agents: ["coding", "financial-analysis"],
     })}\n`,
   );

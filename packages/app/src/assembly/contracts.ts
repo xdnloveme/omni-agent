@@ -159,6 +159,9 @@ export interface AgentHostDependencies {
   readonly processRouter: ProcessExecutionRouterPort;
   readonly processPlanner: ProcessExecutionPlannerPort;
   readonly hostRuntime: HostRuntimeContext;
+  readonly networkRuntime: import("@omni-agent/core").NetworkRuntimePort;
+  readonly mcpEnvironment?: Readonly<Record<string, string | undefined>>;
+  readonly mcpOAuthInteraction?: import("../mcp").McpOAuthInteractionPort;
   readonly environmentProvider?: RuntimeEnvironmentProviderPort;
   readonly reservedCommandNames: readonly string[];
   readonly onLateToolSettlement?: (event: LateToolSettlementEvent) => void | Promise<void>;

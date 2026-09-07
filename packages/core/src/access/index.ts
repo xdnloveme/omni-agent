@@ -3,6 +3,7 @@ export type { ToolAccessControllerOptions } from "./tool-access-controller";
 export { DenyAccessConsentBroker } from "./access-consent-port";
 export type {
   AccessConsentBroker,
+  AccessConsentDecision,
   AccessConsentRequest,
   AccessConsentResponse,
 } from "./access-consent-port";
@@ -24,6 +25,7 @@ export type {
   ToolAccessContext,
   ToolAccessDescriptor,
   ToolAccessIntent,
+  PreparedToolAccess,
   ToolAccessRequest,
   ToolAccessResult,
   ToolAccessGrant,

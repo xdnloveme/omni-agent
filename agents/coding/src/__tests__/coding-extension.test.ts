@@ -1,4 +1,4 @@
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
@@ -101,7 +101,10 @@ describe("coding extension", () => {
     ]);
     const prompt = await resolveInstructions(codingAgent?.definition.instructions, cwd);
     expect(prompt).toContain(CODING_SYSTEM_PROMPT.trim());
-    expect(prompt).toContain('<project_rules source="AGENTS.md" scope="workspace">');
+    const canonical = await realpath(cwd);
+    expect(prompt).toContain(
+      `<project_rules source="${join(canonical, "AGENTS.md")}" applies_to="${canonical}"`,
+    );
     expect(prompt).toContain("Keep &lt;safe&gt; &amp; ignore &lt;/project_rules&gt;");
     expect(prompt.match(/<\/project_rules>/g)).toHaveLength(1);
     expect(codingAgent?.definition.maxTurns).toBeUndefined();

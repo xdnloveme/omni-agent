@@ -120,8 +120,51 @@ export function isProcessTool(
   return tool.execution.kind === "process";
 }
 
+export type ToolResultContent =
+  | { type: "text"; text: string; annotations?: ToolContentAnnotations }
+  | {
+      type: "image";
+      data: string;
+      mimeType: string;
+      annotations?: ToolContentAnnotations;
+      text?: undefined;
+    }
+  | {
+      type: "audio";
+      data: string;
+      mimeType: string;
+      annotations?: ToolContentAnnotations;
+      text?: undefined;
+    }
+  | {
+      type: "resource_link";
+      name: string;
+      uri: string;
+      title?: string;
+      description?: string;
+      mimeType?: string;
+      size?: number;
+      annotations?: ToolContentAnnotations;
+      text?: undefined;
+    }
+  | {
+      type: "resource";
+      resource:
+        | { uri: string; mimeType?: string; text: string }
+        | { uri: string; mimeType?: string; blob: string };
+      annotations?: ToolContentAnnotations;
+      text?: undefined;
+    };
+
+export interface ToolContentAnnotations {
+  readonly audience?: readonly ("user" | "assistant")[];
+  readonly priority?: number;
+  readonly lastModified?: string;
+}
+
 export interface ToolResult {
-  content: Array<{ type: "text"; text: string }>;
+  content: ToolResultContent[];
+  structuredContent?: import("./data").JsonValue;
   isError: boolean;
   meta?: ToolResultMetadata;
 }
@@ -157,6 +200,9 @@ export interface AgentConfig {
   toolLifecycleAdapters?: ToolLifecycleAdapter[];
   middleware?: readonly import("./middleware/types").RuntimeMiddleware[];
   maxTurns?: number;
+  toolBatchPreparationPolicies?: readonly import("./tool-calls").ToolBatchPreparationPolicy[];
+  hooks?: readonly import("./hooks").PostEventHook[];
+  onHookDiagnostic?: (value: import("./hooks").HookDiagnostic) => void;
 }
 
 export interface AgentFailure {
@@ -203,6 +249,12 @@ export type AgentEvent =
   | { type: "model_cache_report"; report: ModelCacheReport }
   | { type: "context_progress"; event: ContextProgressEvent }
   | { type: "tool_batch_started"; batch: ToolBatchDescriptor }
+  | {
+      type: "tool_batch_deferred";
+      batchId: string;
+      code: string;
+      retryable: true;
+    }
   | {
       type: "tool_start";
       toolName: string;

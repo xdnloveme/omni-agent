@@ -6,6 +6,7 @@ export type SkillSource =
   | { scope: typeof SkillSourceScope.Plugin; pluginId: string; path: string };
 
 export interface SkillMetadata {
+  readonly sourceRoot: { readonly path: string; readonly dev: number; readonly ino: number };
   name: string;
   description: string;
   filePath: string;
@@ -17,6 +18,7 @@ export interface SkillMetadata {
 }
 
 export interface LoadedSkill extends SkillMetadata {
+  readonly version: string;
   body: string;
   loadedAt: number;
   tokenEstimate: number;
@@ -51,6 +53,7 @@ export interface SkillReadOptions {
 }
 
 export interface SkillReadResult {
+  readonly diagnostic?: SkillDiagnostic;
   status: typeof SkillReadStatus.Loaded | typeof SkillReadStatus.Cached;
   skill: LoadedSkill;
   renderedText: string;

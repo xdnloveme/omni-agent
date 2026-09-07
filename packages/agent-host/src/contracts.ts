@@ -6,7 +6,7 @@ import type {
   AgentServiceSession,
 } from "@omni-agent/app";
 
-export const AGENT_HOST_PROTOCOL_VERSION = 1 as const;
+export const AGENT_HOST_PROTOCOL_VERSION = 2 as const;
 export const AGENT_HOST_LISTEN_ADDRESS = "127.0.0.1" as const;
 export const AGENT_HOST_MAX_PAYLOAD_BYTES = 64 * 1024;
 export const AGENT_HOST_MAX_BUFFERED_BYTES = 1024 * 1024;
@@ -42,29 +42,29 @@ export interface AgentHostReadyMessage {
 }
 
 export type AgentHostRequest =
-  | { readonly v: 1; readonly id: string; readonly type: "list_agents" }
+  | { readonly v: 2; readonly id: string; readonly type: "list_agents" }
   | {
-      readonly v: 1;
+      readonly v: 2;
       readonly id: string;
       readonly type: "open_session";
       readonly agentId: string;
       readonly sessionId?: string;
     }
   | {
-      readonly v: 1;
+      readonly v: 2;
       readonly id: string;
       readonly type: "create_session";
       readonly agentId: string;
     }
   | {
-      readonly v: 1;
+      readonly v: 2;
       readonly id: string;
       readonly type: "close_session";
       readonly agentId: string;
       readonly sessionId: string;
     }
   | {
-      readonly v: 1;
+      readonly v: 2;
       readonly id: string;
       readonly type: "run";
       readonly agentId: string;
@@ -72,37 +72,68 @@ export type AgentHostRequest =
       readonly text: string;
     }
   | {
-      readonly v: 1;
+      readonly v: 2;
       readonly id: string;
       readonly type: "cancel";
       readonly requestId: string;
+    }
+  | {
+      readonly v: 2;
+      readonly id: string;
+      readonly type: "resolve_permission";
+      readonly permissionId: string;
+      readonly decision: "approve" | "deny";
     };
+
+export interface AgentHostPermissionRequestedMessage {
+  readonly v: 2;
+  readonly type: "permission.requested";
+  readonly requestId: string;
+  readonly permissionId: string;
+  readonly expiresAt: number;
+  readonly presentation: {
+    readonly title: string;
+    readonly resources: readonly string[];
+  };
+}
+
+export interface AgentHostPermissionResolvedMessage {
+  readonly v: 2;
+  readonly type: "permission.resolved";
+  readonly requestId: string;
+  readonly permissionId: string;
+  readonly decision: "approve" | "deny";
+  readonly reason: "user" | "expired" | "cancelled" | "disconnected";
+}
 
 export type AgentHostResult =
   | { readonly kind: "agents"; readonly agents: readonly AgentServiceAgent[] }
   | { readonly kind: "session"; readonly session: AgentServiceSession }
   | { readonly kind: "closed" }
-  | { readonly kind: "cancel_requested"; readonly requestId: string };
+  | { readonly kind: "cancel_requested"; readonly requestId: string }
+  | { readonly kind: "permission_resolved"; readonly permissionId: string };
 
 export type AgentHostResponse =
   | {
-      readonly v: 1;
+      readonly v: 2;
       readonly type: "result";
       readonly id: string;
       readonly result: AgentHostResult;
     }
   | {
-      readonly v: 1;
+      readonly v: 2;
       readonly type: "event";
       readonly requestId: string;
       readonly event: AgentServiceEvent;
     }
   | {
-      readonly v: 1;
+      readonly v: 2;
       readonly type: "error";
       readonly id?: string;
       readonly error: AgentServiceFailure;
-    };
+    }
+  | AgentHostPermissionRequestedMessage
+  | AgentHostPermissionResolvedMessage;
 
 export type AgentHostServerMessage = AgentHostReadyMessage | AgentHostResponse;
 export type AgentHostClientMessage = AgentHostHelloMessage | AgentHostRequest;

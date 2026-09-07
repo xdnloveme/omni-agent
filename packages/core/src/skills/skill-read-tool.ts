@@ -51,6 +51,8 @@ export function createSkillReadTool(registry: SkillRegistry): AgentToolDefinitio
             source: result.skill.source,
             filePath: result.skill.filePath,
             tokenEstimate: result.skill.tokenEstimate,
+            version: result.skill.version,
+            ...(result.diagnostic ? { diagnostic: result.diagnostic } : {}),
           },
         };
       } catch (err) {

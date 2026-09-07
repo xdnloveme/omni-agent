@@ -19,7 +19,17 @@ export class ProcessExecutionPlanner implements ProcessExecutionPlannerPort {
   }
 
   async prepare(request: ProcessExecutionPlanningRequest): Promise<ProcessExecutionPlan> {
-    const invocation = await request.tool.createProcessInvocation(request.input, request.context);
+    const baseInvocation = await request.tool.createProcessInvocation(
+      request.input,
+      request.context,
+    );
+    const invocation = request.networkProxy
+      ? {
+          ...baseInvocation,
+          env: proxyEnvironment(baseInvocation.env, request.networkProxy.url),
+          sensitiveValues: request.sensitiveValues,
+        }
+      : { ...baseInvocation, sensitiveValues: request.sensitiveValues };
     if (invocation.cwd !== request.context.cwd) {
       throw new SandboxProcessError(
         "process_invocation_invalid",
@@ -53,8 +63,37 @@ export class ProcessExecutionPlanner implements ProcessExecutionPlannerPort {
     return {
       route: "sandbox",
       invocation: { ...invocation, command: projection.canonicalExecutablePath },
-      policy: access.policy,
+      policy: request.networkProxy
+        ? {
+            ...access.policy,
+            network: {
+              kind: "loopback_proxy",
+              host: request.networkProxy.host,
+              port: request.networkProxy.port,
+            },
+          }
+        : access.policy,
       runtimeRead: projection.readScopes,
     };
   }
+}
+
+function proxyEnvironment(env: NodeJS.ProcessEnv | undefined, proxyUrl: string): NodeJS.ProcessEnv {
+  const sanitized = Object.fromEntries(
+    Object.entries(env ?? process.env).filter(
+      ([name]) =>
+        !["http_proxy", "https_proxy", "all_proxy", "no_proxy"].includes(name.toLowerCase()),
+    ),
+  );
+  return {
+    ...sanitized,
+    HTTP_PROXY: proxyUrl,
+    HTTPS_PROXY: proxyUrl,
+    ALL_PROXY: proxyUrl,
+    NO_PROXY: "",
+    http_proxy: proxyUrl,
+    https_proxy: proxyUrl,
+    all_proxy: proxyUrl,
+    no_proxy: "",
+  };
 }

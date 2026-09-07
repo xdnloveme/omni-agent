@@ -1,4 +1,6 @@
 import type { ProcessToolDefinition, RegisteredAgentTool, ToolResult } from "../types";
+import type { AuthorizedNetworkClient, NetworkCapability, NetworkProxyRoute } from "../network";
+import type { SensitiveValueSet } from "../security";
 
 export type ExecutionMode = "controlled" | "autonomous" | "unrestricted";
 
@@ -17,6 +19,7 @@ export interface ProcessExecutableRequirement {
 export interface ToolExecutionContext {
   cwd: string;
   signal?: AbortSignal;
+  network?: AuthorizedNetworkClient;
 }
 
 export type ToolExecutionStrategy = { kind: "in_process" } | { kind: "process" };
@@ -29,7 +32,9 @@ export interface SandboxPathScope {
 export interface SandboxPolicy {
   readonly mode: "controlled" | "autonomous";
   readonly workspaceRoot: string;
-  readonly network: boolean;
+  readonly network:
+    | { readonly kind: "disabled" }
+    | { readonly kind: "loopback_proxy"; readonly host: "127.0.0.1"; readonly port: number };
   readonly read: readonly SandboxPathScope[];
   readonly write: readonly SandboxPathScope[];
   readonly protectedWriteRoots: readonly string[];
@@ -54,6 +59,8 @@ export type ProcessExecutionPlan =
 export interface ToolExecutionPlan {
   readonly mode: ExecutionMode;
   readonly process?: ProcessExecutionPlan;
+  readonly network?: NetworkCapability;
+  readonly sensitiveValues?: SensitiveValueSet;
 }
 
 export interface AuthorizedExecutionContext extends ToolExecutionContext {
@@ -82,6 +89,7 @@ export interface ProcessInvocation {
   readonly cwd: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly maxOutputBytes: number;
+  readonly sensitiveValues?: SensitiveValueSet;
 }
 
 export interface ProcessResult {
@@ -103,6 +111,8 @@ export interface ProcessExecutionPlanningRequest {
   readonly context: ToolExecutionContext;
   readonly access: ProcessAccessPlan;
   readonly executableRequirements: readonly ProcessExecutableRequirement[];
+  readonly networkProxy?: NetworkProxyRoute;
+  readonly sensitiveValues?: SensitiveValueSet;
 }
 
 export interface ProcessExecutionPlannerPort {

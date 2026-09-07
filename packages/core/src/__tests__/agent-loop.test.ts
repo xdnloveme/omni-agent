@@ -145,12 +145,11 @@ function createCoordinator() {
       async getSettings() {
         return {
           mode: "controlled",
-          controlledNetworkEnabled: false,
+          approvedNetworkTargets: [],
           approvedFilesystemRoots: [],
         };
       },
-      async enableControlledNetwork() {},
-      async addApprovedFilesystemRoots() {},
+      async addApprovedAccess() {},
     },
     consent: {
       async request() {
@@ -224,6 +223,172 @@ function producedMessages(records: readonly SessionRecord[] | undefined): Transc
 describe("runAgentLoop", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it("starts each batch preparation policy at the Run boundary", async () => {
+    const beginRun = vi.fn();
+    streamModel.mockReturnValue(
+      fakeStream([
+        { type: "done", message: { content: [{ type: "text", text: "done" }] } },
+      ]) as never,
+    );
+    await collectEvents(
+      executeLoop(
+        makeConfig({
+          toolBatchPreparationPolicies: [
+            { beginRun, evaluate: async () => ({ kind: "executable" }) },
+          ],
+        }),
+        makeMessages("hello"),
+      ),
+    );
+    expect(beginRun).toHaveBeenCalledOnce();
+    expect(beginRun.mock.invocationCallOrder[0]).toBeLessThan(
+      streamModel.mock.invocationCallOrder[0] ?? Number.POSITIVE_INFINITY,
+    );
+  });
+
+  it("returns failed ToolResults when scope discovery fails instead of leaving orphan tool calls", async () => {
+    const tool = makeTool();
+    const config = makeConfig({
+      tools: [tool],
+      toolBatchPreparationPolicies: [
+        {
+          evaluate: async () => {
+            throw Object.assign(new Error("rules could not be read"), {
+              code: "project_instruction_invalid_file",
+            });
+          },
+        },
+      ],
+    });
+    streamModel
+      .mockReturnValueOnce(
+        fakeStream([
+          {
+            type: "done",
+            message: {
+              content: [{ type: "toolCall", id: "call", name: tool.name, arguments: {} }],
+              stopReason: "toolUse",
+            },
+          },
+        ]) as never,
+      )
+      .mockReturnValueOnce(
+        fakeStream([
+          {
+            type: "done",
+            message: {
+              content: [{ type: "text", text: "Cannot execute" }],
+              stopReason: "stop",
+            },
+          },
+        ]) as never,
+      );
+    const events = await collectEvents(executeLoop(config, makeMessages("work")));
+    expect(tool.execute).not.toHaveBeenCalled();
+    expect(events.find((event) => event.type === "tool_end")).toMatchObject({
+      result: {
+        isError: true,
+        meta: { code: "project_instruction_invalid_file", executed: false },
+      },
+    });
+    expect(JSON.stringify(streamModel.mock.calls[1]![1].messages)).toContain(
+      "rules could not be read",
+    );
+  });
+
+  it("delivers changed rules in a deferred result while preserving the system prompt prefix", async () => {
+    const tool = makeTool();
+    let evaluations = 0;
+    const config = makeConfig({
+      tools: [tool],
+      toolBatchPreparationPolicies: [
+        {
+          evaluate: async () =>
+            ++evaluations === 1
+              ? {
+                  kind: "deferred",
+                  code: "project_instructions_loaded",
+                  message: "Rules changed",
+                  promptSections: [
+                    {
+                      id: "rules",
+                      owner: "project_instructions",
+                      priority: 100,
+                      lifetime: "run",
+                      content: "current scoped rule",
+                    },
+                  ],
+                }
+              : { kind: "executable" },
+        },
+      ],
+    });
+    streamModel
+      .mockReturnValueOnce(
+        fakeStream([
+          {
+            type: "done",
+            message: {
+              content: [{ type: "toolCall", id: "call", name: tool.name, arguments: {} }],
+              stopReason: "toolUse",
+            },
+          },
+        ]) as never,
+      )
+      .mockReturnValueOnce(
+        fakeStream([
+          {
+            type: "done",
+            message: {
+              content: [{ type: "text", text: "Reconsidered" }],
+              stopReason: "stop",
+            },
+          },
+        ]) as never,
+      );
+    const events = await collectEvents(executeLoop(config, makeMessages("work")));
+    expect(tool.execute).not.toHaveBeenCalled();
+    const first = streamModel.mock.calls[0]![1];
+    const second = streamModel.mock.calls[1]![1];
+    expect(second.systemPrompt).toBe(first.systemPrompt);
+    expect(JSON.stringify(second.messages)).toContain("current scoped rule");
+    expect(events.filter((event) => event.type === "tool_batch_deferred")).toHaveLength(1);
+    expect(events.find((event) => event.type === "tool_end")).toMatchObject({
+      result: { meta: { executed: false, retryable: true } },
+    });
+  });
+
+  it("continues past former model and tool totals when each action makes distinct progress", async () => {
+    const tool = makeTool();
+    let calls = 0;
+    streamModel.mockImplementation(() => {
+      const index = calls++;
+      return fakeStream([
+        {
+          type: "done",
+          message:
+            index < 129
+              ? {
+                  content: Array.from({ length: 4 }, (_, item) => ({
+                    type: "toolCall",
+                    id: `call-${index}-${item}`,
+                    name: tool.name,
+                    arguments: { input: `${index}-${item}` },
+                  })),
+                  stopReason: "toolUse",
+                }
+              : { content: [{ type: "text", text: "finished" }], stopReason: "stop" },
+        },
+      ]) as ReturnType<ModelRuntimePort["stream"]>;
+    });
+    const events = await collectEvents(
+      executeLoop(makeConfig({ tools: [tool] }), makeMessages("work")),
+    );
+    expect(tool.execute).toHaveBeenCalledTimes(516);
+    expect(streamModel).toHaveBeenCalledTimes(130);
+    expect(events.at(-1)).toMatchObject({ type: "done" });
   });
 
   it("should yield text_delta and done for a normal text response", async () => {
@@ -662,7 +827,7 @@ describe("runAgentLoop", () => {
       scheduling: { batch: "turn_barrier" as const },
     };
     const coordinator = createCoordinator();
-    const run = vi.spyOn(coordinator, "run");
+    const run = vi.spyOn(coordinator, "authorizeAndRun");
     const recorder = new RecordingRuntimeObserver();
     const observation = recorder.startRun({
       agentId: "test",
@@ -703,7 +868,7 @@ describe("runAgentLoop", () => {
     );
 
     expect(run).toHaveBeenCalledTimes(1);
-    expect(run.mock.calls[0]?.[1].toolName).toBe("clarify");
+    expect(run.mock.calls[0]?.[0].toolName).toBe("clarify");
     expect(before.execute).not.toHaveBeenCalled();
     expect(secondBarrier.execute).not.toHaveBeenCalled();
     const ends = events.filter((event) => event.type === "tool_end");
@@ -1333,50 +1498,6 @@ describe("runAgentLoop", () => {
     });
   });
 
-  it("allows an unbounded agent to continue beyond thirty model calls", async () => {
-    const tool = makeTool("bash");
-    const config = makeConfig({ tools: [tool], maxTurns: undefined });
-    let modelCall = 0;
-    streamModel.mockImplementation(() => {
-      modelCall += 1;
-      if (modelCall <= 31) {
-        return fakeStream([
-          {
-            type: "done",
-            message: {
-              role: "assistant",
-              content: [
-                {
-                  type: "toolCall",
-                  id: `call_${modelCall}`,
-                  name: "bash",
-                  arguments: { input: `step-${modelCall}` },
-                },
-              ],
-              stopReason: "toolUse",
-              timestamp: Date.now(),
-            },
-          },
-        ]) as ReturnType<ModelRuntimePort["stream"]>;
-      }
-      return fakeStream([
-        {
-          type: "done",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "finished" }],
-            stopReason: "stop",
-            timestamp: Date.now(),
-          },
-        },
-      ]) as ReturnType<ModelRuntimePort["stream"]>;
-    });
-
-    const events = await collectEvents(executeLoop(config, makeMessages("long task")));
-    expect(streamModel).toHaveBeenCalledTimes(32);
-    expect(events.at(-1)?.type).toBe("done");
-  });
-
   it("should throw AbortError immediately when signal is already aborted", async () => {
     const config = makeConfig();
     const controller = new AbortController();
@@ -1503,7 +1624,10 @@ describe("runAgentLoop", () => {
       ]) as never,
     );
     const coordinator = {
-      async *run() {
+      async prepareBatch() {
+        return { calls: [{}] };
+      },
+      async *authorizeAndRun() {
         throw abortError();
       },
     } as unknown as ToolCallCoordinator;

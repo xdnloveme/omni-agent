@@ -1,4 +1,9 @@
-import type { Command, CommandInteractionPort, ExecutionMode } from "@omni-agent/core";
+import {
+  networkTargetFromUrl,
+  type Command,
+  type CommandInteractionPort,
+  type ExecutionMode,
+} from "@omni-agent/core";
 import type { AgentApplication } from "@omni-agent/app";
 import type { TextPresentationPort } from "../host-services";
 
@@ -10,10 +15,22 @@ export function createPermissionsCommand(
     name: "permissions",
     description: "Manage workspace execution boundaries",
     async execute(ctx) {
+      if (ctx.args.trim()) {
+        const [area, action, ...urls] = ctx.args.trim().split(/\s+/);
+        if (area !== "network" || action !== "add" || urls.length === 0)
+          throw new Error("Usage: /permissions network add <http(s) URL> [URL ...]");
+        await app.addApprovedNetworkTargets(urls.map(networkTargetFromUrl));
+        ctx.interaction.line(
+          text.success(
+            "Saved network targets for this workspace and Agent. Controlled calls reuse them without further prompts.",
+          ),
+        );
+        return;
+      }
       const settings = await app.getExecutionSettings();
       const result = await ctx.interaction.select({
         title: "Workspace execution",
-        detail: `Agent: ${app.agentId}\nMode: ${settings.mode}\nControlled network: ${settings.controlledNetworkEnabled ? "enabled" : "disabled"}\nApproved roots: ${settings.approvedFilesystemRoots.length}`,
+        detail: `Agent: ${app.agentId}\nMode: ${settings.mode}\nApproved network targets: ${settings.approvedNetworkTargets.length}\nApproved roots: ${settings.approvedFilesystemRoots.length}`,
         items: [
           {
             value: "mode",
@@ -31,19 +48,19 @@ export function createPermissionsCommand(
             : []),
           {
             value: "network",
-            label: settings.controlledNetworkEnabled ? "Disable network" : "Enable network",
-            description: "Change the controlled-mode network setting for this workspace",
+            label: "Manage approved network targets",
+            description: "Configure once; reuse approved public, private, and local targets",
           },
         ],
       });
       if (result.kind === "abort" || result.kind === "shutdown") throw result.error;
       if (result.kind !== "selected") return;
       if (result.value === "network") {
-        await app.setControlledNetworkEnabled(!settings.controlledNetworkEnabled);
-        ctx.interaction.line(
-          text.success(
-            `Controlled network ${settings.controlledNetworkEnabled ? "disabled" : "enabled"}.`,
-          ),
+        await manageApprovedNetworkTargets(
+          app,
+          ctx.interaction,
+          text,
+          settings.approvedNetworkTargets,
         );
       } else if (result.value === "mode") {
         const mode = await selectMode(ctx.interaction, app.agentId);
@@ -57,6 +74,45 @@ export function createPermissionsCommand(
       ctx.interaction.spacer();
     },
   };
+}
+
+async function manageApprovedNetworkTargets(
+  app: AgentApplication,
+  interaction: CommandInteractionPort,
+  text: TextPresentationPort,
+  targets: Awaited<ReturnType<AgentApplication["getExecutionSettings"]>>["approvedNetworkTargets"],
+): Promise<void> {
+  const result = await interaction.select({
+    title: "Approved network targets",
+    detail:
+      "Add targets: /permissions network add http://localhost:3000 https://example.com\nSaved per workspace and Agent. Revoking access affects future tool calls only.",
+    items: [
+      ...targets.map((target, index) => ({
+        value: `target:${index}`,
+        label: `${target.scheme}://${target.host}:${target.port}`,
+        description: "Exact scheme, host, and port",
+      })),
+      {
+        value: "clear",
+        label: "Clear all approved targets",
+        description: "Require consent for every future network destination",
+      },
+    ],
+  });
+  if (result.kind === "abort" || result.kind === "shutdown") throw result.error;
+  if (result.kind !== "selected") return;
+  if (result.value === "clear") {
+    await app.clearApprovedNetworkTargets();
+    interaction.line(text.success("Cleared approved network targets."));
+    return;
+  }
+  const index = Number(result.value.slice("target:".length));
+  const target = targets[index];
+  if (!target) return;
+  await app.revokeApprovedNetworkTarget(target);
+  interaction.line(
+    text.success(`Revoked network access to ${target.scheme}://${target.host}:${target.port}.`),
+  );
 }
 
 async function manageApprovedRoots(
@@ -106,12 +162,13 @@ async function selectMode(
       {
         value: "controlled",
         label: "Controlled",
-        description: "Keep process and file access inside the workspace",
+        description: "Workspace sandbox; reuse configured filesystem and network permissions",
       },
       {
         value: "autonomous",
         label: "Autonomous",
-        description: "Let the Agent request per-call sandbox scope without repeated prompts",
+        description:
+          "Automatically authorize per-call filesystem and network scope; keep the sandbox",
       },
       {
         value: "unrestricted",

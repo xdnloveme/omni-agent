@@ -1,4 +1,4 @@
-# Agent Host WebSocket Protocol v1
+# Agent Host WebSocket Protocol v2
 
 `@omni-agent/agent-host` is the local WebSocket adapter for `AgentServicePort`. Its only business
 dependency is the injected Service Port. It does not create Agents, load packages, inspect Session
@@ -25,7 +25,7 @@ process-to-process contract, not a developer configuration value. The optional
 Successful startup writes exactly one machine-readable stdout record:
 
 ```json
-{ "type": "agent_host_ready", "version": 1, "host": "127.0.0.1", "port": 43127 }
+{ "type": "agent_host_ready", "version": 2, "host": "127.0.0.1", "port": 43127 }
 ```
 
 Startup failure writes `agent_host_failed` without paths, credentials, or stack details; diagnostic
@@ -34,12 +34,12 @@ exits after that client disconnects.
 
 ## Protocol
 
-The first message must be `{ "v": 1, "type": "hello", "token": "..." }`. Authentication has a
+The first message must be `{ "v": 2, "type": "hello", "token": "..." }`. Authentication has a
 five-second deadline. Token comparison is fixed-length and constant-time. Tokens are never accepted
 through URLs, headers, or cookies.
 
 After authentication the client may send `list_agents`, `open_session`, `create_session`,
-`close_session`, `run`, and `cancel`. A Run's protocol `id` is its Service `requestId`. The Host keeps
+`close_session`, `run`, `cancel`, and `resolve_permission`. A Run's protocol `id` is its Service `requestId`. The Host keeps
 only connection-level active IDs and AbortControllers; it does not add business locking or Session
 queues. Responses are `result`, `event`, or a safe `error` containing only `code`, `message`, and
 `retryable`.
@@ -52,49 +52,51 @@ connection-owned signal.
 
 ### Wire messages
 
-Every client message is a UTF-8 JSON object with `v: 1` and `additionalProperties: false` semantics.
+Every client message is a UTF-8 JSON object with `v: 2` and `additionalProperties: false` semantics.
 Binary frames are rejected. Request IDs must match `[A-Za-z0-9._:-]+`, contain 1–128 characters,
 and be unique while active on the connection.
 
 Authentication is the first message:
 
 ```json
-{ "v": 1, "type": "hello", "token": "<43-character Base64URL value>" }
+{ "v": 2, "type": "hello", "token": "<43-character Base64URL value>" }
 ```
 
 Successful authentication returns:
 
 ```json
-{ "v": 1, "type": "ready", "connectionId": "<UUID>" }
+{ "v": 2, "type": "ready", "connectionId": "<UUID>" }
 ```
 
 After `ready`, the client may send:
 
-| Request type     | Required fields                      | Optional fields |
-| ---------------- | ------------------------------------ | --------------- |
-| `list_agents`    | `id`                                 | —               |
-| `open_session`   | `id`, `agentId`                      | `sessionId`     |
-| `create_session` | `id`, `agentId`                      | —               |
-| `close_session`  | `id`, `agentId`, `sessionId`         | —               |
-| `run`            | `id`, `agentId`, `sessionId`, `text` | —               |
-| `cancel`         | `id`, `requestId`                    | —               |
+| Request type         | Required fields                      | Optional fields |
+| -------------------- | ------------------------------------ | --------------- |
+| `list_agents`        | `id`                                 | —               |
+| `open_session`       | `id`, `agentId`                      | `sessionId`     |
+| `create_session`     | `id`, `agentId`                      | —               |
+| `close_session`      | `id`, `agentId`, `sessionId`         | —               |
+| `run`                | `id`, `agentId`, `sessionId`, `text` | —               |
+| `cancel`             | `id`, `requestId`                    | —               |
+| `resolve_permission` | `id`, `permissionId`, `decision`     | —               |
 
 Examples:
 
 ```json
-{ "v": 1, "id": "agents-1", "type": "list_agents" }
-{ "v": 1, "id": "open-1", "type": "open_session", "agentId": "coding" }
-{ "v": 1, "id": "create-1", "type": "create_session", "agentId": "coding" }
-{ "v": 1, "id": "close-1", "type": "close_session", "agentId": "coding", "sessionId": "session-1" }
-{ "v": 1, "id": "run-1", "type": "run", "agentId": "coding", "sessionId": "session-1", "text": "Inspect this repository" }
-{ "v": 1, "id": "cancel-1", "type": "cancel", "requestId": "run-1" }
+{ "v": 2, "id": "agents-1", "type": "list_agents" }
+{ "v": 2, "id": "open-1", "type": "open_session", "agentId": "coding" }
+{ "v": 2, "id": "create-1", "type": "create_session", "agentId": "coding" }
+{ "v": 2, "id": "close-1", "type": "close_session", "agentId": "coding", "sessionId": "session-1" }
+{ "v": 2, "id": "run-1", "type": "run", "agentId": "coding", "sessionId": "session-1", "text": "Inspect this repository" }
+{ "v": 2, "id": "cancel-1", "type": "cancel", "requestId": "run-1" }
+{ "v": 2, "id": "permission-1", "type": "resolve_permission", "permissionId": "permission-id", "decision": "approve" }
 ```
 
 Unary operations return one `result` or one `error` with the same `id`:
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "result",
   "id": "agents-1",
   "result": {
@@ -114,22 +116,31 @@ Unary operations return one `result` or one `error` with the same `id`:
 
 Result payloads are:
 
-| Result kind        | Payload                                   |
-| ------------------ | ----------------------------------------- |
-| `agents`           | `agents: AgentServiceAgent[]`             |
-| `session`          | `session: { agentId, sessionId }`         |
-| `closed`           | no additional fields                      |
-| `cancel_requested` | `requestId`, identifying the targeted Run |
+| Result kind           | Payload                                    |
+| --------------------- | ------------------------------------------ |
+| `agents`              | `agents: AgentServiceAgent[]`              |
+| `session`             | `session: { agentId, sessionId }`          |
+| `closed`              | no additional fields                       |
+| `cancel_requested`    | `requestId`, identifying the targeted Run  |
+| `permission_resolved` | `permissionId`; event carries the decision |
 
 A submitted Run produces `event` messages instead of a unary result:
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "event",
   "requestId": "run-1",
   "event": { "type": "text_delta", "text": "partial output" }
 }
+```
+
+Access consent is projected independently with bounded presentation data. Credentials and raw Tool
+input are not included:
+
+```json
+{ "v": 2, "type": "permission.requested", "requestId": "run-1", "permissionId": "...", "expiresAt": 1780000000000, "presentation": { "title": "Workspace: example\nAgent: coding\nTool: web_fetch\nPurpose: fetch", "resources": ["https://example.com:443"] } }
+{ "v": 2, "type": "permission.resolved", "requestId": "run-1", "permissionId": "...", "decision": "deny", "reason": "expired" }
 ```
 
 The event order is:
@@ -150,7 +161,7 @@ sources, or request text:
 
 ```json
 {
-  "v": 1,
+  "v": 2,
   "type": "error",
   "id": "open-1",
   "error": {
@@ -196,7 +207,7 @@ internal errors become `agent_service_operation_failed`.
 
 An active request ID is released after its unary result/error or Run terminal event and may then be
 reused. Cancel acknowledges only that cancellation was requested; the targeted Run owns its final
-terminal event. After the authenticated client disconnects, the v1 Host closes and does not wait
+terminal event. After the authenticated client disconnects, the v2 Host closes and does not wait
 for reconnection. There is no replay or Run recovery.
 
 Clients may observe close code `1002` for unsupported versions, `1003` for binary frames, `1008`
@@ -209,7 +220,7 @@ the single connection slot is occupied.
 
 ```text
 Godot / test client
-→ WebSocket hello and Protocol v1 request
+→ WebSocket hello and Protocol v2 request
 → AgentHostConnection validates and correlates the request
 → AgentServicePort owns Agent availability, Session state, FIFO, and Run
 → AgentApplication / Core executes the Agent and Tools
@@ -236,7 +247,7 @@ authenticates, calls `list_agents`, closes the client, and waits for clean proce
 successful result is:
 
 ```json
-{ "type": "agent_host_verified", "version": 1, "agents": ["coding", "financial-analysis"] }
+{ "type": "agent_host_verified", "version": 2, "agents": ["coding", "financial-analysis"] }
 ```
 
 Once the Godot gateway exists, Godot will own Token generation and the child-process lifecycle
@@ -246,11 +257,11 @@ directly. The focused automated suite is:
 pnpm exec vitest run packages/agent-host/src/__tests__ apps/omni/src/agent-host-process.test.ts
 ```
 
-## V1 limitations
+## V2 limitations
 
 - Model configuration must already exist.
 - Foreground Agent interaction is unavailable.
-- Dynamic access consent is denied.
+- Dynamic access consent is correlated through bounded permission messages.
 - There is no reconnect, replay, multi-client, multi-Workspace, HTTP API, or dynamic Agent source.
 - `create_session` creates a conversation/task save, not a new Agent package.
 

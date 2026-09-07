@@ -3,6 +3,9 @@ extends SceneTree
 const Protocol := preload("res://src/client/agent_host_protocol.gd")
 
 func _init() -> void:
+	_run.call_deferred()
+
+func _run() -> void:
 	var failures: Array[String] = []
 	_check_encoding(failures)
 	_check_ready(failures)
@@ -10,6 +13,7 @@ func _init() -> void:
 	_check_events(failures)
 	_check_errors(failures)
 	_check_strictness(failures)
+	await _check_permission_layout(failures)
 	if not failures.is_empty():
 		for failure: String in failures:
 			printerr(failure)
@@ -17,16 +21,35 @@ func _init() -> void:
 		return
 	quit(0)
 
+func _check_permission_layout(failures: Array[String]) -> void:
+	var panel = load("res://scenes/PermissionPanel.tscn").instantiate()
+	root.add_child(panel)
+	panel.size = Vector2(900, 650)
+	var resources: Array[String] = []
+	for index in 128:
+		resources.append("%d: %s" % [index, "x".repeat(500)])
+	panel.present({"permissionId": "layout", "presentation": {"title": "t".repeat(4096), "resources": resources}})
+	await process_frame
+	await process_frame
+	var content: RichTextLabel = panel.get_node("Content/PermissionResources")
+	var approve: Button = panel.get_node("Content/Actions/Approve")
+	var bounds := Rect2(Vector2.ZERO, Vector2(900, 650))
+	if not bounds.encloses(approve.get_global_rect()) or not approve.is_visible_in_tree():
+		failures.append("Long permission content must keep approval reachable: panel=%s button=%s visible=%s" % [panel.get_rect(), approve.get_global_rect(), approve.is_visible_in_tree()])
+	if content.get_v_scroll_bar().max_value <= content.get_v_scroll_bar().page:
+		failures.append("Long permission content must be scrollable")
+	panel.free()
+
 func _check_encoding(failures: Array[String]) -> void:
 	var hello: Variant = JSON.parse_string(Protocol.encode_hello("token"))
 	if (
 		typeof(hello) != TYPE_DICTIONARY
-		or hello.get("v") != 1
+		or hello.get("v") != 2
 		or hello.get("type") != "hello"
 		or hello.get("token") != "token"
 		or hello.size() != 3
 	):
-		failures.append("hello encoding must preserve Protocol v1 fields")
+		failures.append("hello encoding must preserve Protocol v2 fields")
 	var requests := [
 		["list_agents", {}],
 		["open_session", {"agentId": "coding", "sessionId": "session-1"}],
@@ -34,6 +57,7 @@ func _check_encoding(failures: Array[String]) -> void:
 		["close_session", {"agentId": "coding", "sessionId": "session-1"}],
 		["run", {"agentId": "coding", "sessionId": "session-1", "text": "hello"}],
 		["cancel", {"requestId": "run-1"}],
+		["resolve_permission", {"permissionId": "permission-1", "decision": "approve"}],
 	]
 	for index: int in requests.size():
 		var request_type: String = requests[index][0]
@@ -44,13 +68,13 @@ func _check_encoding(failures: Array[String]) -> void:
 		if typeof(encoded) != TYPE_DICTIONARY:
 			failures.append("%s request encoding must produce an object" % request_type)
 			continue
-		if encoded.get("v") != 1 or encoded.get("type") != request_type:
+		if encoded.get("v") != 2 or encoded.get("type") != request_type:
 			failures.append("%s request encoding must preserve Protocol fields" % request_type)
 
 func _check_ready(failures: Array[String]) -> void:
 	_expect_ok(
 		Protocol.parse_server_message(
-			JSON.stringify({"v": 1, "type": "ready", "connectionId": "connection-1"})
+			JSON.stringify({"v": 2, "type": "ready", "connectionId": "connection-1"})
 		),
 		"ready should parse",
 		failures,
@@ -61,7 +85,7 @@ func _check_results(failures: Array[String]) -> void:
 		Protocol.parse_server_message(
 			JSON.stringify(
 				{
-					"v": 1,
+					"v": 2,
 					"type": "result",
 					"id": "request-1",
 					"result": {
@@ -86,7 +110,7 @@ func _check_results(failures: Array[String]) -> void:
 		Protocol.parse_server_message(
 			JSON.stringify(
 				{
-					"v": 1,
+					"v": 2,
 					"type": "result",
 					"id": "request-2",
 					"result": {
@@ -111,18 +135,41 @@ func _check_events(failures: Array[String]) -> void:
 	]:
 		_expect_ok(
 			Protocol.parse_server_message(
-				JSON.stringify({"v": 1, "type": "event", "requestId": "run-1", "event": event})
+				JSON.stringify({"v": 2, "type": "event", "requestId": "run-1", "event": event})
 			),
 			"%s event should parse" % event["type"],
 			failures,
 		)
+	_expect_ok(
+		Protocol.parse_server_message(
+			JSON.stringify(
+				{
+					"v": 2,
+					"type": "permission.requested",
+					"requestId": "run-1",
+					"permissionId": "permission-1",
+					"expiresAt": Time.get_unix_time_from_system() * 1000.0 + 60000.0,
+					"presentation": {"title": "Network access", "resources": ["https://example.com:443"]},
+				}
+			)
+		),
+		"permission request should parse",
+		failures,
+	)
+	_expect_ok(
+		Protocol.parse_server_message(
+			JSON.stringify({"v": 2, "type": "permission.resolved", "requestId": "run-1", "permissionId": "permission-1", "decision": "deny", "reason": "expired"})
+		),
+		"permission resolution should parse",
+		failures,
+	)
 
 func _check_errors(failures: Array[String]) -> void:
 	_expect_ok(
 		Protocol.parse_server_message(
 			JSON.stringify(
 				{
-					"v": 1,
+					"v": 2,
 					"type": "error",
 					"id": "request-3",
 					"error": {
@@ -146,14 +193,14 @@ func _check_strictness(failures: Array[String]) -> void:
 	_expect_failure(
 		Protocol.parse_server_message(
 			JSON.stringify(
-				{"v": 1, "type": "ready", "connectionId": "connection-1", "extra": true}
+				{"v": 2, "type": "ready", "connectionId": "connection-1", "extra": true}
 			)
 		),
 		"extra fields must fail",
 		failures,
 	)
 	_expect_failure(
-		Protocol.parse_server_message(JSON.stringify({"v": 2, "type": "ready"})),
+		Protocol.parse_server_message(JSON.stringify({"v": 1, "type": "ready"})),
 		"unsupported versions must fail",
 		failures,
 	)
@@ -161,7 +208,7 @@ func _check_strictness(failures: Array[String]) -> void:
 		Protocol.parse_server_message(
 			JSON.stringify(
 				{
-					"v": 1,
+					"v": 2,
 					"type": "error",
 					"id": "request-1",
 					"error": {

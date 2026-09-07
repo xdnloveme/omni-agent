@@ -5,6 +5,7 @@ import type {
   ContextMiddlewarePort,
   ContextPolicyStagePort,
   RuntimeMiddleware,
+  PostEventHook,
 } from "@omni-agent/core";
 import type { VendorPlugin } from "@omni-agent/models";
 
@@ -26,6 +27,7 @@ export interface AgentExtensionContributions {
   contextMiddleware?: ContextMiddlewarePort[];
   contextPolicyStages?: ContextPolicyStagePort[];
   providers?: VendorPlugin[];
+  hooks?: PostEventHook[];
 }
 
 export interface AgentExtensionManifest {

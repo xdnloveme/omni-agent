@@ -10,7 +10,10 @@ export function maxTurnsFailure(maxTurns: number): AgentFailure {
 
 export function runtimeFailure(code: string, error: unknown, retryable: boolean): AgentFailure {
   return {
-    code,
+    code:
+      error && typeof error === "object" && "code" in error && typeof error.code === "string"
+        ? error.code
+        : code,
     message: error instanceof Error ? error.message : String(error),
     retryable,
   };

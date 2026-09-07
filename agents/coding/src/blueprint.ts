@@ -12,6 +12,7 @@ import {
 import { codingToolBundleDescriptors } from "./components/tool-bundles";
 import { codingToolDescriptors, createCodingTools } from "./components/tool-catalog";
 import { createCodingExtension } from "./extension";
+import { InstructionScopeGate } from "./instructions";
 
 export const agentBlueprint = {
   descriptor: {
@@ -25,6 +26,7 @@ export const agentBlueprint = {
     },
   },
   async build(context) {
+    const scopeGate = await InstructionScopeGate.create(context.cwd);
     const { capabilities, skills } = await createCodingCapabilities(
       context.composition,
       context.cwd,
@@ -35,13 +37,14 @@ export const agentBlueprint = {
       context.cwd,
       skills,
       context.execution.getMode,
+      scopeGate.contributor,
     );
     const tools = createCodingTools(
       context.composition.tools.componentIds,
       context.interaction,
       skills,
     );
-    const extension = createCodingExtension(context.manifest, tools, buildSystemPrompt);
+    const extension = createCodingExtension(context.manifest, tools, buildSystemPrompt, scopeGate);
     return {
       extension: extension.extension,
       capabilities,

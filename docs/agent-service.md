@@ -26,7 +26,7 @@ Host composition root
   resources, transport validation, and shutdown order.
 
 `packages/app` does not import the CLI, UI, transport, or a concrete Agent.
-`packages/agent-host` is the concrete WebSocket Protocol v1 adapter and calls only
+`packages/agent-host` is the concrete WebSocket Protocol v2 adapter and calls only
 `AgentServicePort`; it does not add another package loader, Factory, Runner, Tool, or Session path.
 
 ## Availability and loading

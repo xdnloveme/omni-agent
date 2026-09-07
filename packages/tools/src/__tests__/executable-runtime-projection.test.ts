@@ -110,7 +110,7 @@ describe("ExecutableRuntimeProjectionResolver", () => {
           policy: {
             mode: "controlled",
             workspaceRoot: canonicalRoot,
-            network: false,
+            network: { kind: "disabled" },
             read: [],
             write: [],
             protectedWriteRoots: [canonicalRoot],
@@ -141,7 +141,7 @@ describe("ExecutableRuntimeProjectionResolver", () => {
         policy: {
           mode: "controlled",
           workspaceRoot: await realpath(workspace),
-          network: false,
+          network: { kind: "disabled" },
           read: [],
           write: [],
           protectedWriteRoots: [workspace],
@@ -178,7 +178,7 @@ describe("ExecutableRuntimeProjectionResolver", () => {
       policy: {
         mode: "controlled",
         workspaceRoot: await realpath(workspace),
-        network: false,
+        network: { kind: "disabled" as const },
         read: [],
         write: [],
         protectedWriteRoots: [root],
@@ -218,7 +218,7 @@ describe("ExecutableRuntimeProjectionResolver", () => {
         policy: {
           mode: "controlled",
           workspaceRoot: await realpath(workspace),
-          network: false,
+          network: { kind: "disabled" },
           read: [],
           write: [],
           protectedWriteRoots: [workspace],
@@ -244,7 +244,7 @@ describe("ExecutableRuntimeProjectionResolver", () => {
         policy: {
           mode: "controlled",
           workspaceRoot: "/tmp/workspace",
-          network: false,
+          network: { kind: "disabled" },
           read: [],
           write: [],
           protectedWriteRoots: ["/tmp/workspace"],
@@ -269,7 +269,7 @@ describe("ExecutableRuntimeProjectionResolver", () => {
       policy: {
         mode: "controlled" as const,
         workspaceRoot: canonicalRoot,
-        network: false,
+        network: { kind: "disabled" as const },
         read: [],
         write: [],
         protectedWriteRoots: [canonicalRoot],
@@ -339,7 +339,7 @@ describe("ExecutableRuntimeProjectionResolver", () => {
       policy: {
         mode: "controlled" as const,
         workspaceRoot: await realpath(workspace),
-        network: false,
+        network: { kind: "disabled" as const },
         read: [],
         write: [],
         protectedWriteRoots: [workspace],
@@ -396,7 +396,7 @@ describe("ExecutableRuntimeProjectionResolver", () => {
           policy: {
             mode: "controlled",
             workspaceRoot: await realpath(workspace),
-            network: false,
+            network: { kind: "disabled" },
             read: [],
             write: [],
             protectedWriteRoots: [workspace],
@@ -448,7 +448,7 @@ describe("ExecutableRuntimeProjectionResolver", () => {
       policy: {
         mode: "controlled",
         workspaceRoot: await realpath(workspace),
-        network: false,
+        network: { kind: "disabled" },
         read: [],
         write: [],
         protectedWriteRoots: [workspace],

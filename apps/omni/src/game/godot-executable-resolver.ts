@@ -2,9 +2,6 @@ import { execFile } from "node:child_process";
 import { constants } from "node:fs";
 import { access } from "node:fs/promises";
 import { delimiter, isAbsolute, join, resolve } from "node:path";
-import { promisify } from "node:util";
-
-const execFileAsync = promisify(execFile);
 
 export const REQUIRED_GODOT_VERSION = "4.7.2";
 const VERSION_TIMEOUT_MS = 5_000;
@@ -51,12 +48,7 @@ export async function assertGodotVersion(
 ): Promise<void> {
   let stdout: string;
   try {
-    ({ stdout } = await execFileAsync(executable, ["--version"], {
-      encoding: "utf8",
-      env: environment,
-      timeout: VERSION_TIMEOUT_MS,
-      windowsHide: true,
-    }));
+    stdout = await executeVersionProbe(executable, environment);
   } catch (error) {
     throw new GodotExecutableError(
       "godot_version_check_failed",
@@ -72,6 +64,25 @@ export async function assertGodotVersion(
       `Godot ${REQUIRED_GODOT_VERSION} is required, but ${version || "an unknown version"} was found.`,
     );
   }
+}
+
+function executeVersionProbe(executable: string, environment: NodeJS.ProcessEnv): Promise<string> {
+  return new Promise((resolvePromise, reject) => {
+    execFile(
+      executable,
+      ["--version"],
+      {
+        encoding: "utf8",
+        env: environment,
+        timeout: VERSION_TIMEOUT_MS,
+        windowsHide: true,
+      },
+      (error, stdout) => {
+        if (error) reject(error);
+        else resolvePromise(stdout);
+      },
+    );
+  });
 }
 
 function candidatePaths(

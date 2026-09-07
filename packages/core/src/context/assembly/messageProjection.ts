@@ -53,6 +53,8 @@ function projectToolResultMessage(
     toolCallId: message.toolCallId,
     toolName: message.toolName,
     content: cloneData(message.content),
+    structuredContent:
+      message.structuredContent === undefined ? undefined : cloneData(message.structuredContent),
     addedToolNames: message.addedToolNames === undefined ? undefined : [...message.addedToolNames],
     isError: message.isError,
   };

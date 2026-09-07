@@ -4,6 +4,8 @@
 
 Accepted
 
+Wire revision superseded by ADR-HOST-001; the Godot client ownership decision remains active.
+
 ## Date
 
 2026-08-26

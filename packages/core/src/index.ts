@@ -1,4 +1,6 @@
 export { runAgentLoop } from "./agent-loop";
+export { estimateContextTextTokens } from "./tokenEstimate";
+export * from "./hooks/index";
 export {
   InteractionError,
   InteractionAbortError,
@@ -24,6 +26,26 @@ export type {
   InteractionValue,
 } from "./interaction/index";
 export type { AgentLoopOptions } from "./agent-loop";
+export {
+  MAX_APPROVED_NETWORK_TARGETS,
+  networkTargetFromUrl,
+  networkTargetKey,
+  networkTargetMatches,
+  normalizeNetworkTarget,
+  normalizeNetworkTargets,
+} from "./network/index";
+export type {
+  AuthorizedNetworkClient,
+  NetworkCapability,
+  NetworkProxyRoute,
+  NetworkRequest,
+  NetworkResponse,
+  NetworkStreamResponse,
+  NetworkRuntimeContext,
+  NetworkRuntimeLease,
+  NetworkRuntimePort,
+  NetworkTarget,
+} from "./network/index";
 export { createLoopProtection } from "./loop-protection/index";
 export type { LoopProtection, ToolLoopDiagnostic } from "./loop-protection/index";
 export { AgentRunner, defineAgent } from "./agent/index";
@@ -118,6 +140,13 @@ export type {
   ToolCallEvent,
   ToolCallMetrics,
   ToolCallRequest,
+  PreparedToolBatch,
+  PreparedToolCall,
+  PreparedToolExecutionContext,
+  ToolBatchPreparationDecision,
+  ToolBatchPreparationContext,
+  ToolBatchPreparationPolicy,
+  ToolBatchPreparationRequest,
   ValidatedToolResult,
   ToolPreflightDescriptor,
   ToolPreflightContext,
@@ -158,10 +187,15 @@ export type {
   OperationDeadlineSupervisorOptions,
 } from "./execution/index";
 export {
+  ExactSensitiveTextStreamSanitizer,
   formatSanitizedToolInput,
+  redactExactSensitiveText,
+  redactExactSensitiveValue,
+  redactExactSensitiveError,
   sanitizeSensitiveValue,
   sanitizeSensitiveText,
 } from "./security/index";
+export type { SanitizationOptions, SensitiveValueSet } from "./security/index";
 export { isInProcessTool, isProcessTool } from "./types";
 export { ToolAccessController, DenyAccessConsentBroker } from "./access/index";
 export {
@@ -175,6 +209,7 @@ export {
 } from "./access/index";
 export type {
   AccessConsentBroker,
+  AccessConsentDecision,
   AccessConsentRequest,
   AccessConsentResponse,
   AccessResource,
@@ -182,6 +217,7 @@ export type {
   ExecutionSettingsPort,
   FilesystemCapabilityScope,
   FilesystemConsentCandidate,
+  PreparedToolAccess,
   ToolAccessContext,
   ToolAccessDescriptor,
   ToolAccessIntent,
@@ -221,6 +257,7 @@ export type {
   ToolContextPolicy,
   ToolSchedulingPolicy,
   ToolResult,
+  ToolResultContent,
   ToolResourceReference,
   ToolResultMetadata,
   ToolResultPresentationData,
@@ -282,13 +319,15 @@ export type {
   CommandSelectionResult,
   CommandInteractionPort,
 } from "./commands/index";
-export { agentsMdContributor, createSkillsContributor } from "./system-prompt/index";
+export { createSkillsContributor } from "./system-prompt/index";
 export type { SystemPromptContributor } from "./system-prompt/index";
 export {
   composeStableSystemPrompt,
+  assertPromptContributionBudget,
   PROMPT_CONTRIBUTION_BUDGETS,
   PromptContributionBudgetError,
 } from "./system-prompt/index";
+export { escapeMarkupText } from "./markup";
 export {
   SKILL_FILE_NAME,
   SKILL_TOOL_NAME,
