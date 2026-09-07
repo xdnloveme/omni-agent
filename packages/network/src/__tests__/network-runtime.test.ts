@@ -278,19 +278,34 @@ describe("authenticated capability proxy", () => {
     }
   });
 
-  it("forwards decoded gzip with consistent response framing", async () => {
+  it("preserves separate cookies and decoded response framing through the proxy", async () => {
     const text = "hello proxy ".repeat(100);
     const body = gzipSync(text);
+    const cookies = [
+      "session=one; Path=/; HttpOnly; Expires=Wed, 09 Jun 2027 10:18:14 GMT",
+      "csrf=two; Path=/; SameSite=Lax",
+    ];
     const port = await upstream((_request, response) => {
       response
-        .writeHead(200, { "content-encoding": "gzip", "content-length": body.length })
+        .writeHead(200, {
+          "content-encoding": "gzip",
+          "content-length": body.length,
+          "set-cookie": cookies,
+        })
         .end(body);
     });
     const lease = await openCapabilityProxy(fixtureGateway(), capability(port));
     try {
+      let headers: http.IncomingHttpHeaders | undefined;
       await expect(
-        proxyRequest(new URL(lease.route.url), "http://fixture.test:" + port),
+        proxyRequest(new URL(lease.route.url), "http://fixture.test:" + port, {
+          onHeaders: (value) => {
+            headers = value;
+          },
+        }),
       ).resolves.toBe(text);
+      expect(headers?.["set-cookie"]).toEqual(cookies);
+      expect(headers?.["content-encoding"]).toBeUndefined();
     } finally {
       await lease.close();
     }
@@ -463,7 +478,12 @@ describe("DefaultNetworkRuntime", () => {
 function proxyRequest(
   proxy: URL,
   target: string,
-  options: { method?: string; body?: string | Buffer; chunked?: boolean } = {},
+  options: {
+    method?: string;
+    body?: string | Buffer;
+    chunked?: boolean;
+    onHeaders?: (headers: http.IncomingHttpHeaders) => void;
+  } = {},
 ): Promise<string> {
   return new Promise((resolve, reject) => {
     const request = http.request(
@@ -482,6 +502,7 @@ function proxyRequest(
         },
       },
       (response) => {
+        options.onHeaders?.(response.headers);
         const chunks: Buffer[] = [];
         response.on("data", (chunk: Buffer) => chunks.push(chunk));
         response.on("end", () => {

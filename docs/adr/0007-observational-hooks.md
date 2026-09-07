@@ -14,6 +14,10 @@ Hooks. Failures produce diagnostics and cannot revise the completed operation.
 
 Blocking before-model or before-tool Hooks are intentionally absent.
 
+The Run owner dispatches terminal Hooks once, before delivering the terminal Agent event.
+Iteration phases do not dispatch Run Hooks. Structured failures and thrown failures use the same
+terminal path; cancellation does not emit a failure Hook.
+
 Command Hooks reuse the referenced Tool's declared timeout through OperationDeadlineSupervisor;
 there is no additional Hook timer. Runs record elapsed time but impose no total wall-clock deadline.
 Typed Hooks remain trusted in-process callbacks; this change does not invent a separate timeout

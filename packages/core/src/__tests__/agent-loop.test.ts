@@ -1640,6 +1640,7 @@ describe("runAgentLoop", () => {
   });
 
   it("preserves the structured environment failure path before model execution", async () => {
+    const handle = vi.fn();
     const recorder = new RecordingRuntimeObserver();
     const observation = recorder.startRun({
       agentId: "test",
@@ -1648,7 +1649,7 @@ describe("runAgentLoop", () => {
     });
     const events = await collectEvents(
       executeLoop(
-        makeConfig(),
+        makeConfig({ hooks: [{ id: "audit", events: ["run.failed"], handle }] }),
         makeMessages("Hi"),
         undefined,
         [],
@@ -1686,7 +1687,61 @@ describe("runAgentLoop", () => {
       "turn.failed",
     ]);
     expect(streamModel).not.toHaveBeenCalled();
+    expect(handle).toHaveBeenCalledExactlyOnceWith({
+      type: "run.failed",
+      failure: (events[0] as Extract<AgentEvent, { type: "error" }>).failure,
+    });
   });
+
+  it.each(["completed", "model_failure", "exception", "max_turns", "cancelled"] as const)(
+    "dispatches terminal Hooks once before delivery for %s, excluding cancellation",
+    async (scenario) => {
+      const handle = vi.fn();
+      const config = makeConfig({
+        hooks: [{ id: "audit", events: ["run.completed", "run.failed"], handle }],
+        ...(scenario === "max_turns" ? { maxTurns: 0 } : {}),
+        ...(scenario === "exception"
+          ? {
+              toolBatchPreparationPolicies: [
+                {
+                  beginRun: async () => {
+                    throw new Error("initialization failed");
+                  },
+                  evaluate: async () => ({ kind: "executable" as const }),
+                },
+              ],
+            }
+          : {}),
+      });
+      streamModel.mockReturnValue(
+        fakeStream(
+          scenario === "model_failure"
+            ? [{ type: "error", error: { errorMessage: "Model failed" } }]
+            : [{ type: "done", message: { content: [{ type: "text", text: "Done" }] } }],
+        ) as never,
+      );
+      const loop = executeLoop(
+        config,
+        makeMessages("Hi"),
+        scenario === "cancelled" ? AbortSignal.abort() : undefined,
+      );
+      if (scenario === "cancelled") {
+        await expect(collectEvents(loop)).rejects.toMatchObject({ name: "AbortError" });
+        expect(handle).not.toHaveBeenCalled();
+        return;
+      }
+      for await (const event of loop) {
+        if (event.type !== "done" && event.type !== "error") continue;
+        expect(handle).toHaveBeenCalledExactlyOnceWith(
+          event.type === "done"
+            ? { type: "run.completed", usage: event.usage }
+            : { type: "run.failed", failure: event.failure },
+        );
+        break;
+      }
+      expect(handle).toHaveBeenCalledOnce();
+    },
+  );
 
   it("cancels Model and Turn observations when model streaming aborts", async () => {
     const recorder = new RecordingRuntimeObserver();
