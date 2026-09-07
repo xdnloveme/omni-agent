@@ -4,7 +4,11 @@ import { containsSecretField, type ConfigurationScope } from "@omni-agent/models
 import { AtomicJsonFile } from "../persistence/atomic-json-file";
 import type { ModelSelection } from "../models/model-service";
 import type { ConfigDiagnostic, OmniConfig, ResolvedModelConfiguration } from "./types";
-import { validateMcpServerConfigs, type McpServerConfig } from "../mcp/config/types";
+import {
+  containsMcpSecrets,
+  parseMcpConfiguration,
+  type ResolvedMcpConfiguration,
+} from "../mcp/config/types";
 
 export interface ConfigServiceOptions {
   readonly cwd: string;
@@ -69,12 +73,18 @@ export class ConfigService {
     return layers.global.config?.model ?? null;
   }
 
-  async resolveMcpServers(): Promise<readonly McpServerConfig[]> {
+  async resolveMcpServers(): Promise<ResolvedMcpConfiguration> {
     const layers = await this.loadLayers();
-    if (layers.project.present && !layers.project.config) return [];
-    if (layers.project.config?.mcp) return layers.project.config.mcp.servers;
-    if (layers.global.present && !layers.global.config) return [];
-    return layers.global.config?.mcp?.servers ?? [];
+    for (const source of ["project", "global"] as const) {
+      const layer = layers[source];
+      if (layer.present && !layer.config)
+        return {
+          servers: [],
+          diagnostics: [{ source, message: "Configuration file is invalid or unreadable" }],
+        };
+      if (layer.config?.mcp !== undefined) return parseMcpConfiguration(layer.config.mcp, source);
+    }
+    return { servers: [], diagnostics: [] };
   }
 
   async saveSharedModel(
@@ -143,7 +153,8 @@ export class ConfigService {
       if (value === undefined) return { present: false, config: null };
       const config = parseOmniConfig(value);
       if (!config) throw new InvalidConfigError("Configuration format is invalid");
-      assertSecretFreeConfig(config);
+      const { mcp: _mcp, ...modelConfig } = config;
+      assertSecretFreeConfig(modelConfig);
       return { present: true, config };
     } catch (error) {
       this.diagnostics.push({
@@ -172,7 +183,8 @@ export class ConfigService {
 class InvalidConfigError extends Error {}
 
 function assertSecretFreeConfig(config: OmniConfig): void {
-  if (containsSecretField(config)) {
+  const { mcp, ...modelConfig } = config;
+  if (containsSecretField(modelConfig) || containsMcpSecrets(mcp)) {
     throw new InvalidConfigError("Secret values are not allowed in model configuration");
   }
 }
@@ -191,14 +203,6 @@ function parseOmniConfig(value: unknown): OmniConfig | null {
       )
     )
       return null;
-  }
-  if (config.mcp !== undefined) {
-    if (!isRecord(config.mcp) || !Array.isArray(config.mcp.servers)) return null;
-    try {
-      validateMcpServerConfigs(config.mcp.servers as McpServerConfig[]);
-    } catch {
-      return null;
-    }
   }
   return config as unknown as OmniConfig;
 }

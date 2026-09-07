@@ -11,6 +11,6 @@ export {
   MCP_PROTOCOL_REVISION,
   MAX_MCP_SERVERS,
   normalizeMcpName,
-  validateMcpServerConfigs,
+  parseMcpConfiguration,
 } from "./config/types";
 export type { McpServerConfig, McpHttpServerConfig, McpStdioServerConfig } from "./config/types";

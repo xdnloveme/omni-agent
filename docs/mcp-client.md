@@ -18,6 +18,15 @@ estimated prompt tokens. Nothing is silently truncated. Names use
 
 Configure connection definitions under `mcp.servers` in `omni.config.json`. In the TUI, `/mcp`
 opens the server list; select a server to turn its switch on/off or retry catalog discovery.
+Each connection definition is validated independently. An invalid Linear configuration does not
+disable a valid Notion server or invalidate model settings. `/mcp` retains invalid entries with
+their configuration source and array position; they cannot be activated. All entries sharing a
+normalized ID are rejected, without affecting unrelated servers. Missing IDs are reported by
+position, never assigned a synthetic server identity. Fix the file and reopen the Agent to reload
+definitions. Model-setting updates preserve the MCP section rather than silently deleting invalid
+entries; writes containing secrets remain prohibited. Malformed JSON is still a file-level error,
+and an invalid project MCP section never falls back to global integrations. The server-count limit
+is a section-level constraint; exceeding it disables that section, not the Agent's model.
 The App owns persisted activation intent in `mcp-activation.json` under the workspace/Agent storage
 directory, using a file lock, atomic replacement, and mode `0600`. Configuration does not contain
 an `enabled` switch. Disabled servers are not contacted. Enabled servers are restored at startup,

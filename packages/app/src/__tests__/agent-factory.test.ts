@@ -144,7 +144,7 @@ async function factory(
     isConfigured: vi.fn(async () => ({ type: "api_key" as const })),
   } as unknown as ModelService;
   const configService = {
-    resolveMcpServers: vi.fn(async () => []),
+    resolveMcpServers: vi.fn(async () => ({ servers: [], diagnostics: [] })),
     resolveModel: vi.fn(async () => selection),
   } as unknown as ConfigService;
   return new AgentFactory({

@@ -227,7 +227,10 @@ export class AgentRuntimeAssembler {
 
       stage = "application";
       source = "agent-application";
-      let mcpConfigs: readonly import("../mcp/config/types").McpServerConfig[] = [];
+      let mcpConfigs: import("../mcp/config/types").ResolvedMcpConfiguration = {
+        servers: [],
+        diagnostics: [],
+      };
       try {
         mcpConfigs = await environment.configService.resolveMcpServers();
       } catch (error) {

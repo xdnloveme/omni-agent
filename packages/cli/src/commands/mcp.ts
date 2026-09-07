@@ -15,15 +15,22 @@ export function createMcpCommand(app: AgentApplication): Command {
         const selection = await interaction.select({
           title: "MCP integrations",
           detail: `Agent: ${app.agentId}`,
-          items: servers.map((server) => ({
-            value: server.id,
-            label: `${server.enabled ? "[ON]" : "[OFF]"} ${server.id}`,
+          items: servers.map((server, index) => ({
+            value: String(index),
+            label: `${server.enabled ? "[ON]" : "[OFF]"} ${server.id ?? "Invalid MCP configuration"}`,
             description: `${server.status} · ${server.toolCount} tools${server.error ? ` · ${server.error}` : ""}`,
           })),
         });
         if (selection.kind === "abort" || selection.kind === "shutdown") throw selection.error;
         if (selection.kind !== "selected") return;
-        const server = servers.find((entry) => entry.id === selection.value)!;
+        const server = servers[Number(selection.value)]!;
+        if (server.status === "invalid") {
+          const error = server.configurationError;
+          interaction.line(
+            `${error.source}${error.index === undefined ? "" : ` mcp.servers[${error.index}]`}: ${error.message}. Fix the configuration and reopen the Agent.`,
+          );
+          continue;
+        }
         const action = await interaction.select({
           title: server.id,
           detail: server.error ?? `${server.status} · ${server.toolCount} tools`,

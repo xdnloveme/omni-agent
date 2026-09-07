@@ -7,11 +7,15 @@ import {
   type ToolCallCoordinator,
   type ToolCallEnvironment,
 } from "@omni-agent/core";
-import type { McpServerConfig } from "./config/types";
+import type {
+  McpServerConfig,
+  ResolvedMcpConfiguration,
+  McpConfigDiagnostic,
+} from "./config/types";
 import type { McpCatalogService } from "./catalog/mcp-catalog-service";
 import type { McpActivationStore } from "./activation-store";
 
-export interface McpServerState {
+interface McpConnectionState {
   readonly id: string;
   readonly enabled: boolean;
   readonly status: "disabled" | "connecting" | "ready" | "failed";
@@ -19,17 +23,28 @@ export interface McpServerState {
   readonly error?: string;
 }
 
+export type McpServerState =
+  | McpConnectionState
+  | {
+      readonly status: "invalid";
+      readonly id?: string;
+      readonly enabled: false;
+      readonly toolCount: 0;
+      readonly error: string;
+      readonly configurationError: McpConfigDiagnostic;
+    };
+
 /** Agent-local lifecycle owner. AgentApplication serializes transitions against Runs. */
 export class AgentMcpController {
-  private readonly states = new Map<string, McpServerState>();
+  private readonly states = new Map<string, McpConnectionState>();
   constructor(
-    private readonly configs: readonly McpServerConfig[],
+    private readonly configuration: ResolvedMcpConfiguration,
     private readonly store: McpActivationStore,
     private readonly catalog: McpCatalogService,
     private readonly coordinator: ToolCallCoordinator,
     private readonly environment: ToolCallEnvironment,
   ) {
-    for (const config of configs)
+    for (const config of configuration.servers)
       this.states.set(config.id, {
         id: config.id,
         enabled: false,
@@ -38,7 +53,17 @@ export class AgentMcpController {
       });
   }
   list(): readonly McpServerState[] {
-    return [...this.states.values()].map((state) => ({ ...state }));
+    return [
+      ...[...this.states.values()].map((state) => ({ ...state })),
+      ...this.configuration.diagnostics.map((diagnostic): McpServerState => ({
+        id: diagnostic.serverId,
+        enabled: false,
+        status: "invalid",
+        toolCount: 0,
+        error: diagnostic.message,
+        configurationError: { ...diagnostic },
+      })),
+    ];
   }
   async initialize(): Promise<void> {
     for (const id of await this.store.read()) if (this.states.has(id)) await this.connect(id);
@@ -81,8 +106,15 @@ export class AgentMcpController {
     if (errors.length) throw new AggregateError(errors, "Failed to close MCP integrations");
   }
   private requireConfig(id: string): McpServerConfig {
-    const config = this.configs.find((entry) => entry.id === id);
-    if (!config) throw new Error(`Unknown MCP server: ${id}`);
+    const config = this.configuration.servers.find((entry) => entry.id === id);
+    if (!config) {
+      const diagnostic = this.configuration.diagnostics.find((entry) => entry.serverId === id);
+      throw new Error(
+        diagnostic
+          ? `Invalid MCP server ${id}: ${diagnostic.message}`
+          : `Unknown MCP server: ${id}`,
+      );
+    }
     return config.transport === "stdio"
       ? { ...config, cwd: resolve(this.environment.cwd, config.cwd ?? ".") }
       : config;
