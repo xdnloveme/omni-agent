@@ -57,6 +57,12 @@ ephemeral Token, starts `omni-host` with the developer's original working direct
 pinned Godot project. Godot's project path never changes the Host Workspace. Bootstrap owns process
 cleanup but has no access to `AgentServicePort`.
 
+The headless entry shares `apps/omni/src/agent-service-composition.ts` with the WebSocket Host.
+`packages/cli/src/headless/run.ts` owns one Session/Run invocation; Apps owns fresh task state,
+explicit execution-mode initialization, OS signals, shared-resource disposal and native Trace
+association. `benchmark/` is external evaluation tooling, not a production workspace package.
+See [benchmark evaluation](benchmark-evaluation.md) for the process and artifact contract.
+
 ## Process and interaction lifecycle
 
 `apps/omni` is the only process owner. It owns argv/cwd/home resolution, stdout and stderr,

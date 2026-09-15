@@ -1,0 +1,19 @@
+n_attempts: 1
+n_concurrent_trials: 1
+retry:
+  max_retries: 0
+jobs_dir: benchmark/jobs
+environment:
+  type: docker
+  delete: true
+agents:
+  - import_path: benchmark.adapters.harbor.agent:OmniAgent
+    override_timeout_sec: 1830
+    override_setup_timeout_sec: 1800
+    kwargs:
+      credential_env: ARK_AGENT_PLAN_API_KEY
+      process_timeout_sec: 1800
+tasks:
+  - path: datasets/swebench_multilingual/axios__axios-4731
+    git_url: https://github.com/laude-institute/harbor-datasets.git
+    git_commit_id: 61366953049fd63a7dff54f67193bf39f5d1cde6

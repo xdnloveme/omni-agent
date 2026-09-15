@@ -697,6 +697,8 @@ omni-agent/
 
 ## Documentation
 
+[Benchmark integration](benchmark/README.md) evaluates the production Agent in task containers; the initial single-task integration is under validation.
+
 | Document                                                                                           | Contents                                                               |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | [`docs/architecture.md`](docs/architecture.md)                                                     | Layers, dependency rules, contracts, composition, and subsystem design |

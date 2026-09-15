@@ -1,0 +1,1 @@
+Read input.txt, create result.txt containing exactly "ready" followed by a newline, and run Node from the task workspace to write execution.json with its cwd and Node version. This is a deterministic integration fixture, not an Agent capability benchmark.

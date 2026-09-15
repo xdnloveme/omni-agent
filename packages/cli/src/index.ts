@@ -1,3 +1,4 @@
+export { runHeadless, type HeadlessOutcome } from "./headless/run";
 import { CliUsageError, parseCliArgs } from "./args";
 import { CLI_HELP } from "./help";
 import { CLI_VERSION } from "./version";
