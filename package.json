@@ -25,7 +25,8 @@
     "format:check": "prettier --check .",
     "build:cli": "node --import tsx scripts/build-cli-distribution.ts",
     "pack:cli": "node --import tsx scripts/pack-cli-distribution.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "headless": "node --import tsx apps/omni/src/headless-entry.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

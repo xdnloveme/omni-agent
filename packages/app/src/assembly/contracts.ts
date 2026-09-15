@@ -154,6 +154,8 @@ export interface ExtensionSourceLoader {
 }
 
 export interface AgentHostDependencies {
+  /** Initial capture policy; omitted preserves the default disabled Trace state. */
+  readonly traceEnabled?: boolean;
   readonly interactionSurface: InteractionSurfacePort;
   readonly accessConsentBroker: AccessConsentBroker;
   readonly processRouter: ProcessExecutionRouterPort;

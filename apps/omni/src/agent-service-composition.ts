@@ -7,13 +7,15 @@ import {
   resolveWorkspaceContext,
   type AgentServicePort,
   type ModelService,
+  type ModelServiceDiagnostic,
 } from "@omni-agent/app";
 import { createDefaultAgentPackageCatalog } from "@omni-agent/cli";
 import { RejectingInteractionSurface } from "@omni-agent/core";
 import { createNetworkRuntime } from "@omni-agent/network";
 import { createProcessExecutionRuntime, type HostRuntimeEnvironment } from "@omni-agent/tools";
 
-export interface AgentHostCompositionOptions {
+export interface AgentServiceCompositionOptions {
+  readonly traceEnabled?: boolean;
   readonly cwd: string;
   readonly globalDirectory: string;
   readonly resolutionBase: string;
@@ -21,14 +23,15 @@ export interface AgentHostCompositionOptions {
   readonly hostRuntime: HostRuntimeEnvironment;
 }
 
-export interface AgentHostComposition {
+export interface AgentServiceComposition {
   readonly service: AgentServicePort;
+  readonly modelDiagnostics: readonly ModelServiceDiagnostic[];
   dispose(): Promise<void>;
 }
 
-export async function createAgentHostComposition(
-  options: AgentHostCompositionOptions,
-): Promise<AgentHostComposition> {
+export async function createAgentServiceComposition(
+  options: AgentServiceCompositionOptions,
+): Promise<AgentServiceComposition> {
   const workspace = await resolveWorkspaceContext(options.cwd);
   const configService = new ConfigService({
     cwd: workspace.root,
@@ -51,6 +54,7 @@ export async function createAgentHostComposition(
       configService,
       modelService,
       host: {
+        traceEnabled: options.traceEnabled,
         interactionSurface: new RejectingInteractionSurface(),
         accessConsentBroker: permissions,
         processRouter: processExecution.router,
@@ -65,6 +69,7 @@ export async function createAgentHostComposition(
     let disposePromise: Promise<void> | undefined;
     return {
       service,
+      modelDiagnostics: modelService.diagnostics,
       dispose() {
         disposePromise ??= disposeComposition(service, modelService);
         return disposePromise;
@@ -76,7 +81,7 @@ export async function createAgentHostComposition(
     } catch (cleanupError) {
       throw new AggregateError(
         [error, cleanupError],
-        "Failed to create and roll back Agent Host composition",
+        "Failed to create and roll back Agent Service composition",
         { cause: error },
       );
     }
@@ -100,6 +105,6 @@ async function disposeComposition(
     failures.push(error);
   }
   if (failures.length > 0) {
-    throw new AggregateError(failures, "Failed to dispose Agent Host composition");
+    throw new AggregateError(failures, "Failed to dispose Agent Service composition");
   }
 }

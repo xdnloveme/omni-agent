@@ -224,6 +224,7 @@ export class AgentRuntimeAssembler {
         onDiagnostic: (value) => diagnostic("builtin-tracing", value.operation, value.message),
       });
       transaction.defer("trace_runtime", () => traceRuntime.dispose());
+      if (environment.host.traceEnabled) traceRuntime.control.start();
 
       stage = "application";
       source = "agent-application";

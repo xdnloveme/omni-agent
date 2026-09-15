@@ -1,0 +1,5 @@
+services:
+  main:
+    platform: linux/amd64
+    # A verifier needs no model access: remove its network interface entirely.
+    network_mode: none

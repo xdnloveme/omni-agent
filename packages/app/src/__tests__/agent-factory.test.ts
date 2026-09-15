@@ -24,6 +24,7 @@ import type { ConfigService } from "../config/config-service";
 import type { AgentExtension } from "../extensions/types";
 import type { ModelService } from "../models/model-service";
 import { createWorkspaceId } from "../workspaces/index";
+import { createLocalTraceQuery } from "../tracing";
 
 const directories: string[] = [];
 
@@ -121,6 +122,7 @@ async function factory(
     extensionSourceLoader?: ExtensionSourceLoader;
     workspaceId?: string;
     runtime?: ModelRuntimePort;
+    traceEnabled?: boolean;
   } = {},
 ) {
   const workspaceRoot =
@@ -153,6 +155,7 @@ async function factory(
     modelService,
     configService,
     host: {
+      traceEnabled: options.traceEnabled,
       interactionSurface: options.interactionSurface ?? new RejectingInteractionSurface(),
       accessConsentBroker: {
         async request() {
@@ -229,62 +232,92 @@ describe("AgentFactory", () => {
     await second.dispose();
   });
 
-  it("runs a fully assembled AgentApplication through the AgentService boundary", async () => {
-    const target = agentPackage();
-    const runtime: ModelRuntimePort = {
-      async *stream() {
-        yield { type: "text_delta", delta: "hello" };
-        yield {
-          type: "done",
-          message: {
-            role: "assistant",
-            content: [{ type: "text", text: "hello" }],
-            stopReason: "stop",
-            usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
-            timestamp: Date.now(),
-          },
-        } as never;
-      },
-    };
-    const service = new AgentService({
-      catalog: {
-        async list() {
-          return [
-            {
-              id: "test",
-              displayName: "Test",
-              description: "Test Agent",
-              packageName: target.packageName,
-              packageVersion: target.packageVersion,
+  it.each([
+    { traceEnabled: undefined, terminal: "completed" },
+    { traceEnabled: true, terminal: "completed" },
+    { traceEnabled: true, terminal: "failed" },
+    { traceEnabled: true, terminal: "cancelled" },
+  ] as const)(
+    "runs through AgentService with initial Trace policy $traceEnabled and terminal $terminal",
+    async ({ traceEnabled, terminal }) => {
+      const globalDirectory = await mkdtemp(join(tmpdir(), "omni-service-trace-"));
+      directories.push(globalDirectory);
+      const target = agentPackage();
+      const controller = new AbortController();
+      const runtime: ModelRuntimePort = {
+        async *stream() {
+          yield { type: "text_delta", delta: "hello" };
+          if (terminal === "failed") throw new Error("model unavailable");
+          yield {
+            type: "done",
+            message: {
+              role: "assistant",
+              content: [{ type: "text", text: "hello" }],
+              stopReason: "stop",
+              usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+              timestamp: Date.now(),
             },
-          ];
+          } as never;
         },
-        async load() {
-          return target;
+      };
+      const service = new AgentService({
+        catalog: {
+          async list() {
+            return [
+              {
+                id: "test",
+                displayName: "Test",
+                description: "Test Agent",
+                packageName: target.packageName,
+                packageVersion: target.packageVersion,
+              },
+            ];
+          },
+          async load() {
+            return target;
+          },
         },
-      },
-      factory: await factory({ runtime }),
-    });
-    const session = await service.openSession({ agentId: "test" });
+        factory: await factory({ runtime, globalDirectory, traceEnabled }),
+      });
+      const session = await service.openSession({ agentId: "test" });
 
-    const events: AgentServiceEvent[] = [];
-    for await (const event of service.run({
-      requestId: "request-1",
-      agentId: "test",
-      sessionId: session.sessionId,
-      input: { type: "text", text: "say hello" },
-    })) {
-      events.push(event);
-    }
+      const events: AgentServiceEvent[] = [];
+      for await (const event of service.run(
+        {
+          requestId: "request-1",
+          agentId: "test",
+          sessionId: session.sessionId,
+          input: { type: "text", text: "say hello" },
+        },
+        controller.signal,
+      )) {
+        events.push(event);
+        if (terminal === "cancelled" && event.type === "text_delta") controller.abort();
+      }
 
-    expect(events).toEqual([
-      { type: "started", requestId: "request-1", sessionId: session.sessionId },
-      { type: "text_delta", text: "hello" },
-      { type: "final_response", text: "hello" },
-      { type: "completed" },
-    ]);
-    await service.dispose();
-  });
+      expect(events[0]).toEqual({
+        type: "started",
+        requestId: "request-1",
+        sessionId: session.sessionId,
+      });
+      expect(events.at(-1)?.type).toBe(terminal);
+      if (terminal === "completed")
+        expect(events).toContainEqual({ type: "final_response", text: "hello" });
+      await service.dispose();
+      const runs = await createLocalTraceQuery(globalDirectory, "test").runs(session.sessionId);
+      expect(runs).toHaveLength(traceEnabled ? 1 : 0);
+      if (traceEnabled) {
+        expect(runs[0]).toMatchObject({
+          agentId: "test",
+          sessionId: session.sessionId,
+          status: terminal === "failed" ? "error" : terminal,
+        });
+        expect(runs[0]?.completedAt).toEqual(expect.any(Number));
+        if (terminal === "completed") expect(runs[0]?.summary?.usage).toBeDefined();
+        else expect(runs[0]?.summary?.usage).toBeUndefined();
+      }
+    },
+  );
 
   it("rejects a mismatched contribution before creating an application", async () => {
     const dispose = vi.fn(async () => undefined);

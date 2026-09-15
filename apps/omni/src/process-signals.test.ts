@@ -90,3 +90,48 @@ describe("ProcessSignalSupervisor", () => {
     vi.useRealTimers();
   });
 });
+
+describe("signal diagnostics", () => {
+  it("distinguishes a second signal from deadline expiry", () => {
+    vi.useFakeTimers();
+    try {
+      const events: unknown[] = [];
+      const supervisor = new ProcessSignalSupervisor({
+        gracefulShutdownMs: 5,
+        terminate: vi.fn(),
+        forceExit: vi.fn(),
+        onDiagnostic: (e) => events.push(e),
+      });
+      supervisor.handle("SIGTERM", { kind: "signal", signal: "SIGTERM" });
+      vi.advanceTimersByTime(5);
+      expect(events).toEqual([
+        { type: "signal_received", signal: "SIGTERM", repeated: false },
+        { type: "force_exit", signal: "SIGTERM", reason: "deadline" },
+      ]);
+      events.length = 0;
+      supervisor.handle("SIGTERM", { kind: "signal", signal: "SIGTERM" });
+      supervisor.handle("SIGINT", { kind: "user_interrupt" });
+      expect(events.at(-1)).toEqual({
+        type: "force_exit",
+        signal: "SIGTERM",
+        reason: "repeat_signal",
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+  it("still terminates when diagnostic reporting throws", () => {
+    const forceExit = vi.fn();
+    const supervisor = new ProcessSignalSupervisor({
+      gracefulShutdownMs: 5000,
+      terminate: vi.fn(),
+      forceExit,
+      onDiagnostic: () => {
+        throw new Error("sink failed");
+      },
+    });
+    supervisor.handle("SIGTERM", { kind: "signal", signal: "SIGTERM" });
+    supervisor.handle("SIGINT", { kind: "user_interrupt" });
+    expect(forceExit).toHaveBeenCalledExactlyOnceWith("SIGTERM");
+  });
+});

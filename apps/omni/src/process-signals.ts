@@ -6,7 +6,16 @@ export interface ProcessSignalRegistration {
 
 type ProcessSignal = "SIGINT" | "SIGTERM";
 
+export type ProcessSignalDiagnostic =
+  | { readonly type: "signal_received"; readonly signal: ProcessSignal; readonly repeated: boolean }
+  | {
+      readonly type: "force_exit";
+      readonly signal: ProcessSignal;
+      readonly reason: "repeat_signal" | "deadline";
+    };
+
 interface ProcessSignalSupervisorOptions {
+  readonly onDiagnostic?: (event: ProcessSignalDiagnostic) => void;
   readonly gracefulShutdownMs: number;
   readonly terminate: (termination: HostTermination) => void;
   readonly forceExit: (signal: ProcessSignal) => void;
@@ -22,12 +31,16 @@ export class ProcessSignalSupervisor {
   }
 
   handle(signal: ProcessSignal, termination: HostTermination): void {
+    this.#report({ type: "signal_received", signal, repeated: this.#pendingSignal !== null });
     if (this.#pendingSignal) {
-      this.#forceExit();
+      this.#forceExit("repeat_signal");
       return;
     }
     this.#pendingSignal = signal;
-    this.#deadline = setTimeout(() => this.#forceExit(), this.#options.gracefulShutdownMs);
+    this.#deadline = setTimeout(
+      () => this.#forceExit("deadline"),
+      this.#options.gracefulShutdownMs,
+    );
     this.#deadline.unref?.();
     this.#options.terminate(termination);
   }
@@ -38,9 +51,18 @@ export class ProcessSignalSupervisor {
     this.#pendingSignal = null;
   }
 
-  #forceExit(): void {
+  #report(event: ProcessSignalDiagnostic): void {
+    try {
+      this.#options.onDiagnostic?.(event);
+    } catch {
+      // Diagnostic failures must not prevent process termination.
+    }
+  }
+
+  #forceExit(reason: "repeat_signal" | "deadline"): void {
     const signal = this.#pendingSignal;
     if (!signal) return;
+    this.#report({ type: "force_exit", signal, reason });
     this.dispose();
     this.#options.forceExit(signal);
   }
@@ -86,9 +108,11 @@ export class ProcessTerminationController implements ProcessTerminationPort {
 export function registerProcessSignals(
   terminate: (termination: HostTermination) => void,
   gracefulShutdownMs = 5_000,
+  onDiagnostic?: (event: ProcessSignalDiagnostic) => void,
 ): ProcessSignalRegistration {
   const supervisor = new ProcessSignalSupervisor({
     gracefulShutdownMs,
+    onDiagnostic,
     terminate,
     forceExit(signal) {
       process.off("SIGINT", onInterrupt);

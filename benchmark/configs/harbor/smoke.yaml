@@ -1,0 +1,18 @@
+n_attempts: 1
+n_concurrent_trials: 1
+retry:
+  max_retries: 0
+jobs_dir: benchmark/jobs
+environment:
+  type: docker
+  delete: true
+agents:
+  - import_path: benchmark.adapters.harbor.agent:OmniAgent
+    override_timeout_sec: 600
+    override_setup_timeout_sec: 1800
+    kwargs:
+      credential_env: OMNI_SMOKE_API_KEY
+      config_file: benchmark/tasks/smoke/omni.config.json
+      providers_file: benchmark/tasks/smoke/omni.providers.json
+tasks:
+  - path: benchmark/tasks/smoke
