@@ -14,6 +14,7 @@ export interface ToolCallRequest {
 }
 
 export interface ToolCallEnvironment {
+  readonly outputs?: import("../execution/output").SessionOutputPort;
   agentId: string;
   workspaceId: string;
   workspaceRoot: string;
@@ -68,7 +69,15 @@ export type ToolBatchPreparationDecision =
       readonly message: string;
       readonly promptSections?: readonly import("../system-prompt").RuntimePromptSection[];
     }
-  | { readonly kind: "failed"; readonly code: string; readonly message: string };
+  | {
+      readonly kind: "failed";
+      readonly code: string;
+      readonly message: string;
+      /** Attribution only; a failure still stops the entire prepared batch. */
+      readonly source:
+        | { readonly kind: "batch" }
+        | { readonly kind: "calls"; readonly toolCallIds: readonly string[] };
+    };
 
 export interface ToolBatchPreparationPolicy {
   beginRun?(): void | Promise<void>;

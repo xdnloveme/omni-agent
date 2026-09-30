@@ -2,7 +2,7 @@ import {
   AgentPackageCatalogError,
   type AgentPackageCatalogErrorCode,
 } from "../../agent-packages/contracts";
-import { InteractionError } from "@omni-agent/core";
+import { InteractionError, InvalidRunDeadlineError } from "@omni-agent/core";
 import { AgentAssemblyError, AgentModelNotConfiguredError } from "../../assembly/errors";
 import { AgentApplicationLifecycleError } from "../agent-application";
 import {
@@ -12,6 +12,8 @@ import {
 } from "./contracts";
 
 export function toAgentServiceFailure(error: unknown): AgentServiceFailure {
+  if (error instanceof InvalidRunDeadlineError)
+    return { code: error.code, message: error.message, retryable: false };
   if (error instanceof AgentServiceError) {
     return { code: error.code, message: error.message, retryable: error.retryable };
   }

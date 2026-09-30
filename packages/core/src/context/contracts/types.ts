@@ -127,6 +127,7 @@ export interface ContextHistoryFrame {
 }
 
 export interface ContextFixedInput {
+  readonly runDeadline?: import("../../execution/run-deadline").RunDeadlineSnapshot;
   readonly systemPrompt: string;
   readonly tools: readonly ModelToolSpec[];
   readonly model: ContextModelLimits;
@@ -192,6 +193,11 @@ export interface ModelContextSnapshotManifest {
   readonly requestedOutputTokens: number;
   readonly usableInputBudget: number;
   readonly usageRatio: number;
+  readonly outputBudget?: {
+    readonly policyVersion: number;
+    readonly requestCeiling: number;
+    readonly inputSafetyMargin: number;
+  };
   readonly artifactIds: readonly string[];
   readonly checkpoint?: {
     readonly action: "reuse" | "create" | "extend";

@@ -34,7 +34,7 @@ describe("VendorPluginManager", () => {
   it("separates model output capacity from the ordinary request budget", () => {
     expect(resolveOutputBudget({ contextWindow: 200_000, modelMaxOutputTokens: 128_000 })).toEqual({
       modelMaxOutputTokens: 128_000,
-      requestedOutputTokens: 16_384,
+      requestedOutputTokens: 128_000,
     });
     expect(
       resolveOutputBudget({
@@ -98,7 +98,7 @@ describe("VendorPluginManager", () => {
       expect.objectContaining({
         modelId: model.id,
         modelMaxOutputTokens: model.modelMaxOutputTokens,
-        requestedOutputTokens: Math.min(16_384, model.modelMaxOutputTokens),
+        requestedOutputTokens: model.modelMaxOutputTokens,
       }),
     );
     await expect(

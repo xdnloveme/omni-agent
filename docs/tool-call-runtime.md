@@ -46,6 +46,15 @@ LLM Tool Call
 
 Schema, preflight, and preparation-policy failures never enter authorization, lifecycle, middleware,
 or execution. A deferred batch does not count as executed Tool work.
+A failed batch policy must declare its source explicitly: `batch` for a shared failure,
+or `calls` with nonempty, distinct IDs of ready calls in that batch. This attribution does
+not permit partial execution. The triggering calls retain the original error code and message;
+other ready calls receive `tool_batch_blocked`, the triggering IDs, and the original cause in
+structured metadata. They are not described as having failed their own validation. Core owns
+this projection for both the Agent Loop and command Hooks, including post-consent revalidation.
+Invalid source references fail closed as a batch preparation error. Deferred context updates
+and existing per-call preparation errors retain their existing behavior.
+
 Access denials never enter lifecycle, middleware, or execution. Deadline timing begins only after
 access control completes.
 
@@ -223,3 +232,160 @@ after-middleware or enter the session, and late rejection is consumed.
 - Dynamic executable plugins and dependencies that cannot be discovered before launch are not
   automatically granted or retried.
 - Direct file writes retain their documented truncation risk.
+
+## Tool input diagnostics and shell outcomes
+
+ToolInputValidator derives bounded field diagnostics from the existing JSON schema validator. `invalid_tool_input` results retain paths, validation keywords, field names and numeric/type constraints in metadata and readable text. Input values and enum/const contents are not echoed. Diagnostics are limited to 16 issues and 256 characters per textual component to bound amplification, not to specialize individual tools. Invalid inputs never execute and are not automatically corrected.
+
+Bash retains native `/bin/bash -c` semantics. Its result metadata includes process exitCode (including null), signal, stdoutTruncated and stderrTruncated; textual output includes the available exit status. Exit zero means the shell succeeded, not that a business check passed. Ordinary pipelines normally return the final command status. Callers that need upstream failure propagation must explicitly use `set -o pipefail` or preserve and return the command's exit code. The runtime neither rewrites commands nor classifies log keywords.
+
+## Session output retention
+
+Agents select the generic output reader explicitly. App binds its Session capability; ToolInvocationRunner sanitizes raw results before afterExecute, sanitizes middleware results before retention, and sanitizes the final result after storage navigation is added. All checkpoints reuse Core's shared sanitizer and apply with or without optional output storage. Retention owns storage/presentation, not sanitization policy. Host and sandbox processes share streaming capture before preview truncation. Captured content is sanitized text, not original binary bytes. Retention completeness is separate from process exit status, tool errors, and Run status.
+
+Human-facing process output explicitly selects a bounded head/tail preview. Bash uses the smaller of its 10 KiB body budget and the Session preview budget, reserving half for each stream and borrowing unused capacity after capture. UTF-8 boundaries and truncation markers are preserved. Exit status is a separate text block; labels, status and saved-output references are outside the body budget. Machine-readable process consumers (including ripgrep JSON) retain prefix capture semantics and are never fed a head/tail splice.
+
+The output writer alone allocates part IDs through `createPart({ label, mediaType })`. Each returned part handle can only append to that part; it owns no separate lifecycle state. Labels may repeat and are descriptive only. Creation, append, quota accounting and finish share the existing storage lock and writer state. Creation persists part intent and creates its empty body; append never recreates a missing body. Finish rejects subsequent creation and append. Existing version-1 records without labels remain readable by their original IDs without rewriting them. The old caller-selected `append(partId, ...)` entry is removed.
+
+Process capture keeps one handle per nonempty stream and passes the actual stream-to-part-ID association to tools. Independent result text/JSON creates new parts through the same writer, so matching labels cannot merge bodies.
+
+Process capture returns runtime-only output provenance; tools attach outputSource directly to each text block that previews captured parts. Reordering and deep cloning preserve that association. Trusted middleware must omit the source when replacing a preview with independent content, or declare the new preview source explicitly. Core validates capture identity, part membership and the Session binding before publishing a reference, removes block-local runtime provenance before persistence/model projection, and does not save those previews again. Unmapped text and structured content remain independent output. A transformed search result with file-size/navigation metadata is independent of its captured raw JSON, not a duplicate preview. The final OutputRecord remains the only persisted completeness fact. On storage or provenance failure, bounded text and the tool's original error state remain available with an explicit retention failure; no unverified reference is published. Opened captures are finalized on contract failure without retrying an uncertain finish.
+
+`output_read` accepts a logical outputId and partId within the bound Session, with versioned line/byte pagination or tail. It cannot select a filesystem path or another Session. Only text blocks declaring `outputSource: { kind: "page" }` are exempt from offloading; the runtime consumes this block-local declaration before transcript/model projection. Independent text/JSON appended by middleware follows normal retention. The removed result-wide page flag must not be restored. Large structuredContent uses an application/json part and `meta.structuredOutputPart`; native multimodal blocks remain unchanged. An output_read result records its existing source under `meta.outputRead` (outputId and partId); `meta.output` is reserved for output created by the current call. New attachments cannot overwrite the read source. If attachment storage fails, validated page blocks retain their exact text and pagination; their read source remains available. Only independent content participates in the fallback body budget, using the same allocator as normal retention. Captured previews and unvalidated read sources do not receive this page exemption. The failure is reported explicitly.
+
+Independent raw text blocks share the Session preview budget across the result rather than each receiving a full budget. Small blocks keep their text when possible; larger blocks share the remaining bytes. Structured JSON shares that allowance and is retained intact when text plus JSON would exceed it. Saved body references are added outside the body budget. Already-declared process previews and explicit pages retain their upstream bounds; they are not treated as new raw bodies. Storage failures use the same aggregate raw-text bound while preserving the tool error flag. This is a presentation budget, not a Run, iteration or spending limit. It is not a single total-byte ceiling over arbitrary combinations of captured previews, pages, navigation metadata and multimodal content; images and other non-text content retain their existing semantics.
+
+Every output_read response includes model-visible record/part completeness, the retention reason when present, retained byte count and the page range. Reading an incomplete or interrupted record can succeed without claiming that its retained tail is the original output tail. The status accompanies the page through model-message projection; it is not available only in metadata.
+
+App's SessionArtifactStore owns resource limits and a Session lifetime lease; short metadata locks protect operations. Clear fails while a live lease exists and old capabilities reject work after closure. Storage lives outside process workspaces and grants no additional sandbox access. See the output retention plan for defaults and verification limits.
+
+Output capture now propagates AbortSignal through create, append, finalization and queued reads. Cancellation finalization uses OperationDeadlineSupervisor with its existing cleanup bound. Execution cancellation facts retain either the sealed output descriptor or a sanitized outputPersistenceFailure diagnostic. Already-issued OS I/O still settles under Session ownership before cleanup.
+
+## Provider-side tool input constraints
+
+Tools may declare `inputConstraint: "off" | "prefer" | "require"`. This replaces the removed
+`strict` boolean. All first-party tools that declared `strict: true` now declare `prefer`;
+undeclared tools remain undeclared. Local extensions must migrate their declarations;
+registration rejects the old field instead of accepting parallel contracts.
+
+Core preserves the intent and still validates every returned tool input before authorization
+and execution. Models alone resolves the selected deployment's explicit capability and the
+schema's verified protocol compatibility. `prefer` enables constrained generation only when
+both are confirmed. Otherwise the request remains unconstrained with an explicit reason.
+`require` rejects the request before network access if it cannot be satisfied. No parameter
+aliases, null insertion, default rewriting or non-strict retry are introduced.
+
+Configured providers may declare `compat.supportsStrictMode` on a connection and
+`supportsStrictMode` on individual models. A model declaration overrides the connection.
+Absence is unknown, not support; OpenAI-compatible routing alone is not evidence. A changed
+request deployment name cannot inherit a catalog model's capability automatically. Native
+providers use explicit SDK catalog metadata. No paid probe runs automatically.
+
+The initial schema checker admits a conservative bounded subset for OpenAI Completions,
+OpenAI Responses, Anthropic Messages and custom transports: closed objects with required
+properties, simple scalar types/enums and arrays of those values. Optional properties and
+unverified keywords/protocols do not silently change shape to fit the provider. Limitations
+are reported as incompatibility or unverified schema, not claims about the provider's entire
+feature set. Expanding this subset requires protocol evidence and boundary tests.
+
+Custom transports receive resolved `inputConstraint: "off" | "require"` on each tool.
+They must enforce `require` if their provider declares support. Original intent and the
+reason for the decision remain in Models' report, so transports do not decide policy again.
+
+`model.tool_constraints.reported` in the existing replay records per-tool intent, capability
+source, schema assessment and enabled/disabled/rejected decision under the model call ID.
+These are planned request settings, not proof that a remote server enforced its promise.
+Reports contain neither credentials nor complete schema bodies. They are not model output
+and do not start time-to-first-model-event measurement.
+
+### Input/output ownership flow
+
+```mermaid
+flowchart TD
+  I[Tool name and input] --> V[Core schema validation]
+  V --> P[Tool preflight]
+  P --> A[Core access control and process planning]
+  A --> R[ToolInvocationRunner: execution and cancellation]
+  R --> T[Tool or authorized process]
+  T --> S1[Shared sanitizer: protect middleware input]
+  S1 --> M[afterExecute middleware]
+  M --> S2[Shared sanitizer: protect saved content]
+  S2 --> O[Core retention: classify each content block]
+  O -->|Independent large text or JSON| W[App Session writer: allocate part and append]
+  O -->|Page or captured preview| K[Keep bounded existing presentation]
+  W --> F[Finalize record and publish references]
+  K --> F
+  F --> S3[Shared sanitizer: protect final result]
+  S3 --> X[Transcript and model projection]
+  X -->|Model requests output_read| I
+  T -. Streaming capture before truncation .-> W
+```
+
+Input validation/access remains in the existing coordinator. The runner owns security checkpoints and tool lifecycle; middleware can modify content but cannot implicitly exempt independent additions. Retention owns content classification and previews. The Session writer owns storage identity, quota and finalization; a part handle only appends. output_read uses the bound Session read capability and returns a bounded page, with a distinct read source. Storage availability never controls final sanitization. These are sequential stages and existing process/in-process strategies, not parallel implementations of result processing.
+
+Canonical output records belong to Session storage. `SessionOutputPort.resolve({ outputId, partId? }, signal)` loads the authoritative record under the existing metadata lock, rejects unfinalized or missing records/parts and checks stored body integrity. Omitting partId validates the entire record (including legitimately empty records); specifying partId validates that part. `read` uses the same internal resolver before pagination. The old `validate(record)` whole-object comparison is removed.
+
+`meta.output` is a display snapshot, not an authorization or integrity token. Retention resolves its ID back to storage when a record must be checked; labels and other display fields are never validation input. `meta.outputRead` carries only the logical read reference. Final sanitization may change display text/labels without changing stored facts. Canonical records are reloaded when required; no second metadata registry or compatibility validation path exists. The on-disk version-1 format and original IDs are unchanged.
+
+### Grep input contract
+
+`grep` accepts the required `regex` and optional `path`, `glob`, `ignore_case`, and
+`max_results`. `path` selects a file or directory and defaults to the injected
+execution cwd when omitted. Preflight, canonical path binding, access assessment,
+and process planning all use that same field. Unknown fields are rejected; there
+is no alias for the former `search_path` parameter. Historical traces preserve
+the contract captured at the time and must not be rewritten as current requests.
+
+`glob` likewise accepts an optional `path` for its search directory, defaulting
+to the injected execution cwd, alongside `pattern` and `exclude`. It rejects
+the former `dir_path` field. Search access descriptors declare their execution
+kind explicitly: grep requires a process resource; glob remains in-process.
+Resource requirements must not be inferred from parameter names.
+
+## Workspace boundary and Shell directory state
+
+`workspaceRoot` is the fixed authorization boundary supplied by the runtime. The
+injected `cwd` resolves tool-relative paths and starts the process; it need not
+be the workspace root. File, search, and Bash access assessments use the shared
+canonical path inspection with both values explicitly supplied. Preflight uses
+only target inspection and does not classify authorization boundaries.
+
+The Shell analyzer tracks local directory changes without changing the runtime
+workspace or parent process. An intrinsic builtin's context effects are separate
+from its filesystem effects. Directory transitions preserve success and failure
+contexts: `&&` uses the success state, `||` uses the failure state, and sequential
+execution merges possible outcomes. Background jobs, pipelines and subshells do
+not export their directory state. Redirections resolve before the redirected
+body runs. `command` and `builtin` wrappers carry current-shell state; process
+wrappers retain child state only.
+
+Directory analysis is bounded, not a full Bash interpreter. Static absolute or
+explicit relative targets with logical `cd` and `--` can be resolved on success.
+Implicit HOME/OLDPWD, physical traversal, bare relative targets dependent on
+CDPATH, and unresolved expansions retain an unknown directory. Unknown directory
+state invalidates PWD facts; a later absolute directory change can restore a
+known directory on success. This does not grant filesystem access. Process
+planning still rejects unresolved executable working directories.
+
+Script dependency inspection uses a stable file-local analysis root because its
+cached output contains executable requirements, not authorization decisions.
+Call authorization and process policy always use the runtime workspace root.
+
+Invalid explicit filesystem scopes retain their error code and report the
+read/write declaration, canonical target, requested scope and observed target
+kind. They do not create directories, broaden scope or retry automatically.
+
+Shell analysis results have one required `outcomes` value containing success and
+failure contexts. There is no independently stored continuation context: an
+unconditional continuation derives it by joining those outcomes. Fact collection
+merges only effects, paths, commands, uncertainties and hard stops; it cannot
+choose or propagate execution state. Each syntax owner supplies complete outcomes.
+In particular, inspecting a deferred function body preserves its security facts
+but exports only the enclosing context with the function declaration recorded.
+No partial state replacement or missing-outcome fallback is supported.
+
+### Shell 重定向与写入事实
+
+命令自身的潜在写入与重定向目标独立分析，再合并到原有访问事实。输出目标不能证明未知程序没有其他写入；已识别且无需新增文件范围的重定向，也不能因没有文件路径而被标为未知写入。普通文件重定向保留具体路径，动态或无法解析的写入目标继续要求显式范围。
+
+数字文件描述符复制/关闭不产生新的文件目标。`/dev/null` 是明确的空设备；`/dev/stdin`、`/dev/stdout`、`/dev/stderr`、`/dev/fd/*` 和 `/dev/tty` 的实际去向不由当前有界分析证明，不能与空设备一概跳过。现有危险目标拦截继续生效。解析器对 `<>` 等形式返回 partial 时保持不确定，不用字符串补解析替代 Tree-sitter。

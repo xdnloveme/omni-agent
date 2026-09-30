@@ -19,6 +19,7 @@ export interface CreateContextPreparationRequestInput {
   readonly middleware: readonly ContextMiddlewarePort[];
   readonly progress: ContextProgressSinkPort;
   readonly signal?: AbortSignal;
+  readonly runDeadline?: import("../execution/run-deadline").RunDeadlineSnapshot;
 }
 
 export function createContextPreparationRequest(
@@ -26,6 +27,7 @@ export function createContextPreparationRequest(
 ): ContextPreparationRequest {
   return {
     identity: { ...input.identity },
+    runDeadline: input.runDeadline,
     source: { messages: cloneTranscriptMessages(input.conversation.messages) },
     ...(input.conversation.environment
       ? { environment: cloneData(input.conversation.environment) }
@@ -44,6 +46,6 @@ function toModelToolSpec(tool: RegisteredAgentTool): ModelToolSpec {
     name: tool.name,
     description: tool.description,
     schema: cloneData(tool.schema),
-    ...(tool.strict === undefined ? {} : { strict: tool.strict }),
+    ...(tool.inputConstraint === undefined ? {} : { inputConstraint: tool.inputConstraint }),
   };
 }

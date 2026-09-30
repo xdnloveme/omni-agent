@@ -25,8 +25,9 @@ export function createContextToolCycleView(entries: readonly ContextEntry[]): Co
   for (const entry of entries) {
     if (entry.kind === "transcript" && entry.message.role === "assistant") {
       assistantIndexes.push(entry.sourceIndex);
+      const truncated = entry.message.stopReason === "length";
       entry.message.content.forEach((block, contentIndex) => {
-        if (block.type !== "toolCall") return;
+        if (block.type !== "toolCall" || truncated) return;
         append(calls, block.id, {
           toolCallId: block.id,
           toolName: block.name,

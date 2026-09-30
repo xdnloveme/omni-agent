@@ -22,6 +22,7 @@ export async function analyzeShellAccess(
   const analysis = await analyzeShellCommand({
     command,
     cwd: context.cwd,
+    workspaceRoot: context.workspaceRoot,
     signal: context.signal,
     environment: context.hostRuntime,
   });
@@ -137,10 +138,10 @@ async function inspectRequestedScope(
   consent?: NonNullable<ToolAccessIntent["controlledConsentCandidates"]>[number];
   denial?: { code: string; reason: string };
 }> {
-  const inspection = await inspectPathSecurity(scope.path, context.cwd, context.hostRuntime);
+  const inspection = await inspectPathSecurity(scope.path, context, context.hostRuntime);
   const policy = await evaluateFilesystemScopePolicy(
     inspection,
-    context.cwd,
+    context,
     access,
     context.hostRuntime,
     scope.scope,

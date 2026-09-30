@@ -1,3 +1,5 @@
+import { setTimeout as delay } from "node:timers/promises";
+import { throwIfAborted } from "../execution/abort";
 import { randomUUID } from "node:crypto";
 import { mkdir, mkdtemp, readFile, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
@@ -32,16 +34,18 @@ export class InterprocessFileLock {
     this.reclaimPath = join(path, "reclaim");
   }
 
-  async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
-    const owner = await this.acquire();
+  async runExclusive<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const owner = await this.acquire(signal);
     try {
+      throwIfAborted(signal);
       return await operation();
     } finally {
       await this.release(owner);
     }
   }
 
-  private async acquire(): Promise<string> {
+  private async acquire(signal?: AbortSignal): Promise<string> {
+    throwIfAborted(signal);
     await mkdir(dirname(this.path), { recursive: true });
     const deadline = Date.now() + this.timeoutMs;
     const owner = randomUUID();
@@ -54,6 +58,7 @@ export class InterprocessFileLock {
         { mode: 0o600, flag: "wx" },
       );
       while (true) {
+        throwIfAborted(signal);
         try {
           // Publish metadata and ownership together. An empty retired directory can be
           // replaced, but rename cannot replace a non-empty directory owned by a live call.
@@ -66,7 +71,7 @@ export class InterprocessFileLock {
           if (Date.now() >= deadline) {
             throw new Error(`Timed out waiting for file lock: ${this.path}`);
           }
-          await delay(this.retryMs);
+          await delay(this.retryMs, undefined, { signal });
         }
       }
     } finally {
@@ -164,10 +169,6 @@ function isProcessAlive(pid: number): boolean {
   } catch (error) {
     return (error as NodeJS.ErrnoException).code === "EPERM";
   }
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function ignoreMissing(error: NodeJS.ErrnoException): void {

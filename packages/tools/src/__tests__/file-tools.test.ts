@@ -8,11 +8,7 @@ import { fileWriteTool } from "../filesystem/file-write";
 import { invokeToolImplementation, invokeUnboundToolImplementation } from "./tool-test-helper";
 import { fileMutex } from "../filesystem/file-mutex";
 import { writeDirectFile } from "../filesystem/io/direct-file-writer";
-import {
-  createFileSnapshot,
-  snapshotVersion,
-  type FileSnapshot,
-} from "../filesystem/io/file-snapshot";
+import { createFileSnapshot, snapshotVersion, type FileSnapshot } from "@omni-agent/core";
 
 let tmpDir: string;
 

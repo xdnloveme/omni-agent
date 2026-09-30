@@ -2,7 +2,7 @@ import type { AgentConfig } from "@omni-agent/core";
 import type { AgentAssemblyEvidence } from "../assembly/agent-assembly-evidence";
 import type { ConfigService } from "../config/config-service";
 import type { ExtensionManager } from "../extensions/extension-manager";
-import type { ModelSelection, ModelService } from "../models/model-service";
+import type { ModelSelection, AgentModelService } from "../models/model-service";
 
 export interface AgentConfigurationControllerDependencies {
   readonly additionalInstructions?: () => string;
@@ -12,7 +12,7 @@ export interface AgentConfigurationControllerDependencies {
   readonly initialModelSelection: ModelSelection;
   readonly extensions: ExtensionManager;
   readonly configService: ConfigService;
-  readonly modelService: ModelService;
+  readonly modelService: AgentModelService;
   readonly assemblyEvidence?: AgentAssemblyEvidence;
 }
 

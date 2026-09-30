@@ -1,3 +1,4 @@
+import { outputReadTool } from "@omni-agent/tools";
 import type { ToolComponentDescriptor } from "@omni-agent/app";
 import type { AgentToolDefinition, InteractionSurfacePort, SkillRuntime } from "@omni-agent/core";
 import { fileEditTool, fileReadTool, fileWriteTool } from "@omni-agent/tools/filesystem";
@@ -18,6 +19,12 @@ interface CodingToolDefinition {
 
 // Package-private Catalog: each Component's public facts and Factory are co-located.
 const toolDefinitions: readonly CodingToolDefinition[] = [
+  definition(
+    "runtime.output-read",
+    "Read saved output",
+    "Read retained tool results from this Session.",
+    outputReadTool,
+  ),
   definition(
     "coding.bash",
     "Shell",

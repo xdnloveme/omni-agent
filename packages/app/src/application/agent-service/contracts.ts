@@ -10,6 +10,7 @@ export interface AgentServiceSession {
 }
 
 export interface AgentServiceRunRequest {
+  readonly deadlineAtMs?: number;
   readonly requestId: string;
   readonly agentId: string;
   readonly sessionId: string;

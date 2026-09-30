@@ -4,7 +4,7 @@ import type {
   FilesystemConsentCandidate,
   HostRuntimeContext,
 } from "@omni-agent/core";
-import type { PathSecurityInspection } from "./inspect-path-security";
+import type { PathSecurityInspection, PathInspectionContext } from "./inspect-path-security";
 import { inspectPathSecurity } from "./inspect-path-security";
 import { isWithinPath } from "./path-boundary";
 import { createSensitivePathPolicy } from "./sensitive-paths";
@@ -16,7 +16,7 @@ export interface FilesystemScopePolicyResult {
 
 export async function evaluateFilesystemScopePolicy(
   inspection: PathSecurityInspection,
-  cwd: string,
+  context: PathInspectionContext,
   access: "read" | "write",
   environment: HostRuntimeContext,
   requestedScope?: "exact" | "subtree",
@@ -31,10 +31,7 @@ export async function evaluateFilesystemScopePolicy(
     return {
       denial: {
         code: "sandbox_scope_invalid",
-        reason:
-          requestedScope === "subtree"
-            ? "A subtree sandbox scope must reference an existing directory."
-            : "An exact sandbox scope must reference a file path.",
+        reason: `${access}_paths: ${JSON.stringify(inspection.target)} declares ${requestedScope}, but the target is ${inspection.targetKind}. ${requestedScope === "subtree" ? "A subtree sandbox scope must reference an existing directory." : "An exact sandbox scope must reference a file path."}`,
       },
     };
   }
@@ -52,7 +49,7 @@ export async function evaluateFilesystemScopePolicy(
   }
   if (inspection.inWorkspace) return {};
 
-  const home = await inspectPathSecurity(environment.home, cwd, environment);
+  const home = await inspectPathSecurity(environment.home, context, environment);
   if (requestedScope) {
     if (
       requestedScope === "subtree" &&
@@ -61,7 +58,7 @@ export async function evaluateFilesystemScopePolicy(
       return {
         denial: {
           code: "sandbox_scope_too_broad",
-          reason: "The requested subtree contains a protected filesystem boundary.",
+          reason: `${access}_paths: ${JSON.stringify(inspection.target)} declares subtree containing a protected filesystem boundary.`,
         },
       };
     }
@@ -82,7 +79,7 @@ export async function evaluateFilesystemScopePolicy(
   const parentInspection =
     inspection.targetKind === "directory"
       ? inspection
-      : await inspectPathSecurity(proposedRoot, cwd, environment);
+      : await inspectPathSecurity(proposedRoot, context, environment);
   const canUseSubtree =
     !parentInspection.sensitivity &&
     !containsProtectedBoundary(parentInspection.target, home.target, environment);

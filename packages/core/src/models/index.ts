@@ -4,6 +4,10 @@ export type {
   ModelRequestOptions,
   ModelRuntimePort,
   ModelToolSpec,
+  ToolInputConstraint,
+  ToolConstraintCapability,
+  ToolConstraintDecision,
+  ToolConstraintReport,
   RuntimeModelSelection,
   ThinkingHistoryPolicy,
 } from "./runtime";

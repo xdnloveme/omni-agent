@@ -1,8 +1,10 @@
 import path from "node:path";
-import { mkdtemp, realpath, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, symlink, realpath, rm } from "node:fs/promises";
 import os from "node:os";
 import { describe, expect, it } from "vitest";
 import { evaluateFilesystemScopePolicy } from "../security/path/filesystem-scope-policy";
+import { createSearchAccess } from "../search/access/create-search-access";
+import { analyzeShellAccess } from "../shell/access/analyze-shell-access";
 import { createFileAccess } from "../filesystem/access/create-file-access";
 import { inspectPathSecurity } from "../security/path/inspect-path-security";
 import { createSensitiveReadPolicySnapshot } from "../security/path/sensitive-policy-snapshot";
@@ -33,16 +35,21 @@ describe("sensitive path policy", () => {
     try {
       const ordinary = await inspectPathSecurity(
         path.join(directory, "source.ts"),
-        "/workspace",
+        { cwd: "/workspace", workspaceRoot: "/workspace" },
         environment,
       );
       const sensitive = await inspectPathSecurity(
         path.join(directory, ".env"),
-        "/workspace",
+        { cwd: "/workspace", workspaceRoot: "/workspace" },
         environment,
       );
       await expect(
-        evaluateFilesystemScopePolicy(ordinary, "/workspace", "write", environment),
+        evaluateFilesystemScopePolicy(
+          ordinary,
+          { cwd: "/workspace", workspaceRoot: "/workspace" },
+          "write",
+          environment,
+        ),
       ).resolves.toMatchObject({
         consentCandidate: {
           capability: { scope: "subtree", access: "read_write" },
@@ -50,16 +57,30 @@ describe("sensitive path policy", () => {
         },
       });
       await expect(
-        evaluateFilesystemScopePolicy(sensitive, "/workspace", "read", environment),
+        evaluateFilesystemScopePolicy(
+          sensitive,
+          { cwd: "/workspace", workspaceRoot: "/workspace" },
+          "read",
+          environment,
+        ),
       ).resolves.toEqual({
         consentCandidate: {
           capability: { path: sensitive.target, scope: "exact", access: "read" },
           sensitivity: "sensitive",
         },
       });
-      const root = await inspectPathSecurity("/", "/workspace", environment);
+      const root = await inspectPathSecurity(
+        "/",
+        { cwd: "/workspace", workspaceRoot: "/workspace" },
+        environment,
+      );
       await expect(
-        evaluateFilesystemScopePolicy(root, "/workspace", "read", environment),
+        evaluateFilesystemScopePolicy(
+          root,
+          { cwd: "/workspace", workspaceRoot: "/workspace" },
+          "read",
+          environment,
+        ),
       ).resolves.toEqual({});
     } finally {
       await rm(directory, { recursive: true, force: true });
@@ -71,11 +92,15 @@ describe("sensitive path policy", () => {
     const scopedEnvironment = { ...environment, home };
     try {
       for (const target of ["/", "/private", home]) {
-        const inspection = await inspectPathSecurity(target, "/workspace", scopedEnvironment);
+        const inspection = await inspectPathSecurity(
+          target,
+          { cwd: "/workspace", workspaceRoot: "/workspace" },
+          scopedEnvironment,
+        );
         await expect(
           evaluateFilesystemScopePolicy(
             inspection,
-            "/workspace",
+            { cwd: "/workspace", workspaceRoot: "/workspace" },
             "write",
             scopedEnvironment,
             "subtree",
@@ -124,6 +149,49 @@ describe("sensitive path policy", () => {
       if (previousHome === undefined) delete process.env.HOME;
       else process.env.HOME = previousHome;
       await rm(directory, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("fixed workspace boundary", () => {
+  it("classifies file, search and shell targets against the workspace instead of execution cwd", async () => {
+    const temp = await mkdtemp(path.join(os.tmpdir(), "omni-boundary-"));
+    try {
+      const root = await realpath(temp);
+      const workspaceRoot = path.join(root, "workspace");
+      await mkdir(path.join(workspaceRoot, "sub"), { recursive: true });
+      await mkdir(path.join(root, "outside"));
+      await symlink(workspaceRoot, path.join(root, "linked"));
+      const file = createFileAccess({ parameter: "path", access: "read" });
+      const search = createSearchAccess({ parameter: "path", execution: "process" });
+      if (file.kind !== "dynamic" || search.kind !== "dynamic")
+        throw new Error("Expected dynamic access");
+      for (const [cwd, target, location] of [
+        [path.join(workspaceRoot, "sub"), "../sample.txt", "workspace"],
+        [path.join(root, "outside"), "sample.txt", "external"],
+        [workspaceRoot, "../outside/sample.txt", "external"],
+        [path.join(root, "linked"), "sample.txt", "workspace"],
+      ]) {
+        const context = {
+          cwd: cwd!,
+          workspaceRoot,
+          workspaceId: "test",
+          agentId: "test",
+          toolCallId: "test",
+          hostRuntime: environment,
+        };
+        for (const descriptor of [file, search]) {
+          const result = await descriptor.assess({ path: target }, context);
+          expect(result.resources).toContainEqual(
+            expect.objectContaining({ kind: "filesystem", location }),
+          );
+        }
+        const shell = await analyzeShellAccess({ command: `cat ${target}` }, context);
+        const resources = [...shell.resources, ...(shell.uncoveredResources ?? [])];
+        expect(resources).toContainEqual(expect.objectContaining({ kind: "filesystem", location }));
+      }
+    } finally {
+      await rm(temp, { recursive: true, force: true });
     }
   });
 });

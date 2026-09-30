@@ -11,13 +11,17 @@ import type {
 import { iterateObserved, type RuntimeTurnObservation } from "../../runtime-observation";
 import type { StreamSession } from "../../stream";
 import type { ToolCallCoordinator, ToolCallMetrics, ValidatedToolResult } from "../../tool-calls";
-import { evaluateToolBatchPolicies } from "../../tool-calls/preparation-policies";
+import {
+  evaluateToolBatchPolicies,
+  failedBatchToolResult,
+} from "../../tool-calls/preparation-policies";
 import type { AgentConfig, AgentEvent } from "../../types";
 import { dispatchPostEventHooks } from "../../hooks";
 import { createToolBatchDescriptor, firstTurnBarrierIndex } from "../toolBatch";
 import type { PublishAgentEvent, ToolBatchPhaseResult } from "./types";
 
 export interface ToolBatchPhaseInput {
+  readonly outputs?: import("../../execution/output").SessionOutputPort;
   readonly agentId: string;
   readonly workspaceId: string;
   readonly workspaceRoot: string;
@@ -59,6 +63,7 @@ export async function* executeToolBatchPhase(
       workspaceId: input.workspaceId,
       workspaceRoot: input.workspaceRoot,
       batchId: batch.batchId,
+      outputs: input.outputs,
       cwd: input.environment.snapshot.workspace.cwd,
       middleware: input.config.middleware ?? [],
       lifecycleAdapters: input.config.toolLifecycleAdapters ?? [],
@@ -129,7 +134,7 @@ export async function* executeToolBatchPhase(
         ? input.coordinator.defer(
             preparedCall,
             { environment, observation },
-            policyStoppedToolResult(policyResult!),
+            policyStoppedToolResult(policyResult!, preparedCall),
           )
         : turnBarrierStopped
           ? input.coordinator.defer(
@@ -150,7 +155,7 @@ export async function* executeToolBatchPhase(
                 if (decision.kind === "executable") return undefined;
                 policyResult = decision;
                 disposition = decision.kind === "deferred" ? "context_deferred" : "result";
-                return policyStoppedToolResult(decision);
+                return policyStoppedToolResult(decision, preparedCall);
               },
             });
       {
@@ -275,6 +280,7 @@ function hookEnvironment(
     middleware: input.config.middleware ?? [],
     lifecycleAdapters: input.config.toolLifecycleAdapters ?? [],
     origin: "hook",
+    outputs: input.outputs,
   };
 }
 
@@ -298,6 +304,7 @@ function policyStoppedToolResult(
     import("../../tool-calls").ToolBatchPreparationDecision,
     { kind: "executable" }
   >,
+  call: import("../../tool-calls").PreparedToolCall,
 ): ValidatedToolResult {
   if (decision.kind === "deferred") {
     const update = (decision.promptSections ?? []).map((section) => section.content).join("\n\n");
@@ -314,13 +321,7 @@ function policyStoppedToolResult(
         .join("\n\n"),
     );
   }
-  const details = { code: decision.code, retryable: false, executed: false } as const;
-  return {
-    isError: true,
-    content: [{ type: "text", text: decision.message }],
-    meta: details,
-    transcriptDetails: details,
-  };
+  return failedBatchToolResult(decision, call);
 }
 
 function publishToolStart(

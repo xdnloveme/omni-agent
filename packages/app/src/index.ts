@@ -152,3 +152,6 @@ export type {
   TraceQueryPort,
 } from "./tracing/index";
 export * from "./mcp/index";
+
+export type { AgentModelService, ModelAdministration } from "./models/model-service";
+export { connectModelExecution, serveModelExecution } from "./models/model-execution";

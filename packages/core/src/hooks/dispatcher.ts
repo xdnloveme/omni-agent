@@ -1,7 +1,10 @@
 import { cloneData, freezeData } from "../dataCopy";
 import { sanitizeSensitiveText } from "../security";
 import { reportRuntimeObservationDiagnostic } from "../runtime-observation/diagnostics";
-import { evaluateToolBatchPolicies } from "../tool-calls/preparation-policies";
+import {
+  evaluateToolBatchPolicies,
+  failedBatchToolResult,
+} from "../tool-calls/preparation-policies";
 import type { ToolCallCoordinator } from "../tool-calls";
 import type { AgentConfig } from "../types";
 import type { HookDiagnostic, PostEventHook, PostEventHookEvent } from "./types";
@@ -70,7 +73,8 @@ async function runCommandHook(
           environment,
           revalidate: async () => {
             const current = await evaluateToolBatchPolicies(policies, batch, { origin: "hook" });
-            if (current.kind !== "executable")
+            if (current.kind === "failed") return failedBatchToolResult(current, call);
+            if (current.kind === "deferred")
               return {
                 content: [{ type: "text", text: current.message }],
                 isError: true,
@@ -82,11 +86,13 @@ async function runCommandHook(
       : context.coordinator.defer(
           call,
           { environment },
-          {
-            content: [{ type: "text", text: decision.message }],
-            isError: true,
-            meta: { code: decision.code, executed: false },
-          },
+          decision.kind === "failed"
+            ? failedBatchToolResult(decision, call)
+            : {
+                content: [{ type: "text", text: decision.message }],
+                isError: true,
+                meta: { code: decision.code, executed: false },
+              },
         );
   for await (const result of stream)
     if (result.type === "tool_end" && result.result.isError)

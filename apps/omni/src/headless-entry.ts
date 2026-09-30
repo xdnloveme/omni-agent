@@ -1,3 +1,4 @@
+import { assertRunDeadline } from "@omni-agent/core";
 import { writeSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
@@ -6,6 +7,8 @@ import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
   createLocalTraceQuery,
+  connectModelExecution,
+  type AgentModelService,
   ExecutionSettingsRepository,
   ExecutionSettingsService,
   resolveWorkspaceContext,
@@ -61,17 +64,26 @@ async function main(): Promise<void> {
       cwd: { type: "string", default: process.cwd() },
       agent: { type: "string", default: "coding" },
       "input-file": { type: "string" },
+      "deadline-at-ms": { type: "string" },
       "config-file": { type: "string" },
       "providers-file": { type: "string" },
+      "model-channel": { type: "string" },
       "output-dir": { type: "string" },
       "confirm-unrestricted": { type: "boolean", default: false },
     },
   });
   if (!values["confirm-unrestricted"])
     throw new Error("Headless execution requires --confirm-unrestricted");
-  for (const name of ["input-file", "config-file", "providers-file", "output-dir"] as const) {
+  for (const name of ["input-file", "config-file", "output-dir"] as const) {
     if (!values[name]) throw new Error(`--${name} is required`);
   }
+  if (Boolean(values["providers-file"]) === Boolean(values["model-channel"]))
+    throw new Error("Exactly one of --providers-file or --model-channel is required");
+  const deadlineAtMs =
+    values["deadline-at-ms"] === undefined ? undefined : Number(values["deadline-at-ms"]);
+  if (values["deadline-at-ms"]?.trim() === "")
+    throw new Error("--deadline-at-ms must not be empty");
+  assertRunDeadline(deadlineAtMs);
   const outputDirectory = resolve(values["output-dir"]!);
   const input = await readFile(resolve(values["input-file"]!), "utf8");
   if (!input.trim()) throw new Error("Headless input must not be empty");
@@ -79,6 +91,7 @@ async function main(): Promise<void> {
   const requestId = randomUUID();
   await writeArtifact("request.json", { version: 1, requestId, agentId: values.agent });
   const globalDirectory = join(outputDirectory, "state");
+  let remoteModelService: AgentModelService | undefined;
   let session: AgentServiceSession | undefined;
   let composition: AgentServiceComposition | undefined;
   let outcome: HeadlessOutcome;
@@ -86,7 +99,13 @@ async function main(): Promise<void> {
     // Never apply execution settings to existing state, including another headless attempt.
     await mkdir(globalDirectory, { mode: 0o700 });
     await copyFile(resolve(values["config-file"]!), join(globalDirectory, "config.json"));
-    await copyFile(resolve(values["providers-file"]!), join(globalDirectory, "providers.json"));
+    if (values["providers-file"])
+      await copyFile(resolve(values["providers-file"]), join(globalDirectory, "providers.json"));
+    if (values["model-channel"])
+      remoteModelService = await connectModelExecution(
+        resolve(values["model-channel"]),
+        termination.signal,
+      );
     const workspace = await resolveWorkspaceContext(values.cwd);
     await new ExecutionSettingsService(new ExecutionSettingsRepository(globalDirectory)).setMode(
       workspace.id,
@@ -95,6 +114,7 @@ async function main(): Promise<void> {
     );
     composition = await createAgentServiceComposition({
       cwd: workspace.root,
+      modelService: remoteModelService,
       globalDirectory,
       traceEnabled: true,
       resolutionBase: import.meta.filename,
@@ -118,6 +138,7 @@ async function main(): Promise<void> {
       requestId,
       input,
       signal: termination.signal,
+      deadlineAtMs,
       async onSession(created) {
         session = created;
         await writeArtifact("started.json", { version: 1, requestId, ...created });
@@ -139,7 +160,8 @@ async function main(): Promise<void> {
   // Service disposal drains native Trace; CLI owns Session close, Apps owns resource disposal.
   try {
     diagnostic("service.dispose.started");
-    await composition?.dispose();
+    if (composition) await composition.dispose();
+    else await remoteModelService?.dispose();
     diagnostic("service.dispose.completed");
   } catch (error) {
     outcome = {

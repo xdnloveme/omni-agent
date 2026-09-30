@@ -13,10 +13,31 @@ describe("ToolInputValidator", () => {
       required: ["value"],
     };
     expect(validator.validate(schema, { value: "ok" })).toBeNull();
-    expect(validator.validate(schema, {})).toContain("required property");
-    expect(validator.validate(schema, { value: "ok", extra: true })).toContain(
+    expect(validator.validate(schema, {})?.message).toContain("required property");
+    expect(validator.validate(schema, { value: "ok", extra: true })?.message).toContain(
       "additional properties",
     );
+  });
+
+  it("provides bounded field diagnostics without echoing rejected values", () => {
+    const validator = new ToolInputValidator();
+    const result = validator.validate(
+      {
+        type: "object",
+        additionalProperties: false,
+        required: ["target"],
+        properties: { target: { type: "string" }, count: { type: "integer", minimum: 2 } },
+      },
+      { unexpected: "PRIVATE_INPUT", count: 0 },
+    );
+    expect(result?.issues).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ keyword: "required", field: "target" }),
+        expect.objectContaining({ keyword: "additionalProperties", field: "unexpected" }),
+        expect.objectContaining({ path: "/count", keyword: "minimum", constraint: 2 }),
+      ]),
+    );
+    expect(JSON.stringify(result)).not.toContain("PRIVATE_INPUT");
   });
 
   it("rejects an invalid schema during compilation", () => {
@@ -26,6 +47,18 @@ describe("ToolInputValidator", () => {
 });
 
 describe("ToolDefinitionValidator", () => {
+  it("rejects removed strict declarations and accepts only explicit input constraint intents", () => {
+    const validator = new ToolDefinitionValidator();
+    expect(() =>
+      validator.validate({ ...tool(), strict: true } as unknown as AgentToolDefinition),
+    ).toThrow("replace strict");
+    expect(() =>
+      validator.validate({ ...tool(), inputConstraint: "auto" } as unknown as AgentToolDefinition),
+    ).toThrow("Invalid input constraint");
+    for (const inputConstraint of ["off", "prefer", "require"] as const)
+      expect(() => validator.validate({ ...tool(), inputConstraint })).not.toThrow();
+  });
+
   const tool = (): AgentToolDefinition => ({
     name: "test",
     description: "test tool",

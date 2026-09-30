@@ -26,6 +26,11 @@ export interface RuntimeFailedFact {
   readonly error: unknown;
 }
 
+export interface RuntimeExecutionCancelledFact extends RuntimeCancelledFact {
+  readonly output?: import("../execution/output").OutputRecord;
+  readonly outputPersistenceFailure?: string;
+}
+
 export interface RuntimeCancelledFact {
   readonly error?: unknown;
 }
@@ -85,11 +90,17 @@ export interface RuntimeModelCallStartedFact {
 }
 
 export interface RuntimeModelRequestCapturedFact {
+  readonly recovery?: { readonly attempt: number; readonly parentModelCallId: string };
   readonly context: PreparedModelContext;
   readonly selection: RuntimeModelSelection;
 }
 
 export type RuntimeModelOutputFact =
+  | {
+      readonly kind: "tool_constraints_reported";
+      readonly modelCallId: string;
+      readonly report: import("../models").ToolConstraintReport;
+    }
   | {
       readonly kind: "text_delta";
       readonly modelCallId: string;

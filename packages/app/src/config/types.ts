@@ -8,6 +8,7 @@ export interface AgentModelConfig {
 export interface OmniConfig {
   model: ModelSelection;
   agents?: Record<string, AgentModelConfig>;
+  outputRetention?: Partial<import("../persistence/session-artifact-store").OutputStorageLimits>;
   /** Preserved verbatim on model updates; MCP owns validation of this optional section. */
   mcp?: unknown;
 }

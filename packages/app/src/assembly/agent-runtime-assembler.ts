@@ -1,3 +1,4 @@
+import { SessionArtifactStore } from "../persistence/session-artifact-store";
 import { join } from "node:path";
 import {
   AgentSessionRepository,
@@ -135,6 +136,13 @@ export class AgentRuntimeAssembler {
       source = "session-repository";
       const sessions = new AgentSessionRepository({ agentId, sessionsRoot });
       await sessions.restoreLatestOrCreate();
+      const outputReaders = tools.filter((tool) => tool.outputReader);
+      const outputStore = outputReaders.length
+        ? new SessionArtifactStore(
+            join(sessionsRoot, agentId, "outputs"),
+            await environment.configService.resolveOutputLimits(),
+          )
+        : undefined;
       const sidecarLayout = new ContextSidecarLayout(join(sessionsRoot, agentId, "context"));
       const diagnostic = (extensionId: string, source: string, message: string) =>
         manager.diagnostics.push({ extensionId, source, message });
@@ -242,6 +250,7 @@ export class AgentRuntimeAssembler {
         );
       }
       const application = new AgentApplication({
+        outputStore,
         mcp: new AgentMcpController(
           mcpConfigs,
           new McpActivationStore(join(sessionsRoot, agentId, "mcp-activation.json")),

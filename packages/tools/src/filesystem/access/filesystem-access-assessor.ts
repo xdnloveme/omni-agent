@@ -1,17 +1,20 @@
 import type { AccessSensitivity, HostRuntimeContext, ToolAccessIntent } from "@omni-agent/core";
-import { inspectPathSecurity } from "../../security/path/inspect-path-security";
+import {
+  inspectPathSecurity,
+  type PathInspectionContext,
+} from "../../security/path/inspect-path-security";
 import { evaluateFilesystemScopePolicy } from "../../security/path/filesystem-scope-policy";
 
 export async function assessFilesystemAccess(
   value: string,
-  cwd: string,
+  context: PathInspectionContext,
   access: "read" | "write",
   environment: HostRuntimeContext,
 ): Promise<ToolAccessIntent> {
-  const inspection = await inspectPathSecurity(value, cwd, environment);
+  const inspection = await inspectPathSecurity(value, context, environment);
   const { consentCandidate } = await evaluateFilesystemScopePolicy(
     inspection,
-    cwd,
+    context,
     access,
     environment,
   );

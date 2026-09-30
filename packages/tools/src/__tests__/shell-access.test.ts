@@ -1,3 +1,8 @@
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+import { mkdtemp, mkdir, realpath, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { analyzeShellAccess } from "../shell/access/analyze-shell-access";
 
@@ -79,7 +84,7 @@ describe("shell access intent", () => {
 
   it("keeps each executable's effective cwd across shell-local cd changes", async () => {
     const intent = await analyzeShellAccess(
-      { command: "cd /tmp; ./tool; cd /workspace; ./tool" },
+      { command: "cd /tmp && ./tool && cd /workspace && ./tool" },
       context,
     );
     expect(intent.executableRequirements).toEqual([
@@ -208,5 +213,260 @@ describe("shell access intent", () => {
     await expect(
       analyzeShellAccess({ command: "shutdown -h now" }, context),
     ).resolves.toMatchObject({ hardStop: { code: "shell.hard.system-power" } });
+  });
+});
+
+describe("Shell directory semantics", () => {
+  it.each(["cd /tmp && ls", "cd -- /tmp && grep x file.txt", "cd -L ./src && cat file.txt"])(
+    "does not invent writes for %s",
+    async (command) => {
+      expect((await analyzeShellAccess({ command }, context)).filesystemMutation).toBe("none");
+    },
+  );
+  it("preserves writes and redirections independently of directory changes", async () => {
+    const intent = await analyzeShellAccess(
+      { command: "cd /workspace/src && printf x > result.txt" },
+      context,
+    );
+    expect(intent.filesystemMutation).toBe("bounded");
+    expect(intent.resources).toContainEqual(
+      expect.objectContaining({ path: "/workspace/src/result.txt", access: "write" }),
+    );
+    expect(
+      (await analyzeShellAccess({ command: "cd /tmp > result.txt" }, context)).resources,
+    ).toContainEqual(expect.objectContaining({ path: "/workspace/result.txt", access: "write" }));
+  });
+  it("keeps unknown directory state distinct from stale PWD and can recover on absolute cd success", async () => {
+    const uncertain = await analyzeShellAccess(
+      { command: 'cd "$TARGET" && printf x > "$PWD/result.txt"' },
+      context,
+    );
+    expect(uncertain.filesystemMutation).toBe("unbounded");
+    expect(uncertain.resources).not.toContainEqual(
+      expect.objectContaining({ path: "/workspace/result.txt" }),
+    );
+    const recovered = await analyzeShellAccess(
+      { command: 'cd "$TARGET"; cd /workspace/src && printf x > result.txt' },
+      context,
+    );
+    expect(recovered.resources).toContainEqual(
+      expect.objectContaining({ path: "/workspace/src/result.txt", access: "write" }),
+    );
+  });
+  it.each(["cd -P /tmp", "cd -", "cd", "cd src", "CDPATH=/elsewhere cd src"])(
+    "does not guess directory semantics for %s",
+    async (prefix) => {
+      const intent = await analyzeShellAccess(
+        { command: `${prefix} && printf x > result.txt` },
+        context,
+      );
+      expect(intent.filesystemMutation).toBe("unbounded");
+    },
+  );
+  it("does not treat a function or path executable named cd as an intrinsic builtin", async () => {
+    for (const command of [
+      "cd() { echo custom; }; cd /tmp && ./tool",
+      "/custom/cd /tmp && ./tool",
+    ]) {
+      const intent = await analyzeShellAccess({ command }, context);
+      expect(intent.filesystemMutation).toBe("unbounded");
+      expect(intent.executableRequirements).not.toContainEqual(
+        expect.objectContaining({ command: "./tool", cwd: "/tmp" }),
+      );
+    }
+  });
+  it("keeps success, failure and isolated shell states separate", async () => {
+    for (const command of [
+      "(cd /tmp); ./tool",
+      "cd /tmp | cat; ./tool",
+      "cd /tmp & ./tool",
+      "cd /tmp || ./tool",
+    ]) {
+      const intent = await analyzeShellAccess({ command }, context);
+      expect(intent.executableRequirements).toContainEqual(
+        expect.objectContaining({ command: "./tool", cwd: "/workspace" }),
+      );
+    }
+    const uncertain = await analyzeShellAccess({ command: "cd /tmp; ./tool" }, context);
+    expect(uncertain.executableRequirements).toContainEqual(
+      expect.objectContaining({ command: "./tool", cwd: "unknown" }),
+    );
+  });
+  it("identifies the invalid scope among multiple declarations", async () => {
+    const intent = await analyzeShellAccess(
+      {
+        command: "mkdir -p /tmp/omni-missing-scope/child",
+        sandbox_scope: {
+          read_paths: [{ path: "/tmp", scope: "subtree" }],
+          write_paths: [{ path: "/tmp/omni-missing-scope", scope: "subtree" }],
+        },
+      },
+      context,
+    );
+    expect(intent.denial?.code).toBe("sandbox_scope_invalid");
+    expect(intent.denial?.reason).toContain("write_paths:");
+    expect(intent.denial?.reason).toContain("omni-missing-scope");
+    expect(intent.denial?.reason).toContain("missing");
+  });
+});
+
+it("matches real Bash directory outcomes in sequential, conditional and isolated execution", async () => {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "omni-shell-state-"));
+  try {
+    const cwd = await realpath(temporary);
+    await mkdir(path.join(cwd, "sub"));
+    for (const command of [
+      "cd ./sub && pwd",
+      "cd ./absent || pwd",
+      "(cd ./sub); pwd",
+      "cd ./sub | cat; pwd",
+      "cd ./sub && cd .. && pwd",
+      "cd ./absent; pwd",
+      "cd ./sub > marker && pwd",
+      "command cd ./sub && pwd",
+    ]) {
+      const actual = await promisify(execFile)("/bin/bash", ["-c", command], {
+        cwd,
+        env: { PATH: process.env.PATH },
+      });
+      const analyzed = await analyzeShellAccess(
+        { command: command.replace(/pwd$/, "./probe") },
+        { ...context, cwd, workspaceRoot: cwd },
+      );
+      const predicted = analyzed.executableRequirements?.find(
+        (item) => item.command === "./probe",
+      )?.cwd;
+      expect(predicted === "unknown" || predicted === actual.stdout.trim()).toBe(true);
+    }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+it("protects the fixed workspace root when execution starts in a child directory", async () => {
+  const intent = await analyzeShellAccess(
+    { command: "rm -rf /workspace" },
+    { ...context, cwd: "/workspace/sub" },
+  );
+  expect(intent.hardStop).toBeDefined();
+});
+
+it.each([
+  "f() { cd /tmp; } && ./probe",
+  "{ f() { cd /tmp; }; } && ./probe",
+  "f() { cd /tmp; }; ./probe",
+  "f() { export PWD=/tmp; } && ./probe",
+])("does not execute function definition state: %s", async (command) => {
+  const result = await analyzeShellAccess({ command }, context);
+  expect(result.executableRequirements).toContainEqual(
+    expect.objectContaining({ command: "./probe", cwd: "/workspace" }),
+  );
+});
+
+it("preserves scope isolation across command composition, compared with real Bash", async () => {
+  const temporary = await mkdtemp(path.join(os.tmpdir(), "omni-scope-composition-"));
+  try {
+    const cwd = await realpath(temporary);
+    await mkdir(path.join(cwd, "sub"));
+    const bodies = ["cd ./sub", "cd ./absent"];
+    const scopes = [
+      (body: string) => `f() { ${body}; }`,
+      (body: string) => `{ f() { ${body}; }; }`,
+      (body: string) => `(${body})`,
+      (body: string) => `${body} | cat`,
+      (body: string) => `{ ${body} & wait; }`,
+      (body: string) => `bash -c '${body}'`,
+    ];
+    for (const body of bodies)
+      for (const scope of scopes)
+        for (const operator of [";", "&&", "||"]) {
+          const prefix = `${scope(body)} ${operator} `;
+          const actual = await promisify(execFile)("/bin/bash", ["-c", prefix + "pwd; :"], {
+            cwd,
+            env: { PATH: "/usr/bin:/bin" },
+          });
+          const result = await analyzeShellAccess(
+            { command: prefix + "./probe" },
+            { ...context, cwd, workspaceRoot: cwd },
+          );
+          const prediction = result.executableRequirements?.find(
+            (item) => item.command === "./probe",
+          )?.cwd;
+          // Every enclosing scope remains unchanged, even when the final branch is not taken.
+          expect(prediction, prefix).toBe(cwd);
+          if (actual.stdout.trim()) expect(prediction, prefix).toBe(actual.stdout.trim());
+        }
+  } finally {
+    await rm(temporary, { recursive: true, force: true });
+  }
+});
+
+it("retains security facts from deferred bodies without exporting their execution state", async () => {
+  const result = await analyzeShellAccess({ command: "f() { rm -rf /; }; ./probe" }, context);
+  expect(result.hardStop).toBeDefined();
+  expect(result.executableRequirements).toContainEqual(
+    expect.objectContaining({ command: "./probe", cwd: "/workspace" }),
+  );
+});
+
+describe("redirection mutation ownership", () => {
+  it.each([
+    "cat input.txt 2>/dev/null",
+    "find /workspace -name '*.py' -exec cat {} \\; 2>/dev/null",
+    "{ cat input.txt; } >/dev/null",
+    "false || cat input.txt 2>/dev/null",
+    "cat input.txt 2>/dev/null | head -1",
+    "cat input.txt 2>&1",
+    "cat input.txt 2>&-",
+    "FD=1; cat input.txt 2>&$FD",
+  ])("does not invent a file mutation for %s", async (command) => {
+    expect(await analyzeShellAccess({ command }, context)).toMatchObject({
+      filesystemMutation: "none",
+    });
+  });
+
+  it.each([
+    "unknown_program >/dev/null",
+    "cat input.txt <> output.txt",
+    "cat input.txt 3<>output.txt",
+    "unknown_program > known.txt",
+    'printf x >/dev/null > "$UNKNOWN"',
+    'printf x > known.txt 2> "$UNKNOWN"',
+    'cat input.txt >&"$UNKNOWN"',
+    "printf x >/dev/stdout",
+    "printf x >/dev/fd/3",
+    "printf x >/dev/tty",
+  ])("preserves unresolved command or destination writes for %s", async (command) => {
+    expect(await analyzeShellAccess({ command }, context)).toMatchObject({
+      filesystemMutation: "unbounded",
+    });
+  });
+
+  it.each([">", ">>"])("retains concrete file access for %s", async (operator) => {
+    const result = await analyzeShellAccess(
+      { command: `cat input.txt ${operator} output.txt 2>/dev/null` },
+      context,
+    );
+    expect(result.filesystemMutation).toBe("bounded");
+    expect(result.resources).toContainEqual(
+      expect.objectContaining({
+        kind: "filesystem",
+        access: "write",
+        path: "/workspace/output.txt",
+      }),
+    );
+  });
+
+  it("resolves group redirects before directory changes and preserves hard stops", async () => {
+    const result = await analyzeShellAccess(
+      { command: "{ cd /workspace/sub; cat input.txt; } > output.txt 2>/dev/null" },
+      context,
+    );
+    expect(result.resources).toContainEqual(
+      expect.objectContaining({ access: "write", path: "/workspace/output.txt" }),
+    );
+    for (const command of ["printf x >/etc/passwd", "printf x >/dev/tcp/example.com/80"]) {
+      expect((await analyzeShellAccess({ command }, context)).hardStop).toBeDefined();
+    }
   });
 });

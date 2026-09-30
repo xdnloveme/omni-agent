@@ -10,6 +10,7 @@ import {
   builtinVendorPlugins,
   loadVendorPlugins,
   type ModelSelection,
+  type ModelExecutionBinding,
   type AvailableModel,
   type CredentialStatus,
   type CredentialAliasRegistry,
@@ -38,7 +39,34 @@ export interface ModelServiceDiagnostic {
   message: string;
 }
 
-export class ModelService {
+/** Runtime assembly needs execution and selection, not provider administration. */
+export type ModelAdministration = Pick<
+  ModelService,
+  | "resolve"
+  | "isConfigured"
+  | "getAuthMethods"
+  | "login"
+  | "listModels"
+  | "listVendors"
+  | "getVendor"
+  | "providerPlugins"
+  | "providers"
+>;
+
+export interface AgentModelService {
+  readonly administration?: ModelAdministration;
+  readonly runtime: CacheAwareModelRuntime;
+  readonly providerPlugins?: VendorPluginManager;
+  readonly diagnostics: readonly ModelServiceDiagnostic[];
+  resolve(selection: ModelSelection): Promise<RuntimeModelSelection>;
+  isConfigured(providerId: string): Promise<CredentialStatus | undefined>;
+  dispose(): Promise<void>;
+}
+
+export class ModelService implements AgentModelService {
+  get administration(): ModelAdministration {
+    return this;
+  }
   constructor(
     private readonly transportRuntime: ModelRuntime,
     readonly runtime: CacheAwareModelRuntime,
@@ -53,6 +81,19 @@ export class ModelService {
 
   isConfigured(providerId: string): Promise<CredentialStatus | undefined> {
     return this.transportRuntime.isConfigured(providerId);
+  }
+
+  async bindExecution(selection: ModelSelection): Promise<ModelExecutionBinding> {
+    const resolved = await this.resolve(selection);
+    const credential = await this.isConfigured(resolved.providerId);
+    if (!credential) throw new Error("Bound model provider is not configured");
+    return {
+      selection: resolved,
+      configuration: structuredClone(selection),
+      cacheCapability: this.transportRuntime.getCacheCapability(resolved),
+      credentialType: credential.type,
+      transport: this.transportRuntime,
+    };
   }
 
   getAuthMethods(providerId: string): ModelAuthMethod[] {

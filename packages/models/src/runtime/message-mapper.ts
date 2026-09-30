@@ -12,6 +12,7 @@ import type {
   DeepReadonly,
   ModelContextMessage,
   ModelRequest,
+  ToolConstraintDecision,
 } from "@omni-agent/core";
 import type { ToolResultContent } from "@omni-agent/core";
 
@@ -229,19 +230,35 @@ export function fromBackendMessage(message: AssistantMessage): AssistantTranscri
   };
 }
 
-function toBackendTools(tools: ModelRequest["tools"]): Tool[] | undefined {
+function toBackendTools(
+  tools: ModelRequest["tools"],
+  decisions: readonly ToolConstraintDecision[],
+): Tool[] | undefined {
   if (!tools?.length) return undefined;
-  return tools.map((tool) => ({
+  if (
+    tools.length !== decisions.length ||
+    tools.some(
+      (tool, index) =>
+        decisions[index]?.toolName !== tool.name || decisions[index]?.outcome === "rejected",
+    )
+  )
+    throw new Error("Tool constraint decisions do not match the model request");
+  return tools.map((tool, index) => ({
+    constrainedSampling:
+      decisions[index]!.outcome === "enabled" ? { type: "json_schema", strict: "require" } : false,
     name: tool.name,
     description: tool.description,
     parameters: mutableClone<TSchema>(tool.schema),
   }));
 }
 
-export function toBackendContext(request: ModelRequest): Context {
+export function toBackendContext(
+  request: ModelRequest,
+  decisions: readonly ToolConstraintDecision[],
+): Context {
   return {
     systemPrompt: request.systemPrompt,
     messages: toBackendMessages(request.messages),
-    tools: toBackendTools(request.tools),
+    tools: toBackendTools(request.tools, decisions),
   };
 }

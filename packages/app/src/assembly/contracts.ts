@@ -13,7 +13,7 @@ import type {
 } from "@omni-agent/core";
 import type { ConfigService } from "../config/config-service";
 import type { AgentExtension } from "../extensions/types";
-import type { ModelSelection, ModelService } from "../models/model-service";
+import type { ModelSelection, AgentModelService } from "../models/model-service";
 import type { WorkspaceContext } from "../workspaces";
 
 export interface AgentManifest {
@@ -175,7 +175,7 @@ export interface AgentAssemblyRequest {
   readonly workspaceRoots: readonly string[];
   readonly globalDirectory: string;
   readonly configService: ConfigService;
-  readonly modelService: ModelService;
+  readonly modelService: AgentModelService;
   readonly host: AgentHostDependencies;
   readonly extensionSourceLoader?: ExtensionSourceLoader;
 }
@@ -202,7 +202,7 @@ export interface ResolvedAgentAssemblyPlan {
 export interface AgentAssemblyEnvironment {
   readonly blueprint: AgentBlueprint;
   readonly configService: ConfigService;
-  readonly modelService: ModelService;
+  readonly modelService: AgentModelService;
   readonly host: AgentHostDependencies;
   readonly extensionSourceLoader?: ExtensionSourceLoader;
 }

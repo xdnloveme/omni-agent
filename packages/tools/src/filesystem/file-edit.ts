@@ -9,7 +9,7 @@ import { fileMutex } from "./file-mutex";
 import { resolveAuthorizedOperationPath } from "../security/path/authorized-operation-path";
 import { writeDirectFile } from "./io/direct-file-writer";
 import { FileToolError, fileToolErrorResult } from "./io/file-errors";
-import { createFileSnapshot, snapshotsEqual } from "./io/file-snapshot";
+import { createFileSnapshot, snapshotsEqual } from "@omni-agent/core";
 import {
   assertFileSize,
   assertTextValue,
@@ -24,7 +24,7 @@ const MAX_REPLACEMENT_LENGTH = 1024 * 1024;
 
 export const fileEditTool: AgentToolDefinition = {
   name: "file_edit",
-  strict: true,
+  inputConstraint: "prefer",
   preflight: createFilePathPreflight({
     parameter: "file_path",
     acceptedKinds: ["regular_file"],

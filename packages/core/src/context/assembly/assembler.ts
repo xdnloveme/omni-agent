@@ -1,3 +1,4 @@
+import { requestOutputBudget, REQUEST_BUDGET_POLICY_VERSION, inputBudget } from "../request-budget";
 import { cloneData } from "../../dataCopy";
 import { assertTranscriptMessages, cloneTranscriptMessages } from "../../messages";
 import type {
@@ -11,6 +12,7 @@ import type {
 import { cloneModelToolSpec } from "./draft";
 import { projectContextEntries } from "./entryProjection";
 import { digestContextValue } from "../digest";
+import { renderRunDeadline } from "../run-deadline";
 import { renderEnvironmentContext } from "../../environment";
 
 export interface ContextAssemblyInput {
@@ -36,6 +38,8 @@ export class ContextAssembler {
           ...historyMessages,
         ]
       : historyMessages;
+    if (fixed.runDeadline)
+      messages.push({ role: "user", content: renderRunDeadline(fixed.runDeadline) });
     const tools = fixed.tools.map(cloneModelToolSpec);
     const decisions = cloneData(input.result.decisions) as ContextDecision[];
     const sourceDigest = digestContextValue({
@@ -73,6 +77,8 @@ export class ContextAssembler {
         : undefined;
     const snapshotId = digestContextValue({
       ...input.identity,
+      model: fixed.model,
+      requestBudgetPolicyVersion: REQUEST_BUDGET_POLICY_VERSION,
       policyStages,
       middleware,
       sourceDigest,
@@ -101,7 +107,15 @@ export class ContextAssembler {
       estimatedInputTokens: input.result.estimate.totalInputTokens,
       contextWindow: fixed.model.contextWindow,
       modelMaxOutputTokens: fixed.model.modelMaxOutputTokens,
-      requestedOutputTokens: fixed.model.requestedOutputTokens,
+      requestedOutputTokens: requestOutputBudget(
+        fixed.model,
+        input.result.estimate.totalInputTokens,
+      ),
+      outputBudget: {
+        policyVersion: REQUEST_BUDGET_POLICY_VERSION,
+        requestCeiling: fixed.model.requestedOutputTokens,
+        inputSafetyMargin: fixed.model.contextWindow - inputBudget(fixed.model.contextWindow),
+      },
       usableInputBudget: input.result.estimate.usableInputBudget,
       usageRatio: input.result.estimate.usageRatio,
       artifactIds,
@@ -154,7 +168,9 @@ export function assertContextDraft(value: unknown): asserts value is ContextDraf
       !tool.schema ||
       typeof tool.schema !== "object" ||
       Array.isArray(tool.schema) ||
-      (tool.strict !== undefined && typeof tool.strict !== "boolean")
+      "strict" in tool ||
+      (tool.inputConstraint !== undefined &&
+        !["off", "prefer", "require"].includes(tool.inputConstraint))
     ) {
       throw new Error("Context middleware returned an invalid model tool");
     }

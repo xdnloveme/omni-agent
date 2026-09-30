@@ -64,6 +64,7 @@ interface CompatibleModelDefinitionDto {
   contextWindow: number;
   maxTokens: number;
   reasoning: boolean;
+  supportsStrictMode?: boolean;
 }
 
 export interface ProviderSnapshot {
@@ -114,6 +115,7 @@ const providerFileSchema: JSONSchemaType<ProviderConfigFileDto> = {
                   type: "object",
                   nullable: true,
                   properties: {
+                    supportsStrictMode: { type: "boolean", nullable: true },
                     supportsUsageInStreaming: { type: "boolean", nullable: true },
                     sendSessionAffinityHeaders: { type: "boolean", nullable: true },
                     sessionAffinityFormat: {
@@ -146,6 +148,7 @@ const providerFileSchema: JSONSchemaType<ProviderConfigFileDto> = {
                       contextWindow: { type: "integer", minimum: 1 },
                       maxTokens: { type: "integer", minimum: 1 },
                       reasoning: { type: "boolean" },
+                      supportsStrictMode: { type: "boolean", nullable: true },
                     },
                     required: ["id", "name", "contextWindow", "maxTokens", "reasoning"],
                     additionalProperties: false,
@@ -359,6 +362,10 @@ function validateDefinitions(
       providerIds.add(connection.providerId);
       validateHttpEndpoint(connection.baseUrl, `${connectionPath}.baseUrl`);
       validateCompatibleProviderCompat(connection, connectionPath);
+      for (const model of connection.models) {
+        if (model.supportsStrictMode !== undefined && typeof model.supportsStrictMode !== "boolean")
+          throw new Error(`${connectionPath}.models.supportsStrictMode must be boolean`);
+      }
       validateEnvironmentVariables(connection.envVars, `${connectionPath}.envVars`);
       validateUniqueModelIds(connection.models, `${connectionPath}.models`);
       return {
@@ -384,6 +391,7 @@ function validateCompatibleProviderCompat(
   const allowed = new Set<keyof CompatibleProviderCompat>(
     connection.protocol === "openai-completions"
       ? [
+          "supportsStrictMode",
           "supportsUsageInStreaming",
           "sendSessionAffinityHeaders",
           "sessionAffinityFormat",
@@ -391,10 +399,10 @@ function validateCompatibleProviderCompat(
           "cacheControlFormat",
         ]
       : connection.protocol === "openai-responses"
-        ? ["sessionAffinityFormat", "supportsLongCacheRetention"]
+        ? ["supportsStrictMode", "sessionAffinityFormat", "supportsLongCacheRetention"]
         : connection.protocol === "anthropic-messages"
-          ? ["sendSessionAffinityHeaders", "supportsLongCacheRetention"]
-          : [],
+          ? ["supportsStrictMode", "sendSessionAffinityHeaders", "supportsLongCacheRetention"]
+          : ["supportsStrictMode"],
   );
   for (const [rawKey, value] of Object.entries(compat)) {
     const key = rawKey as keyof CompatibleProviderCompat;

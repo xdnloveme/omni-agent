@@ -68,6 +68,7 @@ describe("Agent inspection", () => {
             "web_search",
             "request_user_input",
             "skill_read",
+            "output_read",
           ],
         },
       },

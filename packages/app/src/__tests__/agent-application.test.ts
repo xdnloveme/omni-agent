@@ -244,6 +244,48 @@ describe("AgentApplication model selection", () => {
     expect(configService.removeAgentModel).not.toHaveBeenCalled();
   });
 
+  it("projects exhausted output recovery as a failed run and keeps recovery out of user history", async () => {
+    const { app, runtime, traceRuntime, sessions } = await fixture(true);
+    traceRuntime!.control.start();
+    let calls = 0;
+    runtime.stream = async function* () {
+      calls++;
+      yield {
+        type: "done",
+        message: {
+          role: "assistant",
+          api: "test",
+          provider: "test",
+          model: "model",
+          content: [{ type: "text", text: "partial" }],
+          stopReason: "length",
+          usage: { input: 5, output: 10, cacheRead: 0, cacheWrite: 0 },
+          timestamp: Date.now(),
+        },
+      };
+    };
+    await app.run("finish", {});
+    expect(calls).toBe(4);
+    const query = new TraceQueryService(traceRuntime!.store);
+    const [session] = await query.sessions();
+    const [run] = await query.runs(session!.sessionId);
+    expect(run).toMatchObject({ status: "error" });
+    const replay = await query.replay(run!.sessionId, run!.runId);
+    const requests = replay.filter((event) => event.kind === "model.request.captured");
+    expect(requests[1]?.payload).toMatchObject({
+      recovery: { attempt: 1, parentModelCallId: expect.any(String) },
+    });
+    expect(requests[3]?.payload).toMatchObject({
+      recovery: { attempt: 3 },
+      manifest: { outputBudget: { policyVersion: 1 } },
+    });
+    expect(replay.at(-1)?.kind).toBe("run.failed");
+    expect(sessions.snapshot().messages.filter((message) => message.role === "user")).toHaveLength(
+      1,
+    );
+    await app.dispose();
+  });
+
   it("disposes extensions idempotently through its owning instance", async () => {
     const { app, dispose } = await fixture();
     await app.dispose();
@@ -522,4 +564,105 @@ describe("AgentApplication session persistence", () => {
     expect(sessions.snapshot().messages).toHaveLength(3);
     expect(sessions.snapshot().messages.slice(1)).toEqual(producedMessages);
   });
+});
+
+describe("AgentApplication explicit deadlines", () => {
+  it("rejects invalid deadlines and cancels expired work without invoking the model or appending input", async () => {
+    const { app, runtime, sessions } = await fixture();
+    const stream = vi.fn(runtime.stream);
+    runtime.stream = stream;
+    const before = sessions.snapshot().messages.length;
+    await expect(app.run("invalid", {}, undefined, { deadlineAtMs: NaN })).rejects.toThrow(
+      "safe integer",
+    );
+    await expect(
+      app.run("expired", {}, undefined, { deadlineAtMs: Date.now() - 1 }),
+    ).rejects.toMatchObject({ name: "AbortError", code: "run_deadline_exceeded" });
+    expect(stream).not.toHaveBeenCalled();
+    expect(sessions.snapshot().messages).toHaveLength(before);
+    await app.dispose();
+  });
+
+  it("cancels one Run, retains ownership until late model settlement, and does not publish late success", async () => {
+    const { app, runtime, sessions, traceRuntime } = await fixture(true);
+    traceRuntime!.control.start();
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let began!: () => void;
+    const started = new Promise<void>((resolve) => {
+      began = resolve;
+    });
+    let aborted!: () => void;
+    const cancelled = new Promise<void>((resolve) => {
+      aborted = resolve;
+    });
+    let captured = "";
+    runtime.stream = async function* (_selection, request, options) {
+      captured = JSON.stringify(request.messages);
+      options.signal!.addEventListener("abort", aborted, { once: true });
+      began();
+      await held;
+      yield { type: "text_delta", delta: "late" };
+    };
+    const onTextChunk = vi.fn();
+    const onDone = vi.fn();
+    const run = app.run("deadline", { onTextChunk, onDone }, undefined, {
+      deadlineAtMs: Date.now() + 300,
+    });
+    const outcome = run.catch((error) => error);
+    await started;
+    await cancelled;
+    // Retain ownership even after the supervisor's bounded cleanup grace expires.
+    await new Promise((resolve) => setTimeout(resolve, 2100));
+    expect(captured).toContain("<run_context>");
+    expect(captured).toContain("remainingMs");
+    await expect(app.run("overlap", {})).rejects.toMatchObject({ code: "agent_application_busy" });
+    await expect(app.dispose()).rejects.toMatchObject({ code: "agent_application_busy" });
+    release();
+    expect(await outcome).toMatchObject({ name: "AbortError", code: "run_deadline_exceeded" });
+    expect(onTextChunk).not.toHaveBeenCalled();
+    expect(onDone).not.toHaveBeenCalled();
+    expect(JSON.stringify(sessions.snapshot())).not.toContain("<run_context>");
+    const query = new TraceQueryService(traceRuntime!.store);
+    const [session] = await query.sessions();
+    const [trace] = await query.runs(session!.sessionId);
+    expect(trace?.status).toBe("cancelled");
+    const replay = await query.replay(trace!.sessionId, trace!.runId);
+    expect(replay.filter((e) => e.kind === "run.cancelled")).toHaveLength(1);
+    expect(replay.find((e) => e.kind === "run.cancelled")?.payload).toMatchObject({
+      failure: { code: "run_deadline_exceeded" },
+    });
+    await app.dispose();
+  });
+});
+
+it("does not publish completion when cancellation happens during output persistence", async () => {
+  const { app, sessions, runtime } = await fixture();
+  const controller = new AbortController();
+  const append = sessions.append.bind(sessions);
+  vi.spyOn(sessions, "append").mockImplementation(async (id, entries) => {
+    if (entries.some((entry) => entry.kind === "message" && entry.message.role === "assistant"))
+      controller.abort();
+    return append(id, entries);
+  });
+  runtime.stream = async function* () {
+    yield {
+      type: "done",
+      message: {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        stopReason: "stop",
+        usage: { input: 1, output: 1, cacheRead: 0, cacheWrite: 0 },
+        timestamp: Date.now(),
+      },
+    } as never;
+  };
+  const onDone = vi.fn();
+  await expect(app.run("persist", { onDone }, controller.signal)).rejects.toMatchObject({
+    name: "AbortError",
+  });
+  expect(onDone).not.toHaveBeenCalled();
+  await app.dispose();
 });

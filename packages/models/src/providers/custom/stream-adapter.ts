@@ -74,6 +74,10 @@ export function createTransportStreams(transport: ModelTransport): ProviderStrea
               name: tool.name,
               description: tool.description,
               schema: { ...tool.parameters },
+              inputConstraint:
+                tool.constrainedSampling && tool.constrainedSampling.type === "json_schema"
+                  ? "require"
+                  : "off",
             })),
           },
           {

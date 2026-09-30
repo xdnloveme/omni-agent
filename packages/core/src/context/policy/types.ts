@@ -12,9 +12,11 @@ export function createContextEnvelope(input: {
   readonly tools: readonly ModelToolSpec[];
   readonly model: ContextModelLimits;
   readonly environment?: EnvironmentContextRecord;
+  readonly runDeadline?: import("../../execution/run-deadline").RunDeadlineSnapshot;
 }): ContextEnvelope {
   return {
     fixed: {
+      ...(input.runDeadline ? { runDeadline: { ...input.runDeadline } } : {}),
       systemPrompt: input.systemPrompt,
       tools: cloneData(input.tools),
       model: { ...input.model },

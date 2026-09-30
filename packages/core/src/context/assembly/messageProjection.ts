@@ -32,9 +32,28 @@ function projectUserMessage(message: UserTranscriptMessage): UserModelContextMes
 function projectAssistantMessage(
   message: AssistantTranscriptMessage,
 ): AssistantModelContextMessage {
+  // A signed envelope cannot be selectively rewritten, including on a later Run.
+  if (
+    message.stopReason === "length" &&
+    message.content.some((block) => block.type === "toolCall") &&
+    message.content.some((block) =>
+      block.type === "thinking"
+        ? !!block.thinkingSignature
+        : block.type === "text"
+          ? !!block.textSignature
+          : !!block.thoughtSignature,
+    )
+  ) {
+    throw new Error("Cannot safely project truncated signed tool output");
+  }
   return {
     role: message.role,
-    content: cloneData(message.content),
+    // Truncated calls have no tool results and must never become pending provider calls.
+    content: cloneData(
+      message.stopReason === "length"
+        ? message.content.filter((block) => block.type !== "toolCall")
+        : message.content,
+    ),
     api: message.api,
     provider: message.provider,
     model: message.model,

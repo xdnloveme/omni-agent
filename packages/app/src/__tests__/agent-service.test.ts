@@ -107,6 +107,29 @@ describe("AgentService", () => {
     await service.dispose();
   });
 
+  it("checks an absolute deadline after queue waiting without starting expired work", async () => {
+    const gate = deferred<void>();
+    const calls: string[] = [];
+    const instance = fakeInstance("session-1", async (input, callbacks) => {
+      calls.push(input);
+      await gate.promise;
+      callbacks.onDone?.();
+    });
+    const { service } = createFixture(async () => instance);
+    await service.openSession({ agentId: "coding", sessionId: "session-1" });
+    const first = collect(service.run(request("first", "session-1", "first")));
+    await vi.waitFor(() => expect(calls).toEqual(["first"]));
+    const second = collect(
+      service.run({ ...request("second", "session-1", "expired"), deadlineAtMs: Date.now() + 10 }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    gate.resolve(undefined);
+    await first;
+    expect(await second).toEqual([{ type: "cancelled" }]);
+    expect(calls).toEqual(["first"]);
+    await service.dispose();
+  });
+
   it("does not expose arbitrary internal errors through the Service event protocol", async () => {
     const instance = fakeInstance("session-1", async () => {
       throw Object.assign(new Error("Failed to read /private/internal/session.jsonl"), {

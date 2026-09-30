@@ -4,7 +4,7 @@ import { atr, ema, macd, rsi, sma } from "../indicators/calculations";
 
 export const computeTechnicalIndicatorsTool: AgentToolDefinition = {
   name: "financial_compute_technical_indicators",
-  strict: true,
+  inputConstraint: "prefer",
   access: { kind: "internal" },
   execution: { kind: "in_process" },
   timeout: { kind: "none" },

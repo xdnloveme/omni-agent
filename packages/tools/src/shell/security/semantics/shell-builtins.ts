@@ -1,3 +1,5 @@
+import type { ShellCommandView } from "../parser";
+
 export const SHELL_CONTEXT_COMMANDS = new Set([
   ":",
   "break",
@@ -90,3 +92,17 @@ export const SHELL_BUILTINS = new Set([
   "variables",
   "[",
 ]);
+
+/** Only a literal, unqualified, unshadowed name denotes an intrinsic builtin. */
+export function isShellBuiltinCommand(
+  command: ShellCommandView,
+  functions: ReadonlySet<string>,
+): boolean {
+  const token = command.executable?.staticValue;
+  return (
+    token === command.executableName &&
+    !token.includes("/") &&
+    !functions.has(token) &&
+    SHELL_BUILTINS.has(token)
+  );
+}

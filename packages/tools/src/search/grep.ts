@@ -9,16 +9,16 @@ const DEFAULT_MAX_RESULTS = 50;
 const MAX_RESULTS = 1000;
 const MAX_PROCESS_OUTPUT_BYTES = 2 * 1024 * 1024;
 const MAX_TEXT_BYTES = 50 * 1024;
-const TRUNCATION_FOOTER = "[Results truncated. Narrow regex, glob, or search_path.]";
+const TRUNCATION_FOOTER = "[Results truncated. Narrow regex, glob, or path.]";
 
 export const grepTool: AgentToolDefinition = {
   name: "grep",
   preflight: createSearchPathPreflight({
-    parameter: "search_path",
+    parameter: "path",
     defaultToCwd: true,
     acceptedKinds: ["regular_file", "directory"],
   }),
-  access: createSearchAccess("search_path"),
+  access: createSearchAccess({ parameter: "path", execution: "process" }),
   execution: { kind: "process" },
   invocation: { action: "search", resource: { kind: "text", inputKey: "regex" } },
   timeout: { kind: "none" },
@@ -43,7 +43,7 @@ export const grepTool: AgentToolDefinition = {
         maxLength: 4096,
         description: "Regular expression pattern to search for",
       },
-      search_path: {
+      path: {
         type: "string",
         minLength: 1,
         maxLength: 4096,
@@ -73,7 +73,7 @@ export const grepTool: AgentToolDefinition = {
     const args = ["--json", "--line-number", "--column", "--color=never"];
     if (params.glob) args.push(`--glob=${params.glob as string}`);
     if (params.ignore_case) args.push("--ignore-case");
-    args.push("--", regex, (params.search_path as string | undefined) ?? context.cwd);
+    args.push("--", regex, (params.path as string | undefined) ?? context.cwd);
     return {
       command: "rg",
       args,
@@ -87,6 +87,7 @@ export const grepTool: AgentToolDefinition = {
       (params.max_results as number | undefined) ?? DEFAULT_MAX_RESULTS,
       context.cwd,
       context.signal,
+      context.outputs !== undefined,
     ),
 };
 
@@ -95,6 +96,7 @@ async function createGrepResult(
   maxResults: number,
   cwd: string,
   signal?: AbortSignal,
+  retainOutput = false,
 ): Promise<ToolResult> {
   if (processResult.signal || (processResult.exitCode !== 0 && processResult.exitCode !== 1)) {
     const detail =
@@ -110,7 +112,9 @@ async function createGrepResult(
     return processResult.stdoutTruncated ? truncatedWithoutMatchesResult() : noMatchesResult();
   }
   const candidates = parsed.matches.slice(0, maxResults);
-  const selectedFiles = selectFilesForDisplay(groupMatches(candidates));
+  const selectedFiles = retainOutput
+    ? groupMatches(candidates)
+    : selectFilesForDisplay(groupMatches(candidates));
   const sizes = await loadFileSizes(
     selectedFiles.map((file) => file.path),
     cwd,
@@ -228,7 +232,7 @@ function truncatedWithoutMatchesResult(): ToolResult {
         type: "text",
         text:
           "Search output was truncated before a complete match could be decoded. " +
-          "Narrow regex, glob, or search_path.",
+          "Narrow regex, glob, or path.",
       },
     ],
     isError: false,
