@@ -4,8 +4,8 @@ import unittest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-COLLECT = ROOT / "benchmark/adapters/harbor/collect-submission.sh"
-APPLY = ROOT / "benchmark/environments/swe-verifier/apply-submission.sh"
+COLLECT = ROOT / "benchmark/taskpacks/swe/collect-submission.sh"
+APPLY = ROOT / "benchmark/taskpacks/swe/verifier/apply-submission.sh"
 
 
 def git(path, *args):
@@ -37,8 +37,18 @@ class SubmissionContractTest(unittest.TestCase):
         self.patch = self.root / "changes.patch"
 
     def collect(self):
+        (self.root / "baseline").write_text(self.baseline)
         subprocess.run(
-            ["bash", str(COLLECT), str(self.source), self.baseline, str(self.patch)],
+            [
+                "bash",
+                str(COLLECT),
+                "--workspace",
+                str(self.source),
+                "--baseline-file",
+                str(self.root / "baseline"),
+                "--output-dir",
+                str(self.root),
+            ],
             check=True,
         )
 
@@ -67,6 +77,18 @@ class SubmissionContractTest(unittest.TestCase):
         self.assertEqual(self.patch.read_bytes(), b"")
         self.assertEqual(self.apply().returncode, 0)
         self.assertEqual(git(self.clean, "status", "--porcelain"), b"")
+
+    def test_image_instrumentation_is_not_resubmitted(self):
+        (self.source / "tox.ini").write_text("upstream test instrumentation\n")
+        git(self.source, "add", ".")
+        git(self.source, "commit", "-qm", "image preparation")
+        self.baseline = git(self.source, "rev-parse", "HEAD").decode().strip()
+        self.collect()
+        self.assertEqual(self.patch.read_bytes(), b"")
+        (self.source / "modified.txt").write_text("agent fix\n")
+        self.collect()
+        self.assertIn(b"modified.txt", self.patch.read_bytes())
+        self.assertNotIn(b"tox.ini", self.patch.read_bytes())
 
     def test_new_symlink_is_rejected_before_test_execution(self):
         (self.source / "escape").symlink_to("/tmp")

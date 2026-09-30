@@ -697,7 +697,7 @@ omni-agent/
 
 ## Documentation
 
-[Benchmark integration](benchmark/README.md) evaluates the production Agent in task containers; the initial single-task integration is under validation.
+[Benchmark integration](benchmark/README.md) evaluates the production Agent with an offline solver, an isolated model execution service, and per-run Trace evidence. After submission is frozen and the solver stops, independent verification uses the taskpack network policy. See the benchmark reports for verified scope and remaining limits.
 
 | Document                                                                                           | Contents                                                               |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
@@ -824,3 +824,10 @@ tools unchanged. Configured providers can explicitly declare `compat.supportsStr
 (connection) or `supportsStrictMode` (model). Do not set support based only on API compatibility.
 Unknown support with `prefer` keeps ordinary calls working and records the reason in Trace;
 `require` fails before sending. See [the tool runtime contract](docs/tool-call-runtime.md).
+
+### Benchmark command
+
+Use `pnpm run benchmark list --all` to preview the fixed suite and
+`pnpm run benchmark run --all --concurrency 5` to run prepared tasks with up to five
+concurrent trials. See [benchmark setup and command options](benchmark/README.md)
+for environment preparation, credentials, selection, and trace reports.
