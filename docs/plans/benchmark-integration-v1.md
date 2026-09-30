@@ -1,11 +1,363 @@
+# Benchmark 框架完善计划：基于 Harbor，与待测 Agent 框架解耦
+
+## 当前状态：2026-10-01 收尾复核
+
+本轮实现与免费验收已完成，当前结论以[收尾报告](../../benchmark/reports/closeout-2026-09-19.md)为准。评分网络边界、提交隔离、诊断证据和容量预检均已验收。用户决定不继续增加运行对比报告或缓存失效优化。后续已完成隔离模型通道下的真实单题运行，最新见 [Sphinx 9229 报告](../../benchmark/reports/verified-9229-2026-09-29.md)。这不代表全题库就绪、题目通过或真实 Provider 并发容量已验证；批量运行前仍需重新检查容量。2026-10-01 的计划对照、旧配置清理和验证边界记入同一收尾报告。
+
+最新补充：两项独立联网评分必做验收已完成，见[端到端证据](../../benchmark/reports/public-verifier-lifecycle-2026-09-19.md)。真实 Omni 免费链路通过，作答封存写入被拒绝，Docker 事件证明作答停止早于评分启动，交接摘要一致且评分公网访问成功；没有新增生产运行路径。
+
+## 2026-09-19 当前边界修订：独立官方评分可联网
+
+用户已明确同意：准备联网；Agent 与全部工具、提交收集仍严格断网；提交冻结后，独立官方评分环境可按测试需要联网。此修订覆盖下方历史“评分也断网”的约束。模型通道隔离保持不变。
+
+**Ready with trade-offs**：SWE taskpack 使用 Harbor 原生 public 评分网络，不是逐域名白名单；上游没有完整资源域名契约，不添加 URL 特例或猜测白名单。外部网站变化仍会使参考补丁对照失败，失败时不得发布环境。
+
+修改 SWE 准备声明及评分镜像对照；Omni 适配器仅校验作答断网，把评分策略归还任务包；删除旧 validate-offline 命名，统一为 validate-controls 和 control-validation.json，无兼容别名。保持官方测试、补丁、评分规则、提交交接、模型通道和 Agent 提示不变。
+
+验证：先同镜像定向联网对照，再执行完整官方空补丁/参考补丁构建门禁；结果见 benchmark/reports/verifier-network-alignment-2026-09-19.md。历史 46/4 就绪统计不直接升级为新架构 50 题全部就绪。
+
+历史验收状态：2026-09-18。当时实现与证据以[免费生命周期与运维验收](../../benchmark/reports/free-readiness-2026-09-18.md)为准；下方各日期计划和实施记录保留为历史，不代表当前待办。
+
+已验证正式准备/运行入口、断网评分对照、缓存复用与竞争、免费模型下并发 5、Provider HTTP/连接故障、超时、外部取消和容器停止的失败记录与清理。真实付费 Django-11815 单次通过且 Trace 完整。当前可以内部使用，但不声明 50 题全部就绪、真实 Provider 并发容量、任意 Agent/语言或对抗性多租户安全。全量环境准备曾受 Docker 虚拟机磁盘限制；随后经用户授权清理历史资产，可用空间恢复至约 38 GiB，详见[清理记录](../../benchmark/reports/asset-cleanup-2026-09-18.md)。随后继续分批免费准备，最新进度见下；不承诺当前容量可同时容纳全部环境。没有付费调用或扩容。
+
+前一轮新增范围仅为测试服务故障注入、容器生命周期验收、既有取消输出测试的确定性同步和运维文档；不修改 Agent、Provider 或评分语义。初始实现基线如下，历史阶段状态由最新验收报告覆盖。
+
+补充验收：固定 50 题已全部完成免费环境盘点，**46 题通过、4 题阻塞**。四道 Sphinx 题的官方计分测试依赖真实外网，参考补丁在断网对照中失败，尚需对齐任务包的离线资源契约；没有修改测试、放开网络或替换题单。两道构建下载失败题各显式重试一次后通过。当前保留 13 套完整镜像，另 33 道通过题按需重建，Docker 可用约 **15.01 GiB**，无残留容器。全部证明、失败日志和清理回执保留，未调用付费模型、未修改产品代码。详见[固定 50 题最终免费盘点](../../benchmark/reports/free-suite-complete-2026-09-18.md)。此前 [15 题阶段记录](../../benchmark/reports/free-batch3-2026-09-18.md)保留为历史，不覆盖原始证据。
+
+## 2026-09-18 修订：准备联网，作答闭环断网
+
+用户已确认：准备阶段允许联网；模型调用单独隔离，工具完全禁止外网。从 Agent 启动到提交、评分、失败恢复和清理均不得恢复公网。此要求覆盖下方历史模型域名白名单方案；旧方案不满足工具与模型通道隔离，不能沿用其验收结论声明严格断网已完成。
+
+### 根因、范围与结构结论
+
+旧实现按模型域名放行整个作答容器；模型和工具共用网络命名空间，因此工具也能访问模型出口。baseline 公网恢复窗口已在前一轮关闭，本轮直接替换剩余 allowlist 路径，不保留可选旧模式。
+
+**Ready with trade-offs**：用户已批准通用模型装配变更。复用 `ModelTransportRuntimePort`，缓存留在原调用侧；Provider 配置、凭据与实际 HTTP 执行只在独立模型容器。单次 Unix socket 连接在 Agent/扩展/工具启动前建立，服务端停止监听并删除 socket 路径后才发送 ready。工具子进程不继承连接句柄；通道断连终止 Provider 请求，不重连、不回退直连。进程内扩展仍为受信任代码，不宣称支持恶意扩展或容器逃逸防护。
+
+### 架构与职责
+
+```mermaid
+flowchart TB
+  Prepare[联网准备：任务依赖与 Omni 镜像] --> Images[固定镜像]
+  Images --> Solver[作答容器：network_mode none]
+  Images --> Model[模型容器：独立网络与凭据]
+  subgraph Solver
+    Agent[Agent 与所有工具]
+    Cache[既有 CacheAwareModelRuntime]
+    Client[Models 通道客户端]
+    Agent --> Cache --> Client
+  end
+  Client <-->|一次性 Unix socket 会话| Server[Models 通道服务端]
+  subgraph Model
+    Server --> Runtime[既有 ModelRuntime / Provider]
+    Runtime --> API[配置的云端 API]
+  end
+  Agent --> Collect[断网收集与封存]
+  Collect --> Verifier[独立断网评分]
+```
+
+- `packages/models` 拥有帧协议、背压、流终态、断连取消和 Provider 执行；不识别题目或 benchmark。
+- `packages/app` 拥有 Agent 模型服务装配。运行接口与本地 Provider 管理能力分开；远端会话只允许绑定的模型配置，不暗中忽略配置变化。
+- `apps/omni` 拥有 headless/model-service 进程入口、信号和资源释放。
+- `benchmark/adapters/omni` 拥有 Compose 拓扑、专用 volume、模型进程启动/停止和回执；使用 Harbor 原生 service 操作。
+- SWE taskpack 不再接收 Provider 域名；只声明题目运行与评分均断网。四道官方联网测试的离线资源契约仍未解决，不修改官方评分。
+
+### 生命周期
+
+```mermaid
+sequenceDiagram
+  participant H as Harbor / Omni 适配器
+  participant M as 模型容器
+  participant A as 作答容器
+  H->>M: 注入模型配置和凭据，启动服务
+  M-->>H: socket 监听就绪
+  H->>A: 启动 headless，整个容器无网络
+  A->>M: 建立唯一 Unix socket 连接
+  M->>M: 停止监听，删除 socket 路径
+  M-->>A: ready 与公开模型元数据
+  A->>A: 装配 Agent，开始执行工具
+  A->>M: 模型请求（不含密钥）
+  M-->>A: 模型流事件、用量和错误
+  A->>M: 完成或取消后关闭连接
+  M->>M: 取消请求并退出
+  H->>M: 确认退出，停止服务
+  H->>A: 收集产物，保持断网
+```
+
+### 本轮文件范围
+
+```text
+packages/models/src/
+├── execution-channel/framing.ts        # 有界帧与 socket 背压
+├── execution-channel/channel.ts        # 单次接入、绑定执行、终态与取消
+├── __tests__/model-execution-channel.test.ts # 真实 socket 协议/缓存边界测试
+└── index.ts                            # 导出通用执行能力
+packages/app/src/
+├── models/model-service.ts             # 运行接口、本地管理能力、绑定现有 Provider
+├── models/model-execution.ts           # 远端模型服务装配，复用原缓存层
+├── __tests__/model-execution.test.ts    # Provider 默认值和别名不被二次解析误判
+├── application/{agent-factory,agent-application,agent-configuration-controller}.ts
+├── assembly/contracts.ts               # 依赖窄运行接口
+└── index.ts                            # 装配 API
+packages/cli/src/
+├── commands/config.ts                  # 本地管理能力存在才允许交互配置
+├── onboarding.ts                       # 依赖管理接口，保留现有本地行为
+└── models/select-model.ts
+apps/omni/src/
+├── model-execution-entry.ts            # 新增：独立模型进程
+├── agent-service-composition.ts        # 显式注入模型服务
+└── headless-entry.ts                   # 通用 --model-channel；本地入口保留
+benchmark/
+├── adapters/omni/{prepare,model_channel,agent,suite}.py # 模型端生命周期与拓扑
+├── taskpacks/swe/{prepare,suite}.py      # 删除模型域名参数和 allowlist
+├── environments/runtime.py             # 将 no-network 声明编译为物理断网拓扑
+├── tasks/execution-contract/            # 免费模型仅在模型容器，真实工具网络探针
+├── tests/{test_prepare_task,test_lifecycle_containers}.py
+└── reports/model-channel-isolation-2026-09-18.md # 当前证据与限制
+```
+
+新增通道，修改装配与适配器，删除旧容器域名放行/作答侧密钥和 Provider 配置注入，移除并归档旧 allowlist 探针。保留 Agent 策略、模型协议转换、缓存算法、工具入口、Trace、任务集与评分语义。`--providers-file` 是普通本地 headless 产品入口；benchmark 只使用隔离通道，不提供兼容回退。
+
+### 协议约束与 Roadmap
+
+- 协议 v1：一条连接、单个在途请求、长度前缀 JSON 帧。帧上限 16 MiB 是传输边界，不是 token 或迭代预算；事件逐帧背压，不聚合完整输出。
+- 服务端固定 Provider/模型/私有 headers，客户端不传 URL 或凭据。预算继续来自现有模型和调用配置；通道不添加默认 token 上限。
+- 终态事件对缓存消费者可见前，必须消费传输完成标记；消费者中途退出则关闭通道，防止串流污染下一请求。
+- 已完成：旧策略替换、通用通道、取消/断连及缓存连续请求测试。
+- 已完成：最终源码下 5 类生命周期测试、10 次免费真实容器 trial 通过；并发 5 均通过工具网络探针、独立断网评分和完整 Trace 检查，故障按预期失败并清理。详见[隔离验收报告](../../benchmark/reports/model-channel-isolation-2026-09-18.md)。
+- 后续：只有免费隔离验收完成后才考虑单独的真实 Provider 付费验证。本轮不付费；先前 46/50 环境盘点不能替代新通道验收。
+
+## 目标、边界与设计结论
+
+构建独立于待测 Agent 的环境、运行、交接、评分与证据链路。Omni 是首个 Agent 适配器，SWE 是首个任务包。复用 Harbor 0.23.0 的原生调度、容器、Agent、超时和 artifacts，不增加第二套框架、日志系统或评分算法。
+
+Ready with trade-offs：接口和职责已明确，容器中的清理、传输和失败恢复必须通过本轮实证。只做免费验收；不运行付费模型、不扩跑 50 题、不修改 Agent 内核、策略、Provider 或原生 Trace。现有生产代码改动保持原样。首版 Linux Debian/Ubuntu amd64，并发 1、单次尝试、无自动重试。隔离面向非对抗性个人评测，不承诺抵御任意恶意 Agent 或容器逃逸。
+
+## 架构和所有权
+
+```mermaid
+flowchart TB
+  Entry[Benchmark 检查、登记、索引、报告] --> Harbor[Harbor 调度与生命周期]
+  Adapter[Agent 安装、输入、启动、原生 Trace] --> Harbor
+  Task[任务环境、提交收集、评分] --> Harbor
+  Harbor --> Environment[公共探针与交接机制]
+  Environment --> Solve[非 root 作答容器]
+  Solve -->|封存产物，经 Harbor 传输| Verify[独立离线评分容器]
+  Verify --> Entry
+```
+
+公共模块不得导入 Omni 或 SWE，不按语言分支。任务包拥有工作目录、工具链、提交格式和评分；适配器拥有框架安装、输入、凭据及原生 Trace 解释。公共环境拥有探针、进程清理、封存、交接凭据和校验。Harbor 拥有调度、超时、容器与原生产物传输。
+
+## 环境和执行契约
+
+- 复用上游题目镜像和安装步骤。任务包准备项目依赖，适配器准备自身依赖，准备阶段生成固定组合镜像并记录源版本、镜像、源码、依赖锁及配置摘要。
+- 准备时建立非 root 作答用户 benchmark-runner（UID 10001）；身份冲突报错。作答不允许 sudo、Docker socket 或 root 切换。只清理本容器的作答 UID，不使用进程名或宿主 PID。
+- 工作目录和环境变量以 Harbor 原生配置为唯一来源。runtime v2 的每项声明包含 name、argv_prefix、probe_args、description，支持解释器、wrapper 和多工具组合。
+- Harbor healthcheck 早于 Agent setup；用户和探针必须预先入镜像。探针与作答使用相同用户、目录、任务环境；单项 30 秒，总检查为 30×工具数+10 秒，只执行一次。失败不进入作答。未声明意味着未验证，不推测环境完整。
+- 原始审计保留身份、目录、命令、时间、返回码和可得输出；取不回日志时明确缺失。Omni 自行投影环境上下文，保留 16 KiB 输入预算和原始题面，不裁剪原始审计。
+- setup 仅处理本次配置和凭据，不安装系统依赖或修改任务工具链。网络出口由显式配置声明，无公共供应商域名；评分环境独立离线，不共享作答状态或模型凭据。
+
+| 阶段       | 默认期限                 | 所有者                 |
+| ---------- | ------------------------ | ---------------------- |
+| 构建       | 1800 秒                  | Harbor 环境            |
+| setup      | 1800 秒                  | Harbor setup           |
+| 探针       | 30 秒/项，总计按声明生成 | 公共探针与 healthcheck |
+| Omni 作答  | 1800 秒                  | 既有进程期限           |
+| Agent 外层 | 1830 秒                  | Harbor                 |
+| 交接       | 120 秒                   | Harbor collect         |
+| 评分       | 1800 秒                  | Harbor verifier        |
+
+作答预算仅在 benchmark.agent_timeout_sec 声明，生成外层期限及适配器输入，不增加总 job 强杀计时器。实现核对：Harbor 只向 Oracle 构造函数传递超时；第三方适配器使用原生 Agent env 的 BENCHMARK_AGENT_TIMEOUT_SEC 接收生成值。该变量不允许在输入配置重复覆盖。故障验收可显式缩短预算。
+
+实施核对补充（不扩大范围）：运行前必须验证 Docker daemon 能读取实际作业目录，否则 mounted 日志可能落在虚拟机独立目录。外部取消由启动器转发至独立会话中的 Harbor 并等待最多 150 秒（交接 120 秒及 30 秒余量）；超时标记清理未确认。Omni 在取消时复用公共停止命令，再采集原生 Trace，不增加第二套清理实现。
+
+## 收集、交接与评分
+
+```text
+Agent 阶段结束 → 确认作答进程退出 → 普通用户收集
+→ 确认收集子进程退出 → 封存 → 最后写完成凭据
+→ Harbor 传输并停止作答环境 → 评分入口校验 → 任务评分器
+```
+
+- Agent 协程结束不代表子进程退出。公共交接先 TERM 等待最多 5 秒，再 KILL 等待最多 5 秒；无法确认退出则失败。僵尸进程不能执行或改写文件，由容器 init 回收。
+- 收集器参数为 collector_argv 加 --workspace 和 --output-dir。SWE 的基线参数由任务包附加。收集器只生成业务产物，退出码非零、超时、必要产物缺失均失败；命令最多 60 秒。
+- 收集完成后将普通文件封存到作答用户不可写目录，拒绝越界路径、符号链接及特殊文件。完成凭据包含 version、collection_id、collector_id、artifacts（path、size、sha256）。先清除旧凭据，全部成功后最后写新凭据。
+- Harbor collect 是 best-effort，失败不会自动阻止评分。因此评分入口复用公共校验函数检查凭据、必要产物和摘要，无效交接不写 reward。有效交接的错误答案由原评分器判分，不修改 SWE 官方语义。
+- 超时但交接有效时可以评分，同时保留超时终态。交接失败仍尽力保留日志；清理无法确认不能报告成功。
+
+## 证据契约
+
+复用 AgentContext、metadata、artifacts 和原生 Trace。适配器在 metadata.benchmark_evidence 提供 version=1 和 items（kind、trial 相对 path、media_type、producer）。公共索引只检查路径边界、存在性、大小和摘要；原生 Trace 解析归适配器。
+
+文件状态（存在、缺失、无效、未提供）和 Trace 状态（完整、不完整、解析失败、未评估）分离。报告分别展示执行终态、环境/交接错误、成绩、证据完整性、实际可得费用；费用未知不记零，不推测责任比例。日志和生成产物 gitignore；不保存凭据值。原始证据为来源，索引可重建。
+
+## 文件影响和迁移
+
+```text
+benchmark/
+├── run.py                          检查、登记、索引、报告
+├── adapters/omni/
+│   ├── agent.py                    Omni setup/run
+│   ├── prepare.py                  构建组合镜像
+│   ├── install.sh
+│   ├── fixtures/                   Omni 免费配置
+│   ├── instruction.py              输入投影和预算
+│   └── evidence.py                 原生 Trace
+├── taskpacks/swe/
+│   ├── prepare.py
+│   ├── collect-submission.sh       复用唯一补丁收集器
+│   └── verifier/                   官方离线评分封装
+├── environments/
+│   ├── runtime.py                  声明、探针和环境准备
+│   ├── handoff.py                  清理、封存、凭据和校验
+│   └── profiles/
+├── tasks/
+│   └── execution-contract/         唯一完整链路夹具及免费模型服务
+├── configs/harbor/
+├── suites/                         固定题目及来源不变
+├── tests/
+├── reports/
+└── README.md
+```
+
+直接迁移并删除旧实现，不留兼容别名。历史日志、报告保留原格式，不当作新协议成绩。必要容器路径属于显式布局或任务契约，公共代码不写个人目录。注释解释权限、时序、失败语义，不机械复述代码。
+
+架构清理补充：旧 smoke/isolation-probe 任务和旧单题/两题配置已删除；当前配置不再指向 v7 产物。SWE 准备必须显式提供任务、数据集和镜像，Compose 平台与 init 只由公共环境设置。专项网络诊断仍归测试，不提供第二套作答或评分入口。
+
+## Roadmap 和验收
+
+| 阶段 | 工作         | 门槛                                           |
+| ---- | ------------ | ---------------------------------------------- |
+| 1    | 职责拆分     | 无反向依赖、重复实现、旧入口                   |
+| 2    | 环境与交接   | 用户/目录/环境一致；无效交接不判分             |
+| 3    | 原生接入验收 | Omni 免费模型与 Oracle 均完成补丁和文件契约    |
+| 4    | 失败生命周期 | 超时、取消、残留进程、收集失败和证据损坏可追踪 |
+| 5    | 质量收尾     | 格式、类型、测试、文档、最终 diff 检查完成     |
+
+环境准备与职责迁移分阶段验收。覆盖解释器、wrapper、多工具及空格目录；工具缺失、探针失败/超时/大输出；异常退出、超时、取消及残留进程；收集失败、凭据/必要产物缺失、摘要错误和越界路径；Trace 完整/截断/损坏/未提供；网络与评分资产隔离；SWE 正确补丁 1、空补丁 0 的官方对照。
+
+Oracle 是参考执行对照，不是第二个真实 Agent 框架。完成针对性容器测试及仓库格式、类型和测试；依赖/导出变化时构建。报告实际结果、未运行检查和风险。最终标准是每次运行可追溯环境、终态、交接、评分及证据；不足时明确未知。
+
+---
+
+# 历史实施计划与证据
+
 # Benchmark integration v1 — implementation plan
 
-状态：P1 已实现；P2 正常与超时链路验证通过。P3 真实单题链路通过（reward=1），但读取了公开答案，不能作为独立解题能力成绩；P4 尚未完成。基线：origin/main 572fe12。
+当前状态（2026-09-15）：用户已确认采用官方 TestSpec 的准备/评分分离方案，离线评分适配已实现，V0/V1 首题验收通过（正确补丁 1、空补丁 0、四个评分异常无分数，Harbor Oracle 完整链路通过）。V2 首批三题已通过付费前门槛，V3 三题真实运行已完成：3/3 官方 resolved、均自然完成、Trace complete。详见[首题离线评分报告](../../benchmark/reports/verified-offline-single-2026-09-15.md)。P1–P3 历史结果见末尾记录，不能替代当前协议验收。基线：origin/main 572fe12。
 工作分支：codex/harbor-benchmark。
 
-隔离实现进度（2026-09-15）：规则前缀、完整补丁交付、独立评分和完整 Omni 本地模型链路已通过；补充网络探针、超时、外部取消与同 UID 子进程清理已有实际证据。当前专用环境已执行一次真实模型试跑：补丁 reward=1，但原始试跑截止后终态缺失，完整链路验收未通过；后续无付费对照未复现，根因未证实，不能据此归责 Agent 内核。详见 [单题报告](../../benchmark/reports/swe-isolated-single-2026-09-15.md)。IPv6 在开放对照中亦不可用，不能据此宣称可路由 IPv6 防护已验证；环境迁移必须重新验收。DNS/ICMP 等原定局限保留，不作正式能力或通用安全结论。详见 [隔离实现报告](../../benchmark/reports/isolation-2026-09-15.md)。
+历史隔离实现进度（2026-09-15，非当前五题就绪结论）：规则前缀、完整补丁交付、独立评分和完整 Omni 本地模型链路已通过；补充网络探针、超时、外部取消与同 UID 子进程清理已有实际证据。当前专用环境已执行一次真实模型试跑：补丁 reward=1，但原始试跑截止后终态缺失，完整链路验收未通过；后续无付费对照未复现，根因未证实，不能据此归责 Agent 内核。详见 [单题报告](../../benchmark/reports/swe-isolated-single-2026-09-15.md)。IPv6 在开放对照中亦不可用，不能据此宣称可路由 IPv6 防护已验证；环境迁移必须重新验收。DNS/ICMP 等原定局限保留，不作正式能力或通用安全结论。详见 [隔离实现报告](../../benchmark/reports/isolation-2026-09-15.md)。
 
 长期执行约束：不重复造轮子，不重复写逻辑。先定位现有所有者与可复用接口，再决定新增代码；本计划文件树不是必须新增全部文件的清单。
+
+## 当前批次范围调整（2026-09-15）
+
+用户因用量考虑，将首次真实运行从五题缩为三题：`django__django-11790`、`django__django-12193`、`sphinx-doc__sphinx-10323`（HAL 零基索引 `[0,12,25]`）。固定 50 题集合不变，不根据成绩换题。
+
+本批 V2 门槛为这三题各自的正确补丁 1、空补丁 0、有效官方报告、镜像基线、Harbor 交接及清理；原计划中的五题门槛相应收敛为三题，未选两题暂缓。通过后执行 V3 三次真实 Agent 试跑：现有 Provider、每题一次、并发 1、无自动重跑、1800/1830 秒、保留完整 Trace 和可核实用量。不得自动扩到五题或全量。V4 后续仍需逐题验收和明确运行范围，不能由三题外推 50 题成绩。
+
+配置为 `benchmark/configs/harbor/swe-verified-mini-first3.yaml`，替换未运行的 first5 配置；`manifest.json` 的 first_batch 为本批唯一选题来源。三题环境验收已全部通过（Oracle=1、空补丁=0、有效官方报告与一致基线），本批三题真实运行已完成（3/3 官方 resolved、自然完成、Trace complete）；最终证据见[三题报告](../../benchmark/reports/verified-first3-2026-09-15.md)。
+
+## 官方离线评分契约修订（2026-09-15，已确认）
+
+本节是当前评分封装、质量和实施范围的依据，替换旧的“原样执行上游 verifier”约定。用户已明确同意采用推荐方案，不再等待同一契约的重复确认。本节记录已确认设计；实现、容器验证和付费运行状态分别记录。
+
+### 根因、所有权与设计结论
+
+实际证据见[首批五题报告](../../benchmark/reports/verified-mini-preflight-2026-09-15.md)：标准补丁的 79 项测试通过，随后 `swebench==4.0.3` 的 `make_test_spec` 为构建环境规范访问 GitHub，断网评分失败却留下 reward=0。Python 进程内缓存不能通过镜像预热持久化。因此问题归 benchmark 评分封装的阶段划分，不归 Agent，也不通过放开网络处理。
+
+**Ready with trade-offs**：采用官方生成和评分接口，额外维护固定版本的薄适配及数据持久化契约；不承诺仅凭设计保证全部任务可离线运行。实现前需核对该固定版本 TestSpec 的字段、构造、官方 eval 脚本及评分 API；实现后必须通过真实容器正负对照和错误反例，才能标记运行就绪。
+
+### 唯一评分链路与信任边界
+
+```mermaid
+flowchart TB
+  SRC["可信控制面：固定任务、基础镜像、SWE-bench 版本"]
+  subgraph PREP["可信准备阶段：可联网，无模型密钥、无 Agent"]
+    SPEC["官方接口生成 TestSpec 与 eval 脚本"]
+    SEAL["持久化规范、依赖锁与哈希；恢复干净评分基线"]
+    SPEC --> SEAL
+  end
+  subgraph SOLVE["解题容器：原有 Provider 白名单与普通用户"]
+    AGENT["生产 Omni；原生 Trace"]
+    DIFF["相对执行前镜像快照采集唯一补丁"]
+    AGENT --> DIFF
+  end
+  subgraph VERIFY["独立评分容器：network_mode none，无模型密钥"]
+    APPLY["核验规范与基线；应用补丁"]
+    EXEC["运行官方生成的 eval 脚本"]
+    GRADE["加载 TestSpec；调用官方评分 API"]
+    APPLY --> EXEC --> GRADE
+  end
+  RESULT["Harbor 产物：有效官方报告与 reward，或明确评分错误"]
+  SRC --> SPEC
+  SRC --> SOLVE
+  SEAL -->|仅供评分，不传给 Agent| APPLY
+  DIFF -->|Harbor artifact；停止解题进程后交付| APPLY
+  GRADE --> RESULT
+```
+
+- 准备阶段调用官方规范生成逻辑并解析必要依赖；固定 Harbor 0.23.0、当前 SWE-bench 4.0.3 与实际依赖锁，不隐式升级。官方要求的依赖安装和测试准备步骤保留，执行时仍需联网的步骤必须前置或明确报告不支持，不能删步骤伪造离线。
+- 使用可审阅的数据格式保存完整、必要的官方 TestSpec 字段，优先复用已有序列化能力；无现成能力时只做显式字段序列化/恢复，禁止 pickle 和重新实现 TestSpec 推导规则。记录 schema/包版本、任务 ID、源提交、镜像 digest、配置与 eval 脚本哈希；缺字段、版本或哈希不符直接报错，不补默认值掩盖问题。
+- 原始题面、测试补丁、FAIL_TO_PASS/PASS_TO_PASS 和判分语义保持。官方 TestSpec 拥有测试选择与 eval 生成，官方 parser/grading API 拥有日志解析和 resolved 判定；benchmark 只适配持久化、执行交接与 Harbor 输出协议。
+- 评分容器直接恢复规范，不再调用会联网的 `make_test_spec`，不重复执行环境生成逻辑。规范、隐藏测试和评分程序只在可信评分镜像中存在，不从 Agent 修改后的文件生成，不进入 Agent 容器或 HOME。
+- 仍复用 Harbor 容器、超时、停止和 artifact 生命周期，以及现有提交应用、Git 边界校验、运行索引和原生 Trace；不增加调度器、模型客户端、日志 writer、网络代理或第二条评分路径。
+- 原始上游脚本按源版本和哈希保留为证据，**不再作为新派生任务的运行入口**。新协议覆盖该准备器生成的任务；删除旧 parser 生成/执行路径及旧的“看到 FAILED 就算预热成功”检查，不按语言保留双路径，不提供自动回退。历史派生任务、日志、报告原样保留，但不能冒充新协议成绩。
+
+### 基线与错误语义
+
+数据集 `base_commit` 标识题目源代码版本；执行前镜像 HEAD/tree 标识提交比较基线，两者用途不同。Omni 已记录执行前镜像 HEAD，Oracle 应复用同一个采集器与相同快照语义，不能使用不同基线重复包含 Sphinx 预置 tox.ini 改动。记录并审阅镜像与源代码的差异；评分镜像必须保留相同预置环境变更，应用补丁前验证干净树和身份，不能通过清空真实差异掩盖不一致。
+
+| 结果                  | 条件                                                                  | 输出与统计                                                               |
+| --------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| resolved / unresolved | 官方测试及解析完整完成，报告身份和必需字段有效                        | 由官方结果映射 reward=1/0；保留报告与测试日志                            |
+| 环境/评分错误         | 安装、测试启动、规范恢复、日志解析失败，报告缺失/损坏，或意外联网失败 | 非零退出及明确诊断；不产生可被解释为解题失败的 reward=0，不复用旧 reward |
+| 超时/取消             | Harbor 或进程生命周期报告中止                                         | 保留原终态与部分证据，不改写为自然完成或有效判分                         |
+
+仓库测试返回非零不自动等于评分器失败：正常测试断言失败由官方规则判定；测试根本没执行、parser 崩溃或缺失报告必须分开。若官方 API 对缺失证据过于宽松，适配层只校验其完成契约，不自行推断测试结果。
+
+### 预计变更目录与注释影响
+
+下列为下一实施阶段的最小职责范围，具体 API 以固定版本源代码核对为准，不为文件树制造空模块。
+
+```text
+benchmark/
+├── adapters/harbor/
+│   ├── prepare_task.py                    [修改] 派生版本、官方规范构建输入、Oracle 基线交接
+│   ├── collect-submission.sh              [复用] 唯一完整补丁采集器
+│   └── agent.py                          [复用] 生产入口、执行前快照、Trace，不增加评分行为
+├── environments/swe-verifier/
+│   ├── grade.py                          [新增] 官方规范持久化/恢复、评分 API 与错误投射
+│   ├── Dockerfile                        [修改] 前置规范生成、依赖锁、干净基线
+│   ├── test.sh                           [修改] 唯一入口，委托官方 eval 与 grade
+│   ├── apply-submission.sh               [复用] 已有补丁应用与路径/文件类型边界
+│   └── docker-compose.yaml               [保留] amd64 主服务、断网边界
+├── tests/
+│   ├── test_prepare_task.py              [修改] 新协议构建输入和一致基线契约
+│   └── test_verifier.py                  [新增] 实际官方 API 边界、损坏规范/报告不能冒充 0
+├── configs/harbor/swe-verified-mini-first3.yaml [修改] 指向新的不可变派生任务
+├── suites/swe-verified-mini-hal-50-v1/    [更新] 就绪状态与执行协议；50 个 ID 不变
+├── README.md                            [更新] 新准备/评分用法与错误含义
+├── reports/                             [新增] 新尝试证据；不覆盖旧失败报告
+└── artifacts/、jobs/                     [生成、Git-ignore] 规范、镜像摘要、原始日志与报告
+```
+
+删除的是旧的运行路径和错误成功判定，不删除上游源证据或历史运行。生产 `apps/`、`packages/`、`agents/`、Provider、Agent prompt、Tool 和 Trace 无计划改动。注释只解释为何规范在准备时生成、源 commit 与镜像快照的区别、官方与适配层的责任，以及为何 reward 需有效报告支撑；修正旧“委托原始 verifier”的描述，不重复抄写官方算法或添加无依据的安全承诺。
+
+### Roadmap 与质量门槛
+
+| 阶段            | 工作                                                                                 | 出口条件                                                                                    |
+| --------------- | ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| V0 接口和规范   | 核对固定版本官方 API、持久化字段和 eval 生命周期，建立唯一适配入口，移除旧运行路径   | 规范可完整往返；原题/官方测试/判分规则保持；版本与哈希明确                                  |
+| V1 首题离线闭环 | 用首题复现旧 parser 网络故障，完成新协议正负对照和错误反例                           | 真正断网；Oracle=1、空补丁=0；二者均有有效官方报告；故意损坏规范/报告明确报错，不能生成假 0 |
+| V2 首批三题验收 | 三题各做正负对照；检查 Django 和 Sphinx 的镜像预置差异、依赖、提交交接和评分资产隔离 | 三题全部通过；空补丁相对初始镜像无额外变更；Oracle/Omni 采集语义一致；无遗留资源            |
+| V3 三题真实运行 | V2 后使用原 Provider、每题一次、并发 1、Agent 1800 秒、Harbor 1830 秒                | 每次有独立运行身份、补丁、官方结果/明确错误和 Trace；不要求三题全部解对，不隐藏失败         |
+| V4 扩展与基线   | 验收其余 47 题环境后按确认的范围运行                                                 | 固定 50 题不换题；统计未完成、无效评分与能力失败；不能用五题外推全量分数                    |
+
+采用验证风险相称的测试：一个正式官方 API 边界保护规范与评分错误契约，真实容器保护离线、正负对照和基线交接；避免堆积只镜像实现的 mock 测试。运行 benchmark 测试、Ruff、格式、类型与仓库规定检查；包依赖/导出改变时构建，生产启动未改不重复无关 UI 验证。逐项保留实际结果，脚本返回 0、文件存在或单独 reward 均不能代替完整证据。
+
+本次设计评分 **88/100（主观设计审查，非 Agent 成绩）**：边界与所有权 24/25、复用与低侵入 24/25、证据与错误语义 22/25、实施/迁移可验证性 18/25。扣分主要是原审查时官方规范恢复接口及五题离线全链路仍待实证；现在 V0/V1 已通过，五题运行质量仍未验收，不以设计分数替代 V1/V2。交付目标仍为 >=90 且所有硬门槛通过，按证据重新评估，不预先承诺通过率。
 
 ## 隔离设计修订（2026-09-15）
 
@@ -46,7 +398,8 @@ flowchart TB
     SRC --> JOB
   end
   subgraph P["准备阶段：尚未运行 Agent"]
-    BUILD["安装固定依赖与 Omni；预热评分依赖"]
+    BUILD["安装固定依赖与 Omni"]
+    SPEC["生成并封存官方 TestSpec、eval 与依赖锁；仅供评分"]
   end
   subgraph S["解题环境：不可信工作区"]
     AG["完整 Omni；普通用户；无 Docker socket"]
@@ -60,10 +413,12 @@ flowchart TB
   BLOCK["其他公网、GitHub 补丁、宿主服务：必须拒绝"]
   subgraph V["独立评分容器：干净镜像，无模型密钥"]
     PATCH["校验并应用唯一提交补丁"]
-    TEST["固定原始 verifier 与官方测试"]
+    TEST["恢复官方 TestSpec；执行官方 eval 与评分 API"]
     PATCH --> TEST
   end
   JOB --> BUILD
+  JOB --> SPEC
+  SPEC --> TEST
   BUILD --> S
   AG --> EG
   EG --> API
@@ -94,9 +449,9 @@ flowchart TB
 
 1. 用 Harbor 原生 TaskClient 获取固定源任务，在生成目录构造一份可追溯派生任务；保存原始 checksum、派生配置和构建输入摘要。保留 instruction/Hints、评分断言、测试补丁及判分语义，派生版本使用新标识。
 2. 派生 task.toml 显式设置 agent allowlist 和 separate verifier。具体 schema 使用 0.23.0 原生 TaskConfig 校验；不能把 task 字段误写成 job Agent kwargs。
-3. 评分镜像以同一题目镜像和基线构建，预装原 verifier 需要的 Python/parser 依赖。当前上游脚本在运行时通过 uv 解析依赖，必须预热并验证断网运行；预热不够则明确说明依赖执行变化并重新审阅，不能悄悄删掉官方步骤。
-4. separate 模式不会自动将完整工作区搬入新环境，也不会按 shared 模式上传 tests。评分镜像必须提供 /tests/test.sh；使用薄入口校验与应用补丁后调用保留的原始 verifier。不重写 SWE 的测试选择、解析或 reward。
-5. 补丁来自停止后的题目工作区，基于可信记录的 base commit；覆盖修改、删除与新增文件。现有 `git diff --binary` 不包含未跟踪文件，需补齐提交采集契约，不把“有 changes.patch”当成完整提交。采集只在题目容器执行，不在宿主执行题目 Git hooks 或代码。
+3. 评分镜像以同一题目镜像和执行前快照构建，在联网准备阶段生成并保存官方 TestSpec、eval 脚本与依赖锁；恢复基线后封存。断网评分只恢复规范并调用官方 API，具体契约按顶部已确认修订执行。
+4. separate 模式不会自动将完整工作区搬入新环境，也不会按 shared 模式上传 tests。评分镜像必须提供 /tests/test.sh；使用薄入口校验与应用补丁后执行官方生成的 eval 并调用官方评分 API。原始 verifier 仅留作来源证据，不重写 SWE 的测试选择、解析或 resolved 判定。
+5. 补丁来自停止后的题目工作区，基于可信记录的执行前镜像快照；覆盖修改、删除与新增文件。现有 `git diff --binary` 不包含未跟踪文件，需补齐提交采集契约，不把“有 changes.patch”当成完整提交。采集只在题目容器执行，不在宿主执行题目 Git hooks 或代码。
 6. 唯一规范提交文件通过 Harbor artifact 配置搬运到 separate verifier 同一路径；Agent 日志只用于审计，不作为工作区恢复来源。禁止传整个 HOME、node_modules、.git、环境快照或解题容器挂载卷。
 7. 拒绝绝对路径、越界路径、符号链接逃逸、Git 元数据/评分目录写入和超限提交；应用失败记作明确的无效提交或基础设施错误，不记为通过。保留原补丁用于诊断，不静默丢掉某些修改。
 8. 评分仍会运行不可信仓库代码。干净容器消除了继承解题阶段进程/环境的路径，**不自动解决测试执行时篡改 reward 的全部风险**。本轮保持“非敌对个人 Agent 评测”范围；若要求抵御主动评分作弊，需要额外的测试进程权限与外部判分边界评审。
@@ -171,7 +526,7 @@ omni-agent-harbor/
 │   │       ├── Dockerfile                    [已实现] 官方 verifier、预热依赖与锁
 │   │       ├── docker-compose.yaml           [已实现] main 的 amd64 与 network_mode: none
 │   │       ├── apply-submission.sh           [已实现] Git 原生校验、路径与文件类型边界
-│   │       └── test.sh                       [已实现] 委托原始 verifier
+│   │       └── test.sh                       [待替换] 原始脚本路径改为官方离线评分入口
 │   ├── tasks/isolation-probe/                [已实现] 原生 separate 与产物隔离 fixture
 │   ├── tests/                               [已实现] 输入/提交契约及真实网络探针
 │   ├── artifacts/                           [生成] 派生任务、镜像摘要、运行与探针证据
@@ -183,7 +538,7 @@ omni-agent-harbor/
 
 源码提交流程由 adapter 所有，prepare_task.py 只负责构造派生输入，评分入口只消费提交；不在三处重复提取补丁。网络所有权归 Harbor 环境；不新增 proxy.py、network-manager、第二套超时或调度循环。评分镜像构建与依赖缓存复用 Docker/Harbor，不另建镜像服务。
 
-注释只解释：阶段切换前提、提交完整性与不可信路径、shared/separate 差异、key 仍可被同用户访问，以及原始 verifier 的委托边界。删除或修正“可信评分”“完全断网”“不可读取答案”等未经验证的绝对表述。原有生产代码、公共 API 与注释不因本次隔离设计改变。
+注释只解释：阶段切换前提、提交完整性与不可信路径、shared/separate 差异、key 仍可被同用户访问，以及官方规范生成/评分 API 的委托边界。删除或修正“可信评分”“完全断网”“不可读取答案”等未经验证的绝对表述。原有生产代码、公共 API 与注释不因本次隔离设计改变。
 
 ### 验收门槛与 roadmap
 
@@ -202,7 +557,7 @@ omni-agent-harbor/
 - DNS/ICMP 的原生例外必须明确记录；若能经例外取回测试答案或绕过目标白名单，I2 不通过。不能将未执行探针标成通过。
 - Agent 没有 NET_ADMIN/SYS_ADMIN、特权模式或可写出口配置；验证控制面和题间挂载不可访问。
 - prepare 完成后再限制网络；策略失败/sidecar 退出时必须阻止或终止试验，不能继续公开联网。
-- 评分环境不继承 Agent 临时标记、后台进程、密钥和依赖修改；断网时原始 verifier 能完成。Agent 对仓库 tests 的修改不能替代官方测试。
+- 评分环境不继承 Agent 临时标记、后台进程、密钥和依赖修改；断网时官方 eval 与评分 API 能完整完成并产生有效报告。Agent 对仓库 tests 的修改不能替代官方测试。
 - 补丁包含未跟踪新文件；路径穿越、符号链接逃逸、空/损坏/超限补丁有明确结果；只读 artifact 不等于内容可信。
 - 超时后解题用户进程实际消失，再进入评分与采集；日志缺失、评分失败不得算作通过。
 
@@ -216,7 +571,7 @@ omni-agent-harbor/
 
 交付可复现、可判错、可追踪的 Harbor 接入：完整 Omni 在任务容器内运行，完成一题真实 SWE 试跑并生成固定 50 题配置。完整 50 题付费运行另行确定模型与预算。
 
-原接入设计评分 82/100 仅作为历史记录；当前以顶部修订的 84/100 和 I0–I3 门槛为准，不沿用原来的实施就绪结论。
+原接入设计评分 82/100 仅作为历史记录；当前以顶部离线评分修订的 88/100 和 V0–V4 门槛为准，不沿用原来的实施就绪结论。
 
 验收目标 >=90/100 且所有硬门槛通过；分数不能抵消环境、评分或生命周期失败。
 
@@ -572,7 +927,7 @@ D1 使用既有 tracing 查询/路径/控制能力；如包导出缺失，只补
 - P2 超时链路通过（p2-timeout-single）：单次试验正确记录 AgentTimeoutError，Omni 状态与 Trace 终态均为 cancelled，完整性为 complete，lastTurnUsage=null。普通用户残留进程已清理，产物已采集。正常与超时证据保存在 benchmark/artifacts/（生成目录，不入 Git）。
 - P3 已完成 p3-swe-single：axios__axios-4731，一次尝试、无 Harbor 自动重试。reward=1，无异常，Omni completed、Trace complete；32 次模型响应，Agent 阶段 490.27 秒。Trace 证实下载了原题上游 PR 补丁，本次只能验证链路，不能作为独立解题成绩。详见 [单题记录](../../benchmark/reports/swe-single-2026-09-14.md)。
 - 用户已确认采用 Harbor 原生评分协议：本题上游使用 shared verifier，后续会执行 Agent 修改的仓库代码。执行阶段的目录隔离不等于抵御恶意作弊的强隔离；不自建评分系统；新协议采用顶部所述 Harbor 原生 separate verifier。
-- P4 固定 50 题与全量运行尚未开始，不以当前单题接入证据推断统计能力分数。
+- P4 已按最新决定固定社区 Verified Mini 50 题及首批 5 题；来源身份核验完成，准备入口支持 Verified 路径、镜像兼容性、评分对照与批量运行尚未完成，不以当前接入证据推断统计能力分数。
 
 收尾定位更新（2026-09-15）：完整管道取消、真实命令及 29 轮响应重放均形成了取消终态（重放 Trace 因突发流量 degraded）；尚未复现原始缺失终态。已确认 Harbor 的超时文案包装及新增接入的诊断证据不足。根因未证实，不实施猜测性修复，详见 [责任定位报告](../../benchmark/reports/termination-diagnosis-2026-09-15.md)。
 
@@ -591,3 +946,15 @@ D1 使用既有 tracing 查询/路径/控制能力；如包导出缺失，只补
 两题扩展验收：Babel 13928 与 Docusaurus 10130 分别通过官方补丁/空补丁隔离评分对照；真实付费运行均 reward=1、completed、Trace complete，用时 764.85/726.02 秒。任务生成参数化与预热基线恢复仅位于 benchmark，详见 [两题报告](../../benchmark/reports/two-new-swe-2026-09-15.md)。
 
 收尾验收：已完成边界审查，修复提交采集失败时日志保留、配置快照和损坏 Trace 完整性判断。11 项 benchmark 测试、907 项仓库测试及构建/CLI/Host 检查通过，保留限制见 [验收记录](../../benchmark/reports/integration-review-2026-09-15.md)。
+
+社区题集更新（2026-09-15，替代未运行的自选 Multilingual 50 题）：采用 [Verified Mini 社区清单](../../benchmark/suites/swe-verified-mini-hal-50-v1/README.md)。HAL 实际 ID、作者 size_optimized_sample_ids 和 Hugging Face Mini 的集合完全一致，Django/Sphinx 各 25 题；此前将 HAL“随机集”和作者优化集当成两个不同题集不准确。父集公开元数据一致、Harbor Verified 50/50 映射与配置解析通过，题面差异仅为已记录的换行/空白格式。全部来源固定版本与哈希，默认基准只保留这一份，不按 Omni 得分换题。
+
+本阶段边界：只替换清单和文档，删除此前未运行自选清单，Agent、Provider、评分器、容器与 Trace 逻辑不变。后续在既有 prepare_task 入口显式支持 Verified 源路径，并验证对应上游镜像；首批 5 题按 HAL 文件固定索引选出用于接入验收，先做镜像/离线依赖/空补丁与标准补丁对照，再真实运行。Ready with trade-offs：题集只反映两个 Python 项目，不能承诺全面能力或全量分数；尚未启动容器和付费运行。
+
+Verified 首批验证更新（2026-09-15）：[环境与评分报告](../../benchmark/reports/verified-mini-preflight-2026-09-15.md)。准备入口已支持 Verified，并修复跳过上游 Dockerfile 安装及主服务平台未声明两项接入问题。首题官方补丁 79 项测试通过，但 Python parser 在独立断网评分阶段调用 make_test_spec 时联网拉取 requirements，造成无效 reward=0；空补丁对照同样无效。已中止验证并保留所有证据，付费模型调用 0 次。
+
+新的契约决策已确认并已完成首题实现验收：保持官方测试与评分 API，准备阶段持久化官方 TestSpec、评分阶段断网加载，替换原样执行上游 parser 的约定；不自写评分规则、不修改网络边界、不打补丁或添加兼容旁路。同时统一 Oracle/真实 Agent 的镜像起始补丁基线，避免 Sphinx 环境预置 tox.ini 变更重复提交。设计状态为 Ready with trade-offs；新的评分封装已通过 V0/V1 首题验收，V2 五题仍待执行，运行状态仍为 Not ready for paid evaluation。以顶部修订的边界、文件树及 V0–V4 门槛推进，不重复请求同一契约确认。
+
+复杂单题追加（2026-09-15）：用户授权从固定 50 题追加一道复杂题，选择唯一 >4 hours 标签的 Sphinx 7590。官方正负对照已通过，复用原模型、1800/1830 秒与单次尝试策略，真实运行已自然完成，官方 reward=0（目标 ID 编码断言失败，24 项保留测试通过），Trace complete，未重跑。原三题结果不覆盖、不换题；详见[复杂单题报告](../../benchmark/reports/verified-hard1-2026-09-15.md)。
+
+策略提示回归对照（2026-09-15）：同题 Sphinx 7590 新会话单次复跑，实际源码只有 coding prompt 内容不同，新规则确认进入请求。结果仍 reward=0，目标 ID 语义错误未解决，耗时 +29.62%、总 token +82.61%；不能证明能力提升。详见[对照报告](../../benchmark/reports/verified-hard1-prompt-v2-2026-09-15.md)。未追加尝试或自动改动策略。

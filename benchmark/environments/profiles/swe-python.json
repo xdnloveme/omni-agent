@@ -1,0 +1,11 @@
+{
+  "version": 2,
+  "tools": [
+    {
+      "name": "python",
+      "probe_args": ["--version"],
+      "argv_prefix": ["/opt/miniconda3/envs/testbed/bin/python"],
+      "description": "Task-provided Python interpreter"
+    }
+  ]
+}

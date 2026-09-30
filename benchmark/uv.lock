@@ -709,11 +709,15 @@ name = "omni-benchmark"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "filelock" },
     { name = "harbor" },
 ]
 
 [package.metadata]
-requires-dist = [{ name = "harbor", specifier = "==0.23.0" }]
+requires-dist = [
+    { name = "filelock", specifier = "==3.32.6" },
+    { name = "harbor", specifier = "==0.23.0" },
+]
 
 [[package]]
 name = "openai"

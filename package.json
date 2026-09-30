@@ -27,6 +27,7 @@
     "pack:cli": "node --import tsx scripts/pack-cli-distribution.ts",
     "prepare": "husky",
     "headless": "node --import tsx apps/omni/src/headless-entry.ts",
+    "benchmark": "uv run --frozen --project benchmark python -m benchmark.run",
     "verify:sandbox": "pnpm run build:sandbox && OMNI_TEST_SANDBOX=1 vitest run tests/process-workspace-boundary.test.ts"
   },
   "devDependencies": {
