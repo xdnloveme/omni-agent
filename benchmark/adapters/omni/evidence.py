@@ -53,7 +53,7 @@ def inspect_traces(trial):
                 trace["state"] = "complete"
         except FileNotFoundError:
             pass
-        except (ValueError, UnicodeError, AttributeError, OSError):
+        except (ValueError, AttributeError, TypeError, OSError):
             trace["state"] = "invalid"
         traces.append(trace)
     return traces
@@ -95,7 +95,7 @@ def inspect_outputs(trial):
                         "reason": record.get("reason"),
                     }
                 )
-            except (OSError, ValueError, KeyError, TypeError) as error:
+            except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
                 failures.append({"path": name, "error": str(error)})
     for transcript in state.glob("*/sessions/*/*.jsonl"):
         try:
@@ -130,7 +130,7 @@ def inspect_outputs(trial):
                         for part in output["parts"]
                     ]:
                         raise ValueError("Output reference parts mismatch")
-        except (OSError, ValueError, KeyError, TypeError) as error:
+        except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
             failures.append(
                 {"path": str(transcript.relative_to(trial)), "error": str(error)}
             )
