@@ -49,6 +49,25 @@ class RunEvidenceTest(unittest.TestCase):
             self.assertEqual(result["score"], native["verifier_result"])
             self.assertIsNone(result["exception"])
 
+    def test_invalid_result_artifact_cannot_contribute_score_or_run_facts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            job = Path(directory)
+            trial = job / "trial"
+            trial.mkdir()
+            outside = job / "outside.json"
+            outside.write_text(json.dumps({
+                "verifier_result": {"rewards": {"reward": 1}},
+                "agent_result": {"cost_usd": 2},
+                "exception_info": {"message": "outside fact"},
+            }))
+            (trial / "result.json").symlink_to(outside)
+            result = index_job(job)["trials"][0]
+            self.assertEqual(result["artifacts"]["harbor_result"]["state"], "invalid")
+            self.assertEqual(result["evidence_state"], "invalid")
+            self.assertIsNone(result["score"])
+            self.assertIsNone(result["exception"])
+            self.assertIsNone(result["cost_usd"])
+
     def test_compiled_config_defaults_to_one_and_preserves_explicit_concurrency(self):
         from harbor.models.job.config import JobConfig
 

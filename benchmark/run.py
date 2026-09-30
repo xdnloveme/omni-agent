@@ -64,6 +64,9 @@ def index_job(job):
         state = "not_provided"
         native = {}
         try:
+            # Interpretation must respect the same artifact boundary as indexing.
+            if files["harbor_result"]["state"] == "invalid":
+                raise ValueError("Invalid Harbor result artifact")
             native = json.loads((trial / "result.json").read_text())
             if not isinstance(native, dict):
                 native = {}
@@ -88,7 +91,7 @@ def index_job(job):
                 state = "provided"
         except FileNotFoundError:
             pass
-        except (ValueError, TypeError, AttributeError):
+        except (ValueError, TypeError, AttributeError, OSError):
             state = "invalid"
             files["harbor_result"]["state"] = "invalid"
         agent_context = native.get("agent_result")

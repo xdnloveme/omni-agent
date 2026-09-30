@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
-from benchmark.adapters.omni.evidence import inspect_outputs
+from benchmark.adapters.omni.evidence import inspect_outputs, inspect_traces
 
 
 class OutputEvidenceTests(unittest.TestCase):
@@ -29,3 +29,25 @@ class OutputEvidenceTests(unittest.TestCase):
             self.assertEqual(inspect_outputs(root)["integrity"], "incomplete")
             (output / "record.json").unlink()
             self.assertEqual(inspect_outputs(root)["integrity"], "incomplete")
+
+    def test_malformed_native_evidence_is_reported_without_losing_other_records(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            sessions = root / "agent/omni/state/workspaces/workspace/sessions/agent"
+            sessions.mkdir(parents=True)
+            transcript = sessions / "session.jsonl"
+            for message in ([], {"message": None}, {"message": []}):
+                with self.subTest(message=message):
+                    transcript.write_text(json.dumps(message) + "\n")
+                    result = inspect_outputs(root)
+                    self.assertEqual(result["integrity"], "incomplete")
+                    self.assertEqual(len(result["failures"]), 1)
+                    self.assertEqual(result["failures"][0]["path"], str(transcript.relative_to(root)))
+
+            traces = root / "agent/omni/state/traces/agent/session"
+            for name, status in (("damaged", []), ("valid", "completed")):
+                run = traces / name
+                run.mkdir(parents=True)
+                (run / "manifest.json").write_text(json.dumps({"status": status, "completedAt": 1}))
+                (run / "replay.jsonl").write_text(json.dumps({"seq": 1, "kind": "run.completed"}) + "\n")
+            self.assertEqual([item["state"] for item in inspect_traces(root)], ["invalid", "complete"])
