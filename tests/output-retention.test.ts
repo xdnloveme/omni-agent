@@ -534,6 +534,85 @@ it("cancels queued writes and reads without admitting late work, and enforces co
   });
 });
 
+it("seals output and records cancellation when retaining a tool failure is cancelled", async () => {
+  const { root, store } = await setup();
+  await store.withSession("failure-finalization", async (outputs) => {
+    const controller = new AbortController();
+    let outputId = "";
+    const terminal: string[] = [];
+    let cancelled: RuntimeExecutionCancelledFact | undefined;
+    const tool: RegisteredAgentTool = {
+      name: "retention-probe",
+      description: "test",
+      schema: {},
+      originId: "test",
+      toolIdentity: "test:retention-probe",
+      access: { kind: "internal" },
+      execution: { kind: "in_process" },
+      timeout: { kind: "none" },
+      async execute(_input, context) {
+        const writer = await outputs.create("failure-call");
+        outputId = writer.id;
+        const part = await writer.createPart({ label: "body", mediaType: "text/plain" });
+        await part.append("captured before failure");
+        context.outputCall!.writer = {
+          ...writer,
+          async finish(options) {
+            // Cancel at the persistence boundary, after the execution error was caught.
+            if (!options?.interrupted) {
+              controller.abort();
+              throw controller.signal.reason;
+            }
+            return writer.finish(options);
+          },
+        };
+        throw new Error("original tool failure");
+      },
+    };
+    const call = createAuthorizedToolCall(
+      tool,
+      {},
+      { cwd: root, outputs, signal: controller.signal },
+      { mode: "unrestricted", sensitiveValues: { exactValues: [] } },
+    );
+    const runner = new ToolInvocationRunner({
+      processRouter: {
+        async run() {
+          throw new Error("unexpected process execution");
+        },
+      },
+    });
+    await expect(
+      runner.invoke(
+        call,
+        [],
+        { toolCallId: "failure-call" },
+        {
+          ...NOOP_RUNTIME_EXECUTION_OBSERVATION,
+          complete() {
+            terminal.push("complete");
+          },
+          timeout() {
+            terminal.push("timeout");
+          },
+          fail() {
+            terminal.push("fail");
+          },
+          cancel(fact) {
+            terminal.push("cancel");
+            cancelled = fact;
+          },
+        },
+      ),
+    ).rejects.toMatchObject({ name: "AbortError" });
+    expect(terminal).toEqual(["cancel"]);
+    expect(cancelled?.output).toMatchObject({ id: outputId, state: "interrupted" });
+    expect(cancelled?.outputPersistenceFailure).toBeUndefined();
+    // Check before releasing the lease: later recovery must not hide missing cancellation cleanup.
+    expect(await outputs.resolve({ outputId })).toMatchObject({ state: "interrupted" });
+  });
+});
+
 it("reports cancellation sealing failure while preserving cancellation and later recovery", async () => {
   const { root, store } = await setup();
   await store.withSession("cancel-failure", async (outputs) => {
