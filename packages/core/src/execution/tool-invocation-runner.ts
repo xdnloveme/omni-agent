@@ -71,25 +71,39 @@ export class ToolInvocationRunner {
         }
       : undefined;
     try {
-      throwIfAborted(call.context.signal);
-      for (const entry of middleware) await entry.beforeExecute?.(executionContext);
-      throwIfAborted(call.context.signal);
-      const rawResult = await observation.run(() => this.executeAuthorized(call, outputCall));
-      let result = redactExactSensitiveValue(
-        rawResult,
-        call.executionPlan.sensitiveValues,
-      ) as ToolResult;
-      throwIfAborted(call.context.signal);
-      for (const entry of middleware) await entry.afterExecute?.(executionContext, result);
-      throwIfAborted(call.context.signal);
+      let result: ToolResult;
+      let executionError: unknown;
+      try {
+        throwIfAborted(call.context.signal);
+        for (const entry of middleware) await entry.beforeExecute?.(executionContext);
+        throwIfAborted(call.context.signal);
+        const rawResult = await observation.run(() => this.executeAuthorized(call, outputCall));
+        result = redactExactSensitiveValue(
+          rawResult,
+          call.executionPlan.sensitiveValues,
+        ) as ToolResult;
+        throwIfAborted(call.context.signal);
+        for (const entry of middleware) await entry.afterExecute?.(executionContext, result);
+        throwIfAborted(call.context.signal);
+      } catch (error) {
+        if (isAbortError(error, call.context.signal)) throw error;
+        executionError = error;
+        if (outputCall && error instanceof ToolTimeoutError) outputCall.interrupted = true;
+        result = error instanceof ToolTimeoutError ? timeoutResult(error) : toolError(error);
+      }
+      // Success and error results share one persistence boundary and cancellation owner.
       result = await this.finalizeResult(result, call, outputCall);
+      throwIfAborted(call.context.signal);
       const executionMs = Date.now() - executionStartedAt;
-      observation.complete({
+      const fact = {
         toolName: call.tool.name,
         ...correlation,
         result,
         executionMs,
-      });
+      };
+      if (executionError instanceof ToolTimeoutError)
+        observation.timeout({ ...fact, error: executionError });
+      else observation.complete(fact);
       return { result, executionMs };
     } catch (error) {
       if (isAbortError(error, call.context.signal)) {
@@ -115,19 +129,9 @@ export class ToolInvocationRunner {
         observation.cancel({ error, output, outputPersistenceFailure });
         throw error;
       }
-      if (outputCall && error instanceof ToolTimeoutError) outputCall.interrupted = true;
-      let result = error instanceof ToolTimeoutError ? timeoutResult(error) : toolError(error);
-      result = await this.finalizeResult(result, call, outputCall);
-      const executionMs = Date.now() - executionStartedAt;
-      const fact = {
-        toolName: call.tool.name,
-        ...correlation,
-        result,
-        executionMs,
-      };
-      if (error instanceof ToolTimeoutError) observation.timeout({ ...fact, error });
-      else observation.complete(fact);
-      return { result, executionMs };
+      // A finalization failure is not another tool result to persist or retry.
+      observation.fail({ error });
+      throw error;
     }
   }
 
