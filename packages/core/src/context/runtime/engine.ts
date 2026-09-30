@@ -55,6 +55,7 @@ export class DefaultContextEngine implements ContextEnginePort {
       tools: current.tools,
       model: current.model,
       environment: request.environment,
+      runDeadline: request.runDeadline,
     });
     const result = await this.policy.resolve(frame, {
       ...options,

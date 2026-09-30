@@ -5,6 +5,9 @@ import { serializeContextValue } from "../digest";
 import { estimateContextTextTokens } from "../../tokenEstimate";
 import { renderEnvironmentContext } from "../../environment";
 
+import { renderRunDeadline } from "../run-deadline";
+import { inputBudget } from "../request-budget";
+
 const MESSAGE_OVERHEAD_TOKENS = 4;
 const CONTENT_BLOCK_OVERHEAD_TOKENS = 2;
 const TOOL_OVERHEAD_TOKENS = 8;
@@ -21,6 +24,9 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
       : 0;
     const messageTokens =
       environmentTokens +
+      (fixed.runDeadline
+        ? MESSAGE_OVERHEAD_TOKENS + estimateContextTextTokens(renderRunDeadline(fixed.runDeadline))
+        : 0) +
       history.entries.reduce((total, entry) => total + this.estimateEntry(entry), 0);
     const toolTokens = fixed.tools.reduce(
       (total, tool) =>
@@ -29,14 +35,12 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
         estimateContextTextTokens(tool.name) +
         estimateContextTextTokens(tool.description) +
         estimateContextTextTokens(serializeContextValue(tool.schema)) +
-        (tool.strict === undefined ? 0 : 1),
+        (tool.inputConstraint === undefined ? 0 : 1),
       0,
     );
     const totalInputTokens = systemPromptTokens + messageTokens + toolTokens;
-    const usableInputBudget = Math.max(
-      1,
-      fixed.model.contextWindow - fixed.model.requestedOutputTokens,
-    );
+    // Keep compression admission independent of the shrinking per-request output budget.
+    const usableInputBudget = inputBudget(fixed.model.contextWindow);
     return {
       systemPromptTokens,
       messageTokens,

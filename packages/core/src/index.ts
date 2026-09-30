@@ -160,6 +160,7 @@ export {
   OperationDeadlineSupervisor,
   ToolTimeoutError,
   ToolInvocationRunner,
+  TextOutputPreview,
 } from "./execution/index";
 export type {
   AuthorizedExecutionContext,
@@ -292,6 +293,10 @@ export type {
   ModelRequestOptions,
   ModelRuntimePort,
   ModelToolSpec,
+  ToolInputConstraint,
+  ToolConstraintCapability,
+  ToolConstraintDecision,
+  ToolConstraintReport,
   RuntimeModelSelection,
   ThinkingHistoryPolicy,
 } from "./models";
@@ -421,3 +426,35 @@ export type {
 export { assertJsonObject, isJsonValue } from "./data";
 export type { DeepReadonly, JsonValue } from "./data";
 export { digestStableValue, serializeStableValue } from "./valueDigest";
+
+export {
+  InvalidRunDeadlineError,
+  RunDeadline,
+  RunDeadlineExceededError,
+  assertRunDeadline,
+} from "./execution/run-deadline";
+export type { RunDeadlineSnapshot } from "./execution/run-deadline";
+
+export type {
+  CapturedOutputSource,
+  OutputPart,
+  OutputRecord,
+  OutputReference,
+  OutputReadRequest,
+  OutputReadResult,
+  OutputWriterPort,
+  OutputPartWriterPort,
+  SessionOutputPort,
+  OutputCallContext,
+  ToolOutputSource,
+} from "./execution/output";
+
+export { readTextPage, MAX_FILE_READ_OUTPUT_BYTES } from "./io/text-page-reader";
+export type {
+  StreamingReadRequest,
+  StreamingReadResult,
+  FilePagination,
+} from "./io/text-page-reader";
+export { createFileSnapshot, snapshotsEqual, snapshotVersion } from "./io/file-snapshot";
+export type { FileSnapshot } from "./io/file-snapshot";
+export { TextReadError } from "./io/text-read-error";

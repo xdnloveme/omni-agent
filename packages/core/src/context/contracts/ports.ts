@@ -69,6 +69,7 @@ export interface ContextPolicyPort {
 }
 
 export interface ContextPreparationRequest {
+  readonly runDeadline?: import("../../execution/run-deadline").RunDeadlineSnapshot;
   readonly identity: {
     readonly agentId: string;
     readonly sessionId: string;

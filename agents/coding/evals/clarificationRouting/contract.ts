@@ -16,7 +16,7 @@ export function createClarificationEvaluationContract() {
     tool: {
       name: tool.name,
       description: tool.description,
-      strict: tool.strict,
+      inputConstraint: tool.inputConstraint,
       parameters: tool.schema,
     },
     thresholds: {

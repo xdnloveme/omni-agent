@@ -1,4 +1,4 @@
-import type { ModelCacheCapability } from "@omni-agent/core";
+import type { ToolConstraintCapability, ModelCacheCapability } from "@omni-agent/core";
 
 export interface ProviderCacheModel {
   readonly id: string;
@@ -14,6 +14,9 @@ export const providerContributionBrand: unique symbol = Symbol("ProviderContribu
 export interface ProviderContribution {
   readonly id: string;
   readonly credentialAliases: readonly string[];
+  readonly resolveToolConstraintCapability?: (
+    model: ProviderCacheModel,
+  ) => ToolConstraintCapability;
   readonly resolveCacheCapability?: (model: ProviderCacheModel) => ModelCacheCapability;
   readonly [providerContributionBrand]: true;
 }

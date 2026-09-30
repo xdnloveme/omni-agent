@@ -76,7 +76,11 @@ export class ToolCallCoordinator {
         if (validationError) {
           preparedCall = failedPrepared(
             call,
-            errorResult(`Invalid tool input: ${validationError}`, { code: "invalid_tool_input" }),
+            errorResult(`Invalid tool input: ${validationError.message}`, {
+              code: "invalid_tool_input",
+              issues: validationError.issues,
+              truncated: validationError.truncated,
+            }),
             tool,
           );
         } else {
@@ -197,6 +201,7 @@ export class ToolCallCoordinator {
         });
       }
       const executionContext = {
+        outputs: environment.outputs,
         cwd: environment.cwd,
         signal: request.signal,
         ...(networkLease ? { network: networkLease.client } : {}),

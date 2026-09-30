@@ -12,7 +12,7 @@ import {
   type PathOptionSpec,
 } from "../semantics/operand-policies";
 
-const SAFE_REDIRECTION_TARGET = /^\/dev\/(?:null|stdin|stdout|stderr|tty|fd\/\d+)$/;
+const INDIRECT_REDIRECTION_TARGET = /^\/dev\/(?:stdin|stdout|stderr|tty|fd\/\d+)$/;
 
 export interface PathAnalysis {
   facts: readonly ShellPathFact[];
@@ -152,6 +152,12 @@ export async function analyzeCommandPaths(
     pathOperands += 1;
   }
 
+  // Command effects must be bounded by command operands, never by a redirect's path.
+  const unresolvedCommandMutation =
+    semantics.pathAccess === "unknown" ||
+    (semantics.pathAccess === "write" &&
+      (unresolved || !candidates.some((candidate) => candidate.access === "write")));
+
   for (const redirection of options.includeRedirections === false ? [] : command.redirections) {
     if (!redirection.target) continue;
     const target = resolveShellWord(redirection.target, context);
@@ -160,7 +166,19 @@ export async function analyzeCommandPaths(
       unresolvedWriteRedirection ||= redirection.operator.includes(">");
       continue;
     }
-    if (SAFE_REDIRECTION_TARGET.test(target)) continue;
+    // Duplication/closure routes existing descriptors; it does not name a new file.
+    if (
+      (redirection.operator === ">&" || redirection.operator === "<&") &&
+      /^(?:\d+-?|-)$/.test(target)
+    )
+      continue;
+    // Only the null device has a destination independent of inherited descriptors.
+    if (target === "/dev/null") continue;
+    if (INDIRECT_REDIRECTION_TARGET.test(target)) {
+      unresolved = true;
+      unresolvedWriteRedirection ||= redirection.operator.includes(">");
+      continue;
+    }
     const candidate = pathCandidate(target, input, context, true);
     if (candidate) {
       candidates.push({
@@ -168,14 +186,15 @@ export async function analyzeCommandPaths(
         source: "redirection",
         access: redirection.operator.includes(">") ? "write" : "read",
       });
+    } else {
+      unresolved = true;
+      unresolvedWriteRedirection ||= redirection.operator.includes(">");
     }
   }
 
   const unresolvedMutation =
+    unresolvedCommandMutation ||
     unresolvedWriteRedirection ||
-    semantics.pathAccess === "unknown" ||
-    (semantics.pathAccess === "write" &&
-      (unresolved || !candidates.some((candidate) => candidate.access === "write"))) ||
     (context.cwd === "unknown" && candidates.some((candidate) => candidate.access === "write"));
   if (context.cwd === "unknown") return { facts: [], unresolved: true, unresolvedMutation };
   const facts: ShellPathFact[] = [];
@@ -183,7 +202,7 @@ export async function analyzeCommandPaths(
     const absolute = path.isAbsolute(candidate.value)
       ? candidate.value
       : path.resolve(context.cwd, candidate.value);
-    const inspection = await inspectPathSecurity(absolute, input.cwd, input.environment);
+    const inspection = await inspectPathSecurity(absolute, input, input.environment);
     facts.push({
       path: inspection.target,
       access: candidate.access,

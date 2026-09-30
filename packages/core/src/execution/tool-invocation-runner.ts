@@ -1,9 +1,12 @@
+import { retainToolOutput } from "./tool-output-retention";
+import type { OutputCallContext } from "./output";
 import type { ToolExecutionMiddleware } from "../middleware";
 import type { ToolResult } from "../types";
 import { redactExactSensitiveValue } from "../security";
 import { isAbortError, throwIfAborted } from "./abort";
 import {
   OperationDeadlineSupervisor,
+  DEFAULT_CLEANUP_GRACE_MS,
   type OperationDeadlineSupervisorOptions,
 } from "./operation-deadline-supervisor";
 import { resolveToolTimeout } from "./timeout-policy";
@@ -59,18 +62,27 @@ export class ToolInvocationRunner {
       input: call.input,
       ...call.context,
     };
+    const outputCall: OutputCallContext | undefined = call.context.outputs
+      ? {
+          session: call.context.outputs,
+          toolCallId: correlation.toolCallId ?? crypto.randomUUID(),
+          sensitive: call.executionPlan.sensitiveValues,
+          signal: call.context.signal,
+        }
+      : undefined;
     try {
       throwIfAborted(call.context.signal);
       for (const entry of middleware) await entry.beforeExecute?.(executionContext);
       throwIfAborted(call.context.signal);
-      const rawResult = await observation.run(() => this.executeAuthorized(call));
-      const result = redactExactSensitiveValue(
+      const rawResult = await observation.run(() => this.executeAuthorized(call, outputCall));
+      let result = redactExactSensitiveValue(
         rawResult,
         call.executionPlan.sensitiveValues,
       ) as ToolResult;
       throwIfAborted(call.context.signal);
       for (const entry of middleware) await entry.afterExecute?.(executionContext, result);
       throwIfAborted(call.context.signal);
+      result = await this.finalizeResult(result, call, outputCall);
       const executionMs = Date.now() - executionStartedAt;
       observation.complete({
         toolName: call.tool.name,
@@ -81,13 +93,31 @@ export class ToolInvocationRunner {
       return { result, executionMs };
     } catch (error) {
       if (isAbortError(error, call.context.signal)) {
-        observation.cancel({ error });
+        let output: import("./output").OutputRecord | undefined;
+        let outputPersistenceFailure: string | undefined;
+        if (outputCall?.writer) {
+          try {
+            output = await this.deadlineSupervisor.run({
+              operationName: "output_finalize",
+              timeoutMs: DEFAULT_CLEANUP_GRACE_MS,
+              createTimeoutError: () => new Error("Output finalization deadline exceeded"),
+              execute: (signal) => outputCall.writer!.finish({ interrupted: true, signal }),
+            });
+          } catch (failure) {
+            outputPersistenceFailure = String(
+              redactExactSensitiveValue(
+                failure instanceof Error ? failure.message : String(failure),
+                call.executionPlan.sensitiveValues,
+              ),
+            );
+          }
+        }
+        observation.cancel({ error, output, outputPersistenceFailure });
         throw error;
       }
-      const result = redactExactSensitiveValue(
-        error instanceof ToolTimeoutError ? timeoutResult(error) : toolError(error),
-        call.executionPlan.sensitiveValues,
-      ) as ToolResult;
+      if (outputCall && error instanceof ToolTimeoutError) outputCall.interrupted = true;
+      let result = error instanceof ToolTimeoutError ? timeoutResult(error) : toolError(error);
+      result = await this.finalizeResult(result, call, outputCall);
       const executionMs = Date.now() - executionStartedAt;
       const fact = {
         toolName: call.tool.name,
@@ -101,19 +131,48 @@ export class ToolInvocationRunner {
     }
   }
 
-  private async executeAuthorized(call: AuthorizedToolCall): Promise<ToolResult> {
+  /** Sanitize before persistence and after storage-generated navigation enters the result.
+   * This boundary applies regardless of whether output retention is configured.
+   */
+  private async finalizeResult(
+    result: ToolResult,
+    call: AuthorizedToolCall,
+    outputCall?: OutputCallContext,
+  ): Promise<ToolResult> {
+    const sanitized = redactExactSensitiveValue(
+      result,
+      call.executionPlan.sensitiveValues,
+    ) as ToolResult;
+    const retained = await retainToolOutput(sanitized, outputCall);
+    return redactExactSensitiveValue(retained, call.executionPlan.sensitiveValues) as ToolResult;
+  }
+
+  private async executeAuthorized(
+    call: AuthorizedToolCall,
+    outputCall?: OutputCallContext,
+  ): Promise<ToolResult> {
     const timeoutMs = resolveToolTimeout(call.tool.timeout, call.input);
     return this.deadlineSupervisor.run({
       operationName: call.tool.name,
       timeoutMs,
       externalSignal: call.context.signal,
       createTimeoutError: (duration) => new ToolTimeoutError(duration),
-      execute: (signal) => this.startExecution(call, signal),
+      execute: (signal) => this.startExecution(call, signal, outputCall),
     });
   }
 
-  private startExecution(call: AuthorizedToolCall, signal: AbortSignal): Promise<ToolResult> {
-    const context = { cwd: call.context.cwd, signal, network: call.context.network };
+  private startExecution(
+    call: AuthorizedToolCall,
+    signal: AbortSignal,
+    outputCall?: OutputCallContext,
+  ): Promise<ToolResult> {
+    const context = {
+      cwd: call.context.cwd,
+      signal,
+      network: call.context.network,
+      outputs: call.context.outputs,
+      outputCall,
+    };
     const tool = call.tool;
     if (isInProcessTool(tool)) {
       return tool.execute(call.input, context);
@@ -121,7 +180,7 @@ export class ToolInvocationRunner {
     const process = call.executionPlan.process;
     if (!process) throw new Error("Authorized Process Tool is missing its execution plan");
     return this.options.processRouter
-      .run(process, signal)
+      .run(process, signal, outputCall)
       .then((result) => tool.createToolResult(result, call.input, context));
   }
 }

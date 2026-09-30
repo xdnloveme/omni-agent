@@ -1,3 +1,4 @@
+import { TextReadError } from "@omni-agent/core";
 import {
   createAbortError,
   isAbortError,
@@ -7,7 +8,7 @@ import {
 import { fileMutex } from "./file-mutex";
 import { resolveAuthorizedOperationPath } from "../security/path/authorized-operation-path";
 import { FileToolError, fileToolErrorResult } from "./io/file-errors";
-import { MAX_FILE_READ_OUTPUT_BYTES, readTextPage } from "./io/streaming-line-reader";
+import { MAX_FILE_READ_OUTPUT_BYTES, readTextPage } from "@omni-agent/core";
 import { createFileAccess } from "./access/create-file-access";
 import { createFilePathPreflight } from "./access/create-file-path-preflight";
 
@@ -17,7 +18,7 @@ const MAX_OUTPUT_KIB = MAX_FILE_READ_OUTPUT_BYTES / 1024;
 
 export const fileReadTool: AgentToolDefinition = {
   name: "file_read",
-  strict: true,
+  inputConstraint: "prefer",
   preflight: createFilePathPreflight({
     parameter: "file_path",
     acceptedKinds: ["regular_file"],
@@ -107,7 +108,7 @@ export const fileReadTool: AgentToolDefinition = {
         }),
       );
       return {
-        content: [{ type: "text", text: result.text }],
+        content: [{ type: "text", text: result.text, outputSource: { kind: "page" } }],
         isError: false,
         meta: {
           presentation: { resource: { kind: "file", path } },
@@ -117,7 +118,7 @@ export const fileReadTool: AgentToolDefinition = {
     } catch (error) {
       if (isAbortError(error, context.signal)) throw createAbortError(context.signal);
       return fileToolErrorResult(
-        error instanceof FileToolError
+        error instanceof FileToolError || error instanceof TextReadError
           ? error
           : new FileToolError("read_failed", "Failed to read file", true),
       );

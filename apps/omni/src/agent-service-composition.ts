@@ -6,7 +6,7 @@ import {
   createModelService,
   resolveWorkspaceContext,
   type AgentServicePort,
-  type ModelService,
+  type AgentModelService,
   type ModelServiceDiagnostic,
 } from "@omni-agent/app";
 import { createDefaultAgentPackageCatalog } from "@omni-agent/cli";
@@ -15,6 +15,7 @@ import { createNetworkRuntime } from "@omni-agent/network";
 import { createProcessExecutionRuntime, type HostRuntimeEnvironment } from "@omni-agent/tools";
 
 export interface AgentServiceCompositionOptions {
+  readonly modelService?: AgentModelService;
   readonly traceEnabled?: boolean;
   readonly cwd: string;
   readonly globalDirectory: string;
@@ -37,10 +38,12 @@ export async function createAgentServiceComposition(
     cwd: workspace.root,
     globalDirectory: options.globalDirectory,
   });
-  const modelService = await createModelService({
-    cwd: workspace.root,
-    globalDirectory: options.globalDirectory,
-  });
+  const modelService =
+    options.modelService ??
+    (await createModelService({
+      cwd: workspace.root,
+      globalDirectory: options.globalDirectory,
+    }));
   try {
     const catalog = createDefaultAgentPackageCatalog({
       resolutionBase: options.resolutionBase,
@@ -91,7 +94,7 @@ export async function createAgentServiceComposition(
 
 async function disposeComposition(
   service: AgentService,
-  modelService: ModelService,
+  modelService: AgentModelService,
 ): Promise<void> {
   const failures: unknown[] = [];
   try {

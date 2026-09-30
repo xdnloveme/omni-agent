@@ -50,12 +50,14 @@ export class InstructionScopeGate implements ToolBatchPreparationPolicy {
     context: ToolBatchPreparationContext,
   ): Promise<ToolBatchPreparationDecision> {
     const ready = batch.calls.filter((call) => call.preparation === "ready");
-    if (ready.some((call) => call.accessIntent?.filesystemMutation === "unbounded")) {
+    const unbounded = ready.filter((call) => call.accessIntent?.filesystemMutation === "unbounded");
+    if (unbounded.length > 0) {
       return {
         kind: "failed",
         code: "project_instruction_scope_undetermined",
+        source: { kind: "calls", toolCallIds: unbounded.map((call) => call.toolCallId) },
         message:
-          "A potentially mutating command must declare bounded write_paths before project instructions can be determined.",
+          "Write targets could not be determined statically. Reissue the command with sandbox_scope.write_paths covering its potential writes, including workspace paths, so applicable project rules can be loaded. Use exact for a known file or subtree for an existing output directory. Empty write_paths or read_paths alone are insufficient. This requirement also applies in unrestricted mode; declaring a scope does not grant access.",
       };
     }
     const targets = new Set<string>([this.discovery.workspaceRoot]);
@@ -72,6 +74,7 @@ export class InstructionScopeGate implements ToolBatchPreparationPolicy {
       return {
         kind: "failed",
         code: "project_instructions_not_activated",
+        source: { kind: "batch" },
         message:
           "Command Hook requires new or changed project rules to be considered by the Agent first.",
       };

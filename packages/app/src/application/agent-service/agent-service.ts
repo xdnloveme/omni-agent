@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   createAbortError,
+  assertRunDeadline,
+  RunDeadlineExceededError,
   AgentSessionNotFoundError,
   isAbortError,
   type AgentFailure,
@@ -290,6 +292,7 @@ export class AgentService implements AgentServicePort {
   ): void {
     try {
       this.assertReady();
+      assertRunDeadline(request.deadlineAtMs);
       if (this.requests.has(request.requestId)) {
         throw new AgentServiceError(
           "duplicate_request",
@@ -366,6 +369,8 @@ export class AgentService implements AgentServicePort {
     };
     try {
       if (signal.aborted) throw createAbortError(signal);
+      if (request.deadlineAtMs !== undefined && request.deadlineAtMs <= Date.now())
+        throw new RunDeadlineExceededError();
       if (session.state !== "open") {
         throw new AgentServiceError(
           "session_closing",
@@ -377,7 +382,9 @@ export class AgentService implements AgentServicePort {
         requestId: request.requestId,
         sessionId: request.sessionId,
       });
-      await session.instance.application.run(request.input.text, callbacks, signal);
+      await session.instance.application.run(request.input.text, callbacks, signal, {
+        deadlineAtMs: request.deadlineAtMs,
+      });
       if (!terminal) terminate(signal.aborted ? { type: "cancelled" } : { type: "completed" });
     } catch (error) {
       if (signal.aborted || isAbortError(error)) terminate({ type: "cancelled" });

@@ -1,7 +1,7 @@
 import type {
   ConfigService,
   ModelSelection,
-  ModelService,
+  ModelAdministration,
   ResolvedModelConfiguration,
 } from "@omni-agent/app";
 import type { OnboardingInteractionPort } from "./host-services";
@@ -12,7 +12,7 @@ export interface OnboardingResult {
 }
 
 export async function runOnboarding(
-  modelService: ModelService,
+  modelService: ModelAdministration,
   interaction: OnboardingInteractionPort,
 ): Promise<OnboardingResult> {
   interaction.showWelcome();

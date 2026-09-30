@@ -59,7 +59,7 @@ function tool(): RegisteredAgentTool {
       type: "object",
       properties: { path: { type: "string", metadata: { source: "model" } } },
     },
-    strict: true,
+    inputConstraint: "prefer",
     originId: "test",
     toolIdentity: "test:inspect",
     access: { kind: "internal" },
@@ -267,7 +267,7 @@ describe("context ownership", () => {
       name: "inspect",
       description: "Inspect a file",
       schema: input.preparation.tools[0].schema,
-      strict: true,
+      inputConstraint: "prefer",
     });
     expect("execute" in prepared.tools[0]).toBe(false);
     expect(prepared.manifest.decisions).toEqual([]);

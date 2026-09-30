@@ -9,6 +9,10 @@ export interface RunMiddleware {
 
 export interface ToolExecutionMiddleware {
   beforeExecute?(context: AuthorizedExecutionContext): void | Promise<void>;
+  /** Reordering/cloning a preview or page preserves its block-local outputSource.
+   * Independent replacement content must omit that source; a new preview must declare its own.
+   * Core consumes these runtime fields after middleware, before persistence/model projection.
+   */
   afterExecute?(context: AuthorizedExecutionContext, result: ToolResult): void | Promise<void>;
 }
 

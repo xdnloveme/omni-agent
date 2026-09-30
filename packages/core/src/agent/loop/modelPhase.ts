@@ -26,6 +26,7 @@ export interface ModelPhaseInput {
   readonly loopProtection: LoopProtection;
   readonly observation: RuntimeTurnObservation;
   readonly publish: PublishAgentEvent;
+  readonly recovery?: { readonly attempt: number; readonly parentModelCallId: string };
   readonly signal?: AbortSignal;
 }
 
@@ -40,7 +41,11 @@ export async function* streamModelPhase(
     modelId: input.config.model.modelId,
     estimatedInputTokens,
   });
-  observation.requestCaptured({ context: input.preparedContext, selection: input.config.model });
+  observation.requestCaptured({
+    context: input.preparedContext,
+    selection: input.config.model,
+    recovery: input.recovery,
+  });
   let assistantMessage: AssistantTranscriptMessage | null = null;
   let promptDispatchObserved = false;
   let firstModelEventObserved = false;
@@ -59,13 +64,30 @@ export async function* streamModelPhase(
           purpose: "primary",
         },
         cache: { retention: "default" },
-        maxOutputTokens: input.config.model.requestedOutputTokens,
+        maxOutputTokens: input.preparedContext.manifest.requestedOutputTokens,
         signal: input.signal,
       }),
     );
     for await (const event of iterateObserved(observation, () =>
       eventStream[Symbol.asyncIterator](),
     )) {
+      if (event.type === "tool_constraint_report") {
+        observation.output({
+          kind: "tool_constraints_reported",
+          modelCallId: input.preparedContext.manifest.modelCallId,
+          report: cloneData(event.report),
+        });
+        if (event.report.failure) {
+          const failure = cloneData(event.report.failure);
+          observation.fail({ failure });
+          const produced = input.conversation.produced();
+          return {
+            kind: "failed",
+            event: { type: "error", failure, ...(produced.length ? { produced } : {}) },
+          };
+        }
+        continue;
+      }
       if (!firstModelEventObserved) {
         firstModelEventObserved = true;
         timeToFirstEventMs = Math.max(0, Date.now() - modelStartedAt);

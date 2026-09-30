@@ -20,7 +20,7 @@ export const webSearchTool: AgentToolDefinition = {
   execution: { kind: "in_process" },
   invocation: { action: "search", resource: { kind: "text", inputKey: "query" } },
   timeout: { kind: "fixed", timeoutMs: SEARCH_TIMEOUT_MS },
-  strict: true,
+  inputConstraint: "prefer",
   description:
     "Search current public web pages through the fixed DuckDuckGo HTML endpoint. " +
     "Returns ranked title, URL, snippet, and provider fields. Result URLs are not automatically authorized for web_fetch.",

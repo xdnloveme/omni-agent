@@ -129,17 +129,24 @@ than the former four-characters-per-token approximation. It remains an estimate 
 than a Provider tokenizer.
 
 ```text
-usable input = context window - requested output tokens
-usage ratio  = estimated input / usable input
+safety margin = ceil(context window × 5%)
+usable input = context window - safety margin
+usage ratio = estimated input / usable input
+request output = min(model output capacity, explicit user ceiling if set,
+                     usable input - final estimated input)
 ```
 
-Model output capacity and per-call reservation are separate contracts. The catalog's
-`modelMaxOutputTokens` describes the model capability ceiling;
-`requestedOutputTokens` is the amount an ordinary primary call actually requests and
-reserves. Models resolves the latter once (16,384 tokens by default, capped by the model
-and context window), the Provider request uses that exact value, and Context never
-substitutes the larger catalog capacity. A persisted model selection may explicitly set
-`requestedOutputTokens`; invalid or out-of-range values fail during model resolution.
+Models resolves `requestedOutputTokens` on the runtime selection as the Provider-derived
+request ceiling (or an explicit user override), with no uniform token default. Context
+computes the actual output budget after middleware and compression and records that value
+as `manifest.requestedOutputTokens`. The manifest also records the ceiling, safety margin,
+and budget policy version. The 5% margin addresses approximate counting; it is not an output
+cap and does not guarantee that a Provider will accept every estimate. Invalid budgets
+fail explicitly. Transport must validate, not silently narrow, the prepared value.
+
+Compression admission depends on the stable usable-input budget, not on the output budget
+that shrinks as input grows. Auxiliary summary calls retain their own explicit budgets.
+Persisted user overrides keep their existing meaning; no configuration migration is needed.
 
 The Micro admission threshold is dynamic. It reserves the larger of 40,000 tokens or 25%
 of usable input; models with at least 500,000 usable input reserve 50%. A zero threshold
@@ -390,3 +397,13 @@ ratio, duration, and operation kinds.
 It contains no Transcript body, Thinking text, Tool Result body, or Checkpoint summary.
 Sink failures are isolated from preparation, and AgentLoop forwards events byte-for-byte
 without inspecting their kinds.
+
+## Request-local Run deadline facts
+
+When the caller specifies a Run deadline, Context adds a request-only `<run_context>` fact containing deadlineAtMs, capturedAtMs and remainingMs. This is a runtime snapshot, not a new user task or renewed allowance. It is rendered after history through the existing model-message protocol, included in input estimation and captured requests, and is never appended to the Session transcript or workspace environment. The system prompt remains stable.
+
+The execution owner supplies the snapshot; Context owns its shared rendering for both assembly and estimation. Compression and output recovery do not create or reset deadlines. No deadline block is emitted for unconstrained Runs. Already-streaming model requests receive no mid-stream prompt update; the existing signal enforces cancellation.
+
+### Retained tool output references
+
+Canonical large tool results contain a bounded preview and meta.output instead of another full text body. A large structuredContent value is retained as a JSON part referenced by meta.structuredOutputPart. Existing artifact compression skips results carrying output references; legacy context snapshot paths retain their existing contract through the shared persistence owner. Session transcripts and Trace keep the canonical reference; model-request tracing still records the actual previews/pages sent to the provider. Missing or corrupted output fails explicitly and never re-executes the source tool.

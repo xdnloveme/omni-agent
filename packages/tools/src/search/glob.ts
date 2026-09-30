@@ -16,11 +16,11 @@ const MAX_RESULTS = 200;
 export const globTool: AgentToolDefinition = {
   name: "glob",
   preflight: createSearchPathPreflight({
-    parameter: "dir_path",
+    parameter: "path",
     defaultToCwd: true,
     acceptedKinds: ["directory"],
   }),
-  access: createSearchAccess("dir_path"),
+  access: createSearchAccess({ parameter: "path", execution: "in_process" }),
   execution: { kind: "in_process" },
   invocation: { action: "search", resource: { kind: "text", inputKey: "pattern" } },
   timeout: { kind: "none" },
@@ -52,7 +52,7 @@ export const globTool: AgentToolDefinition = {
         maxLength: 4096,
         description: "Glob pattern to match files (e.g. '**/*.ts', 'src/**/*.{js,ts}')",
       },
-      dir_path: {
+      path: {
         type: "string",
         minLength: 1,
         maxLength: 4096,
@@ -79,8 +79,8 @@ export const globTool: AgentToolDefinition = {
     const exclude = (params.exclude as string[] | undefined) ?? [];
 
     try {
-      const cwd = params.dir_path
-        ? await resolveAuthorizedOperationPath(params.dir_path as string, context.cwd)
+      const cwd = params.path
+        ? await resolveAuthorizedOperationPath(params.path as string, context.cwd)
         : context.cwd;
       const entries = await fg(pattern, {
         cwd,

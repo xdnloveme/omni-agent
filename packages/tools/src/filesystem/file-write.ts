@@ -11,7 +11,7 @@ import { fileMutex } from "./file-mutex";
 import { resolveAuthorizedOperationPath } from "../security/path/authorized-operation-path";
 import { writeDirectFile } from "./io/direct-file-writer";
 import { FileToolError, fileToolErrorResult } from "./io/file-errors";
-import { createFileSnapshot } from "./io/file-snapshot";
+import { createFileSnapshot } from "@omni-agent/core";
 import { assertFileSize, encodeTextFile } from "./io/text-file-validation";
 import { createFileAccess } from "./access/create-file-access";
 import { createFilePathPreflight } from "./access/create-file-path-preflight";
@@ -20,7 +20,7 @@ const MAX_CONTENT_BYTES = 8 * 1024 * 1024;
 
 export const fileWriteTool: AgentToolDefinition = {
   name: "file_write",
-  strict: true,
+  inputConstraint: "prefer",
   preflight: createFilePathPreflight({
     parameter: "file_path",
     acceptedKinds: ["regular_file", "missing"],

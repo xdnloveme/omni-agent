@@ -741,6 +741,7 @@ pnpm run format:check   # verify formatting
 pnpm run typecheck      # project-wide type checking
 pnpm run test           # run the test suite (Vitest)
 pnpm run test:watch     # watch mode
+pnpm run verify:sandbox # macOS: build and exercise the real Seatbelt workspace boundary
 pnpm run build          # build all packages
 pnpm run build:cli      # build the standalone CLI distribution directory
 pnpm run pack:cli       # produce an installable npm tarball
@@ -760,6 +761,13 @@ pnpm run build:sandbox
 
 The sandbox is macOS-only and does not provide rollback or fake deletion. See
 `sandbox/README.md` for its protocol and security boundaries.
+
+The default test suite checks workspace authorization and rejects unsupported sandbox platforms.
+`verify:sandbox` additionally executes real processes, checks OS denial of an external read,
+and verifies stdout/stderr and exit-code projection. It requires macOS; missing or broken
+sandbox support fails the check rather than falling back to host execution. Linux benchmark
+container isolation is verified separately through the free execution-contract fixture in
+`benchmark/README.md`.
 
 A husky pre-commit hook runs `format:check`, `typecheck`, and `test`.
 
@@ -807,3 +815,12 @@ minimal issue asking for a private contact rather than posting details.
 Licensed under the [Apache License 2.0](LICENSE).
 
 Copyright 2026 [xdnloveme](https://github.com/xdnloveme/omni-agent).
+
+### Tool generation constraint migration
+
+Tool extensions use `inputConstraint: "off" | "prefer" | "require"`; the previous `strict`
+field is rejected. Migrate old `true` to `prefer`, old `false` to `off`, and leave undeclared
+tools unchanged. Configured providers can explicitly declare `compat.supportsStrictMode`
+(connection) or `supportsStrictMode` (model). Do not set support based only on API compatibility.
+Unknown support with `prefer` keeps ordinary calls working and records the reason in Trace;
+`require` fails before sending. See [the tool runtime contract](docs/tool-call-runtime.md).

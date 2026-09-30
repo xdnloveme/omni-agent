@@ -120,6 +120,7 @@ describe("InstructionScopeGate", () => {
     await expect(gate.evaluate(unboundedBatch(), { origin: "agent" })).resolves.toMatchObject({
       kind: "failed",
       code: "project_instruction_scope_undetermined",
+      source: { kind: "calls", toolCallIds: ["call"] },
     });
   });
 

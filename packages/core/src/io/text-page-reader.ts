@@ -1,7 +1,8 @@
+import { constants } from "node:fs";
 import fs, { type FileHandle } from "node:fs/promises";
 import { TextDecoder } from "node:util";
-import { createAbortError, throwIfAborted } from "@omni-agent/core";
-import { FileToolError } from "./file-errors";
+import { createAbortError, throwIfAborted } from "../execution/abort";
+import { TextReadError } from "./text-read-error";
 import {
   createFileSnapshot,
   snapshotsEqual,
@@ -56,18 +57,18 @@ export async function readTextPage(request: StreamingReadRequest): Promise<Strea
   throwIfAborted(request.signal);
   let handle: FileHandle | undefined;
   try {
-    handle = await fs.open(request.path, "r");
+    handle = await fs.open(request.path, constants.O_RDONLY | constants.O_NOFOLLOW);
     const initialStats = await handle.stat({ bigint: true });
     if (!initialStats.isFile()) {
-      throw new FileToolError("unsupported_file", "Target is not a regular file", false);
+      throw new TextReadError("unsupported_file", "Target is not a regular file", false);
     }
     if (initialStats.size > BigInt(Number.MAX_SAFE_INTEGER)) {
-      throw new FileToolError("unsupported_file", "File is too large to address safely", false);
+      throw new TextReadError("unsupported_file", "File is too large to address safely", false);
     }
     const initialSnapshot = createFileSnapshot(initialStats);
     const version = snapshotVersion(initialSnapshot);
     if (request.fileVersion !== undefined && request.fileVersion !== version) {
-      throw new FileToolError("file_changed", "File changed since the previous page", true);
+      throw new TextReadError("file_changed", "File changed since the previous page", true);
     }
 
     const fileSize = Number(initialStats.size);
@@ -166,12 +167,12 @@ export async function readTextPage(request: StreamingReadRequest): Promise<Strea
       : undefined;
     return finalize([lines.join("\n"), footer].filter(Boolean).join("\n"), pagination);
   } catch (error) {
-    if (error instanceof FileToolError) throw error;
+    if (error instanceof TextReadError) throw error;
     if (request.signal?.aborted) throw createAbortError(request.signal);
     if ((error as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new FileToolError("read_failed", "File not found", true);
+      throw new TextReadError("read_failed", "File not found", true);
     }
-    throw new FileToolError("read_failed", "Failed to read file", true);
+    throw new TextReadError("read_failed", "Failed to read file", true);
   } finally {
     await handle?.close().catch(() => undefined);
   }
@@ -179,7 +180,7 @@ export async function readTextPage(request: StreamingReadRequest): Promise<Strea
 
 function finalize(text: string, pagination: FilePagination): StreamingReadResult {
   if (Buffer.byteLength(text) > MAX_FILE_READ_OUTPUT_BYTES) {
-    throw new FileToolError("read_failed", "Formatted file page exceeded output budget", true);
+    throw new TextReadError("read_failed", "Formatted file page exceeded output budget", true);
   }
   return { text, pagination };
 }
@@ -321,11 +322,11 @@ async function verifyStableFile(
     const handleSnapshot = createFileSnapshot(await handle.stat({ bigint: true }));
     const pathSnapshot = createFileSnapshot(await fs.stat(path, { bigint: true }));
     if (!snapshotsEqual(expected, handleSnapshot) || !snapshotsEqual(expected, pathSnapshot)) {
-      throw new FileToolError("file_changed", "File changed while it was being read", true);
+      throw new TextReadError("file_changed", "File changed while it was being read", true);
     }
   } catch (error) {
-    if (error instanceof FileToolError) throw error;
-    throw new FileToolError("file_changed", "File changed while it was being read", true);
+    if (error instanceof TextReadError) throw error;
+    throw new TextReadError("file_changed", "File changed while it was being read", true);
   }
 }
 
@@ -367,26 +368,26 @@ function safeUtf8Prefix(bytes: Buffer, maximumBytes: number): Buffer {
       validateTextBytes(prefix);
       return prefix;
     } catch (error) {
-      if (!(error instanceof FileToolError)) throw error;
+      if (!(error instanceof TextReadError)) throw error;
     }
   }
   throw unsupportedText();
 }
 
-function unsupportedText(): FileToolError {
-  return new FileToolError("unsupported_file", "File is not valid UTF-8 text", false);
+function unsupportedText(): TextReadError {
+  return new TextReadError("unsupported_file", "File is not valid UTF-8 text", false);
 }
 
-function invalidOffset(totalLines: number): FileToolError {
-  return new FileToolError(
+function invalidOffset(totalLines: number): TextReadError {
+  return new TextReadError(
     "invalid_pagination",
     `Requested offset is beyond the end of the file (${totalLines} lines)`,
     false,
   );
 }
 
-function invalidLineOffset(): FileToolError {
-  return new FileToolError(
+function invalidLineOffset(): TextReadError {
+  return new TextReadError(
     "invalid_pagination",
     "line_byte_offset is outside the line or not on a UTF-8 boundary",
     false,

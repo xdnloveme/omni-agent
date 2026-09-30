@@ -276,6 +276,7 @@ describe("runAgentLoop", () => {
                       }
                     : {
                         kind: "failed" as const,
+                        source: { kind: "batch" as const },
                         code: "project_instruction_scope_undetermined",
                         message: "Declare bounded write paths",
                       };
@@ -312,6 +313,14 @@ describe("runAgentLoop", () => {
       ]) as never;
     });
     const events = await collectEvents(executeLoop(config, makeMessages("work")));
+    if (deferred) {
+      const deferredEvents = events.filter((event) => event.type === "tool_batch_deferred");
+      expect(deferredEvents).toHaveLength(4);
+      for (const event of deferredEvents) {
+        // Public events carry facts, never the Session's internal output capability.
+        expect(event).not.toHaveProperty("outputs");
+      }
+    }
     const shouldHalt = !deferred && scenario !== "turn_barrier";
     if (shouldHalt) {
       expect(modelCalls).toBe(4);
@@ -327,6 +336,94 @@ describe("runAgentLoop", () => {
     }
     expect(sibling.execute).not.toHaveBeenCalled();
   });
+
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    "attributes batch failure and recovers (revalidate=%s, siblingFirst=%s)",
+    async (revalidate, siblingFirst) => {
+      const blocker = makeTool("writer");
+      const sibling = makeTool("reader");
+      let evaluations = 0;
+      let turns = 0;
+      const config = makeConfig({
+        tools: [blocker, sibling],
+        toolBatchPreparationPolicies: [
+          {
+            evaluate: async (batch) => {
+              evaluations++;
+              if (evaluations !== (revalidate ? 2 : 1)) return { kind: "executable" as const };
+              return {
+                kind: "failed" as const,
+                code: "fixture_scope_missing",
+                message: "Original policy error: declare the writer's target.",
+                source: {
+                  kind: "calls" as const,
+                  toolCallIds: batch.calls
+                    .filter((call) => call.toolName === "writer")
+                    .map((call) => call.toolCallId),
+                },
+              };
+            },
+          },
+        ],
+      });
+      streamModel.mockImplementation(() => {
+        turns++;
+        const calls = [
+          { type: "toolCall" as const, id: `writer-${turns}`, name: "writer", arguments: {} },
+          { type: "toolCall" as const, id: `reader-${turns}`, name: "reader", arguments: {} },
+        ];
+        if (siblingFirst) calls.reverse();
+        return fakeStream([
+          {
+            type: "done",
+            message: {
+              content: turns <= 2 ? calls : [{ type: "text", text: "Finished" }],
+              stopReason: turns <= 2 ? "toolUse" : "stop",
+            },
+          },
+        ]) as never;
+      });
+      const events = await collectEvents(executeLoop(config, makeMessages("work")));
+      const results = events.filter((event) => event.type === "tool_end");
+      const failed = results.find((event) => event.toolCallId === "writer-1")!;
+      const blocked = results.find((event) => event.toolCallId === "reader-1")!;
+      expect(failed.result).toMatchObject({
+        isError: true,
+        content: [{ type: "text", text: "Original policy error: declare the writer's target." }],
+        meta: {
+          code: "fixture_scope_missing",
+          executed: false,
+          source: { kind: "calls", toolCallIds: ["writer-1"] },
+        },
+      });
+      expect(blocked.result).toMatchObject({
+        isError: true,
+        meta: {
+          code: "tool_batch_blocked",
+          executed: false,
+          source: { kind: "calls", toolCallIds: ["writer-1"] },
+          cause: {
+            code: "fixture_scope_missing",
+            message: "Original policy error: declare the writer's target.",
+          },
+        },
+      });
+      expect(blocked.result.content[0].text).toContain("writer-1");
+      expect(blocked.result.content[0].text).not.toContain("declare the writer's target");
+      expect(
+        results
+          .filter((event) => event.toolCallId.endsWith("-2"))
+          .every((event) => !event.result.isError),
+      ).toBe(true);
+      expect(blocker.execute).toHaveBeenCalledTimes(1);
+      expect(sibling.execute).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("starts each batch preparation policy at the Run boundary", async () => {
     const beginRun = vi.fn();
@@ -624,29 +721,266 @@ describe("runAgentLoop", () => {
     );
   });
 
-  it("does not mark a truncated text response as final", async () => {
-    streamModel.mockReturnValue(
-      fakeStream([
-        { type: "text_delta", delta: "partial" },
+  it("recovers truncated output without executing its tool calls or persisting recovery instructions", async () => {
+    const tool = makeTool();
+    streamModel
+      .mockImplementationOnce(
+        () =>
+          fakeStream([
+            {
+              type: "done",
+              message: {
+                content: [
+                  { type: "text", text: "partial" },
+                  {
+                    type: "toolCall",
+                    id: "truncated",
+                    name: tool.name,
+                    arguments: { input: "unsafe" },
+                  },
+                ],
+                stopReason: "length",
+              },
+            },
+          ]) as never,
+      )
+      .mockImplementationOnce(
+        () =>
+          fakeStream([
+            {
+              type: "done",
+              message: {
+                content: [{ type: "text", text: "Finished" }],
+                stopReason: "stop",
+              },
+            },
+          ]) as never,
+      );
+    const events = await collectEvents(
+      executeLoop(makeConfig({ tools: [tool] }), makeMessages("Respond")),
+    );
+    expect(streamModel).toHaveBeenCalledTimes(2);
+    expect(tool.execute).not.toHaveBeenCalled();
+    expect(events.filter((event) => event.type === "final_response")).toHaveLength(1);
+    expect(events.at(-1)?.type).toBe("done");
+    const retry = streamModel.mock.calls[1]![1];
+    expect(retry.systemPrompt).toContain("output limit");
+    expect(JSON.stringify(retry.messages)).not.toContain('"id":"truncated"');
+    const terminal = events.at(-1);
+    const produced = producedMessages(terminal?.type === "done" ? terminal.produced : undefined);
+    expect(produced.some((message) => message.role === "user")).toBe(false);
+    expect(produced[0]).toMatchObject({ stopReason: "length" });
+  });
+
+  it("does not dispatch a recovery after cancellation", async () => {
+    const controller = new AbortController();
+    streamModel.mockImplementation(
+      () =>
+        fakeStream([
+          {
+            type: "done",
+            message: {
+              content: [{ type: "text", text: "partial" }],
+              stopReason: "length",
+            },
+          },
+        ]) as never,
+    );
+    const config = makeConfig({
+      middleware: [
         {
-          type: "done",
-          message: {
-            content: [{ type: "text", text: "partial" }],
-            stopReason: "length",
+          afterModel() {
+            controller.abort();
           },
         },
-      ]) as never,
-    );
+      ],
+    });
+    await expect(
+      collectEvents(executeLoop(config, makeMessages("Respond"), controller.signal)),
+    ).rejects.toThrow();
+    expect(streamModel).toHaveBeenCalledTimes(1);
+  });
 
+  it("respects the original turn limit during output recovery", async () => {
+    streamModel.mockImplementation(
+      () =>
+        fakeStream([
+          {
+            type: "done",
+            message: {
+              content: [],
+              stopReason: "length",
+            },
+          },
+        ]) as never,
+    );
+    const events = await collectEvents(
+      executeLoop(makeConfig({ maxTurns: 2 }), makeMessages("Respond")),
+    );
+    expect(streamModel).toHaveBeenCalledTimes(2);
+    expect(events.at(-1)).toMatchObject({ type: "error" });
+    expect(events.some((event) => event.type === "done")).toBe(false);
+  });
+
+  it("uses provider capacity and recomputes the request budget from prepared context", async () => {
+    streamModel.mockImplementation(
+      () => fakeStream([{ type: "done", message: { content: [], stopReason: "stop" } }]) as never,
+    );
+    const config = makeConfig();
+    config.model = {
+      ...config.model,
+      contextWindow: 200_000,
+      modelMaxOutputTokens: 128_000,
+      requestedOutputTokens: 128_000,
+    };
+    await collectEvents(executeLoop(config, makeMessages("Hello")));
+    expect(streamModel.mock.calls[0]![2].maxOutputTokens).toBe(128_000);
+    streamModel.mockClear();
+    await collectEvents(executeLoop(config, makeMessages("large input ".repeat(36_000))));
+    const [, context, options] = streamModel.mock.calls[0]!;
+    expect(options.maxOutputTokens).toBeLessThan(128_000);
+    expect(options.maxOutputTokens).toBeGreaterThan(16_384);
+    expect(options.maxOutputTokens).toBe(
+      (context as import("../context").PreparedModelContext).manifest.requestedOutputTokens,
+    );
+  });
+
+  it("keeps completed tool effects across a truncated response", async () => {
+    const tool = makeTool();
+    streamModel
+      .mockImplementationOnce(
+        () =>
+          fakeStream([
+            {
+              type: "done",
+              message: {
+                content: [
+                  {
+                    type: "toolCall",
+                    id: "executed",
+                    name: tool.name,
+                    arguments: { input: "once" },
+                  },
+                ],
+                stopReason: "toolUse",
+              },
+            },
+          ]) as never,
+      )
+      .mockImplementationOnce(
+        () =>
+          fakeStream([
+            {
+              type: "done",
+              message: {
+                content: [{ type: "text", text: "partial" }],
+                stopReason: "length",
+              },
+            },
+          ]) as never,
+      )
+      .mockImplementationOnce(
+        () =>
+          fakeStream([
+            {
+              type: "done",
+              message: {
+                content: [{ type: "text", text: "finished" }],
+                stopReason: "stop",
+              },
+            },
+          ]) as never,
+      );
+    const events = await collectEvents(
+      executeLoop(makeConfig({ tools: [tool] }), makeMessages("Respond")),
+    );
+    expect(tool.execute).toHaveBeenCalledTimes(1);
+    expect(
+      streamModel.mock.calls[2]![1].messages.some(
+        (message) => message.role === "toolResult" && message.toolCallId === "executed",
+      ),
+    ).toBe(true);
+    expect(events.at(-1)?.type).toBe("done");
+  });
+
+  it("fails safely before replaying a signed truncated tool envelope", async () => {
+    const tool = makeTool();
+    streamModel.mockImplementation(
+      () =>
+        fakeStream([
+          {
+            type: "done",
+            message: {
+              content: [
+                { type: "thinking", thinking: "partial", thinkingSignature: "signature" },
+                { type: "toolCall", id: "signed", name: tool.name, arguments: {} },
+              ],
+              stopReason: "length",
+            },
+          },
+        ]) as never,
+    );
+    const events = await collectEvents(
+      executeLoop(makeConfig({ tools: [tool] }), makeMessages("Respond")),
+    );
+    expect(streamModel).toHaveBeenCalledTimes(1);
+    expect(tool.execute).not.toHaveBeenCalled();
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      failure: { message: expect.stringContaining("signed") },
+    });
+  });
+
+  it("cancels an in-flight recovery without another request", async () => {
+    const controller = new AbortController();
+    streamModel
+      .mockImplementationOnce(
+        () =>
+          fakeStream([
+            {
+              type: "done",
+              message: {
+                content: [],
+                stopReason: "length",
+              },
+            },
+          ]) as never,
+      )
+      .mockImplementationOnce(async function* (_selection, _request, options) {
+        expect(options.signal).toBe(controller.signal);
+        controller.abort();
+        throw new DOMException("Cancelled", "AbortError");
+      });
+    await expect(
+      collectEvents(executeLoop(makeConfig(), makeMessages("Respond"), controller.signal)),
+    ).rejects.toThrow();
+    expect(streamModel).toHaveBeenCalledTimes(2);
+  });
+
+  it("fails after three recovery attempts instead of completing truncated output", async () => {
+    streamModel.mockImplementation(
+      () =>
+        fakeStream([
+          {
+            type: "done",
+            message: {
+              content: [{ type: "thinking", thinking: "unfinished" }],
+              stopReason: "length",
+            },
+          },
+        ]) as never,
+    );
     const events = await collectEvents(
       executeLoop(makeConfig({ tools: [] }), makeMessages("Respond")),
     );
-
-    expect(events).toContainEqual(
-      expect.objectContaining({ type: "text_delta", delta: "partial" }),
+    expect(streamModel).toHaveBeenCalledTimes(4);
+    expect(events.at(-1)).toMatchObject({
+      type: "error",
+      failure: { code: "model_output_recovery_exhausted" },
+    });
+    expect(events.some((event) => event.type === "done" || event.type === "final_response")).toBe(
+      false,
     );
-    expect(events.some((event) => event.type === "final_response")).toBe(false);
-    expect(events.at(-1)).toEqual(expect.objectContaining({ type: "done" }));
   });
 
   it("forwards thinking identity and starts a new text segment across thinking", async () => {
@@ -1387,6 +1721,27 @@ describe("runAgentLoop", () => {
         toolName: "bash",
       });
     }
+  });
+
+  it("stops before tool execution when Models rejects a required constraint", async () => {
+    const tool = makeTool();
+    const failure = {
+      code: "model_tool_constraint_unsatisfied",
+      message: "Provider capability unknown",
+      retryable: false,
+    };
+    let afterReport = false;
+    streamModel.mockImplementation(async function* () {
+      yield { type: "tool_constraint_report", report: { decisions: [], failure } };
+      afterReport = true;
+      throw new Error("Must not request the provider after rejection");
+    });
+    const events = await collectEvents(
+      executeLoop(makeConfig({ tools: [tool] }), makeMessages("work")),
+    );
+    expect(events.at(-1)).toMatchObject({ type: "error", failure });
+    expect(tool.execute).not.toHaveBeenCalled();
+    expect(afterReport).toBe(false);
   });
 
   it("should stop with error when maxTurns is reached", async () => {

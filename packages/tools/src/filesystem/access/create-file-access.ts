@@ -14,7 +14,7 @@ export function createFileAccess(options: {
     async assess(input, context) {
       const value = input[options.parameter];
       if (typeof value !== "string") throw new Error(`${options.parameter} must be a string`);
-      return assessFilesystemAccess(value, context.cwd, options.access, context.hostRuntime);
+      return assessFilesystemAccess(value, context, options.access, context.hostRuntime);
     },
   };
 }

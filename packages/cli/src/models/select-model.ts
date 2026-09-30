@@ -1,6 +1,6 @@
 import {
   ProviderRegistrationCoordinator,
-  type ModelService,
+  type ModelAdministration,
   type ModelSelection,
 } from "@omni-agent/app";
 import type { JsonValue } from "@omni-agent/core";
@@ -8,7 +8,7 @@ import { formatSettingDefault, parseSettingValue } from "./model-settings";
 import type { OnboardingInteractionPort } from "../host-services";
 
 export async function selectModel(
-  modelService: ModelService,
+  modelService: ModelAdministration,
   prepareProvider: (providerId: string) => Promise<void>,
   interaction: OnboardingInteractionPort,
 ): Promise<ModelSelection> {
@@ -69,7 +69,7 @@ export async function selectModel(
 }
 
 async function selectCustomModel(
-  modelService: ModelService,
+  modelService: ModelAdministration,
   prepareProvider: (providerId: string) => Promise<void>,
   interaction: OnboardingInteractionPort,
 ): Promise<ModelSelection> {

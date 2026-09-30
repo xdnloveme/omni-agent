@@ -1,3 +1,4 @@
+import { resolveToolConstraints } from "../runtime/tool-constraints";
 import { describe, expect, it } from "vitest";
 import type { ModelContextMessage } from "@omni-agent/core";
 import {
@@ -196,11 +197,17 @@ describe("model request boundary", () => {
           name: "inspect",
           description: "Inspect",
           schema: { type: "object", properties: { path: { type: "string" } } },
-          strict: true,
+          inputConstraint: "prefer",
         },
       ],
     } as const;
-    const context = toBackendContext(request);
+    const context = toBackendContext(
+      request,
+      resolveToolConstraints(request.tools, "openai-completions", {
+        state: "unknown",
+        source: "unknown",
+      }).decisions,
+    );
 
     (
       context.tools?.[0].parameters as unknown as {
@@ -217,6 +224,7 @@ describe("model request boundary", () => {
           name: "inspect",
           description: "Inspect",
           parameters: { type: "object", properties: { path: { type: "number" } } },
+          constrainedSampling: false,
         },
       ],
     });

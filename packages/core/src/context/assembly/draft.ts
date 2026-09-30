@@ -35,6 +35,6 @@ export function cloneModelToolSpec(tool: ModelToolSpec): ModelToolSpec {
     name: tool.name,
     description: tool.description,
     schema: cloneData(tool.schema),
-    ...(tool.strict === undefined ? {} : { strict: tool.strict }),
+    ...(tool.inputConstraint === undefined ? {} : { inputConstraint: tool.inputConstraint }),
   };
 }

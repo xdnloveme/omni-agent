@@ -15,6 +15,7 @@ export function createProviderContribution(
   provider: Provider,
   credentialAliases: readonly string[] = [],
   cacheCapability?: ProviderCacheCapabilityDeclaration,
+  resolveToolConstraintCapability?: ProviderContribution["resolveToolConstraintCapability"],
 ): ProviderContribution {
   if (!provider.id.trim()) throw new Error("Provider id is required");
   if (!provider.auth.apiKey && !provider.auth.oauth) {
@@ -25,6 +26,7 @@ export function createProviderContribution(
     id: provider.id,
     credentialAliases: [...new Set(credentialAliases)],
     ...(resolveCacheCapability ? { resolveCacheCapability } : {}),
+    ...(resolveToolConstraintCapability ? { resolveToolConstraintCapability } : {}),
     [providerContributionBrand]: true as const,
   };
   providers.set(contribution, provider);

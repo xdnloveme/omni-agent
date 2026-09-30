@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import { ToolAccessController } from "../access";
 import { ToolInvocationRunner } from "../execution";
 import { ToolCallCoordinator, ToolInputValidator } from "../tool-calls";
+import { evaluateToolBatchPolicies } from "../tool-calls/preparation-policies";
+import type { PreparedToolBatch } from "../tool-calls";
 import type { RegisteredAgentTool } from "../types";
 
 describe("ToolCallCoordinator process planning", () => {
@@ -211,4 +213,37 @@ describe("ToolCallCoordinator process planning", () => {
       "lifecycle-end",
     ]);
   });
+});
+
+describe("batch policy failure attribution", () => {
+  it.each([[], ["missing"], ["ready", "ready"], ["failed"]].map((ids) => ({ ids })))(
+    "fails closed for invalid source calls %j",
+    async ({ ids }) => {
+      const batch = {
+        calls: [
+          { toolCallId: "ready", preparation: "ready" },
+          { toolCallId: "failed", preparation: "failed" },
+        ],
+      } as unknown as PreparedToolBatch;
+      const decision = await evaluateToolBatchPolicies(
+        [
+          {
+            evaluate: async () => ({
+              kind: "failed",
+              code: "original",
+              message: "original",
+              source: { kind: "calls", toolCallIds: ids },
+            }),
+          },
+        ],
+        batch,
+        { origin: "agent" },
+      );
+      expect(decision).toMatchObject({
+        kind: "failed",
+        code: "tool_batch_preparation_failed",
+        source: { kind: "batch" },
+      });
+    },
+  );
 });

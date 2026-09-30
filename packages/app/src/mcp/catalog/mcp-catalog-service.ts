@@ -90,7 +90,7 @@ export class McpCatalogService {
       name: mcpToolName(config.id, tool.name),
       description: tool.description ?? `MCP tool ${tool.name} from ${config.id}`,
       schema: tool.inputSchema as Record<string, unknown>,
-      strict: true,
+      inputConstraint: "prefer",
       timeout: { kind: "fixed", timeoutMs: 120_000 },
       execution: { kind: "in_process" },
       access:

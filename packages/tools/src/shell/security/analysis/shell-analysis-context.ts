@@ -78,9 +78,12 @@ export function changeDirectory(
   context: ShellAnalysisContext,
   target: string | undefined,
 ): ShellAnalysisContext {
-  if (!target || context.cwd === "unknown") return { ...context, cwd: "unknown" };
-  const cwd = path.resolve(context.cwd, target);
   const variables = new Map(context.literalVariables);
+  if (!target || (context.cwd === "unknown" && !path.isAbsolute(target))) {
+    variables.delete("PWD");
+    return { ...context, cwd: "unknown", literalVariables: variables };
+  }
+  const cwd = path.isAbsolute(target) ? path.resolve(target) : path.resolve(context.cwd, target);
   variables.set("PWD", cwd);
   return { ...context, cwd, literalVariables: variables };
 }

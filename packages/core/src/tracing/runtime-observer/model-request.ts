@@ -13,6 +13,7 @@ export function modelRequestReplayInput(fact: RuntimeModelRequestCapturedFact): 
       manifest: fact.context.manifest,
       snapshotId: fact.context.snapshotId,
       selection: fact.selection,
+      ...(fact.recovery ? { recovery: fact.recovery } : {}),
     }),
   };
 }

@@ -27,6 +27,8 @@ export async function discoverShellScriptRequirements(
   const analysis = await analyzeShellCommand({
     command: source,
     cwd: path.dirname(scriptPath),
+    // Cached dependency discovery uses a file-local analysis root, not call authorization.
+    workspaceRoot: path.dirname(scriptPath),
     signal,
     environment: {
       platform: snapshot.platform,

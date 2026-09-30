@@ -209,6 +209,7 @@ describe("model cache infrastructure", () => {
       ...primaryOptions("summary-1"),
       identity: { ...primaryOptions("summary-1").identity, purpose: "auxiliary" as const },
       cache: { retention: "default" as const },
+      maxOutputTokens: selection.requestedOutputTokens,
     };
 
     const first = await collect(runtime.stream(selection, request, options));
@@ -567,6 +568,7 @@ function primaryOptions(modelCallId: string) {
       purpose: "primary" as const,
     },
     cache: { retention: "default" as const },
+    maxOutputTokens: selection.requestedOutputTokens,
   };
 }
 

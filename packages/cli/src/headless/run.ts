@@ -10,6 +10,7 @@ export interface HeadlessRunOptions {
   readonly requestId: string;
   readonly input: string;
   readonly signal: AbortSignal;
+  readonly deadlineAtMs?: number;
   readonly onSession: (session: AgentServiceSession) => Promise<void>;
   readonly onLifecycle?: (phase: "session.close.started" | "session.close.completed") => void;
   readonly onEvent: (event: AgentServiceEvent) => void;
@@ -27,6 +28,7 @@ export async function runHeadless(options: HeadlessRunOptions): Promise<Headless
       {
         ...session,
         requestId: options.requestId,
+        deadlineAtMs: options.deadlineAtMs,
         input: { type: "text", text: options.input },
       },
       options.signal,

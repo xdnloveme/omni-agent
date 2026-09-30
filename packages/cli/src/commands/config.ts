@@ -40,7 +40,10 @@ export function createConfigCommand(
         if (action === "use-shared") {
           await app.useSharedModel();
         } else {
-          const result = await runOnboarding(app.modelService, interaction);
+          const administration = app.modelService.administration;
+          if (!administration)
+            throw new Error("Model configuration is owned by the external execution service");
+          const result = await runOnboarding(administration, interaction);
           if (action === "agent") await app.setAgentModel(result.selection);
           else await app.setSharedModel(result.selection);
         }

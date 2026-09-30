@@ -59,3 +59,16 @@ describe("bashTool", () => {
     expect(result.content[0].text).toContain("truncated");
   });
 });
+
+it("preserves native pipeline and explicit failure-handling semantics", async () => {
+  const native = await invokeToolImplementation(bashTool, { command: "exit 17 | cat" });
+  expect(native.isError).toBe(false);
+  expect(native.meta).toMatchObject({ process: { exitCode: 0, signal: null } });
+  const propagated = await invokeToolImplementation(bashTool, {
+    command: "set -o pipefail; exit 17 | cat",
+  });
+  expect(propagated.isError).toBe(true);
+  expect(propagated.meta).toMatchObject({ process: { exitCode: 17 } });
+  const handled = await invokeToolImplementation(bashTool, { command: "false || true" });
+  expect(handled.meta).toMatchObject({ process: { exitCode: 0 } });
+});

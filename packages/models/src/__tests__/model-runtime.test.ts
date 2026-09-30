@@ -332,6 +332,7 @@ describe("ModelRuntime", () => {
     const selection = modelSelection("wire", "wire", "wire-model", 32_000, 1_024);
     const firstMessage = { role: "user" as const, content: "hello" };
     const options = executionOptions({
+      maxOutputTokens: 1_024,
       providerCache: { cacheRetention: "long", sessionId: "stable-scope" },
     });
 
@@ -350,10 +351,23 @@ describe("ModelRuntime", () => {
     );
 
     const [first, resumed] = payloads as Array<{
+      max_tokens?: number;
+      max_completion_tokens?: number;
       prompt_cache_key?: string;
       prompt_cache_retention?: string;
       messages?: unknown[];
     }>;
+    expect(first.max_tokens ?? first.max_completion_tokens).toBe(1_024);
+    await expect(
+      drain(
+        runtime.stream(
+          selection,
+          { systemPrompt: "system", messages: [firstMessage] },
+          { ...options, maxOutputTokens: 2_048 },
+        ),
+      ),
+    ).rejects.toThrow("Invalid prepared model output budget");
+    expect(payloads).toHaveLength(2);
     expect(first.prompt_cache_key).toBe("stable-scope");
     expect(resumed.prompt_cache_key).toBe(first.prompt_cache_key);
     expect(first.prompt_cache_retention).toBe("24h");

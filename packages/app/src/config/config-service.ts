@@ -1,3 +1,7 @@
+import {
+  DEFAULT_OUTPUT_LIMITS,
+  type OutputStorageLimits,
+} from "../persistence/session-artifact-store";
 import { join, resolve } from "node:path";
 import { isAgentId } from "@omni-agent/core";
 import { containsSecretField, type ConfigurationScope } from "@omni-agent/models";
@@ -85,6 +89,17 @@ export class ConfigService {
       if (layer.config?.mcp !== undefined) return parseMcpConfiguration(layer.config.mcp, source);
     }
     return { servers: [], diagnostics: [] };
+  }
+
+  async resolveOutputLimits(): Promise<OutputStorageLimits> {
+    const layers = await this.loadLayers();
+    for (const source of ["project", "global"] as const) {
+      const layer = layers[source];
+      if (layer.present && !layer.config) throw new Error(`Invalid ${source} output configuration`);
+      if (layer.config?.outputRetention)
+        return { ...DEFAULT_OUTPUT_LIMITS, ...layer.config.outputRetention };
+    }
+    return DEFAULT_OUTPUT_LIMITS;
   }
 
   async saveSharedModel(
@@ -200,6 +215,19 @@ function parseOmniConfig(value: unknown): OmniConfig | null {
       !Object.entries(config.agents).every(
         ([agentId, entry]) =>
           isAgentId(agentId) && isRecord(entry) && isModelSelection(entry.model),
+      )
+    )
+      return null;
+  }
+  if (config.outputRetention !== undefined) {
+    if (!isRecord(config.outputRetention)) return null;
+    if (
+      !Object.entries(config.outputRetention).every(
+        ([key, number]) =>
+          ["previewBytes", "callBytes", "sessionBytes"].includes(key) &&
+          typeof number === "number" &&
+          Number.isSafeInteger(number) &&
+          number > 0,
       )
     )
       return null;

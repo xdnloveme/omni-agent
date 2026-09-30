@@ -75,6 +75,22 @@ describe("Runtime Trace observers", () => {
       delta: "hello",
     });
     model.output({
+      kind: "tool_constraints_reported",
+      modelCallId: "model-call",
+      report: {
+        decisions: [
+          {
+            toolName: "inspect",
+            intent: "prefer",
+            capability: { state: "unknown", source: "unknown" },
+            schema: "not_checked",
+            outcome: "disabled",
+            reason: "capability_unknown",
+          },
+        ],
+      },
+    });
+    model.output({
       kind: "cache_reported",
       report: {
         outcome: "success",
@@ -135,6 +151,12 @@ describe("Runtime Trace observers", () => {
       "gen_ai.usage.input_tokens": 3,
       "gen_ai.usage.output_tokens": 1,
     });
+    expect(replay.find((event) => event.kind === "model.tool_constraints.reported")).toMatchObject({
+      correlation: { modelCallId: "model-call" },
+      payload: {
+        event: { report: { decisions: [{ outcome: "disabled", reason: "capability_unknown" }] } },
+      },
+    });
     expect(replay.map((event) => event.kind)).toEqual([
       "run.started",
       "user.input",
@@ -143,6 +165,7 @@ describe("Runtime Trace observers", () => {
       "model.request.captured",
       "model.started",
       "model.text.delta",
+      "model.tool_constraints.reported",
       "model.cache.reported",
       "model.completed",
       "agent.final_response",
@@ -156,7 +179,7 @@ describe("Runtime Trace observers", () => {
         messages: [{ role: "user", content: "hello" }],
       },
     });
-    expect(replay[7]).toMatchObject({
+    expect(replay.find((event) => event.kind === "model.cache.reported")).toMatchObject({
       kind: "model.cache.reported",
       correlation: { modelCallId: "model-call" },
       payload: {
@@ -240,7 +263,7 @@ describe("Runtime Trace observers", () => {
       .fail({ error: new Error("access failed") });
     call
       .startExecution({ toolName: "tool", toolCallId: "tool-call", batchId: "batch" })
-      .cancel({ error: new Error("execution cancelled") });
+      .cancel({ error: new Error("execution cancelled"), outputPersistenceFailure: "seal failed" });
     call.cancel({ error: new Error("call cancelled") });
     call.fail({ error: new Error("late failure") });
     batch.cancel({ error: new Error("batch cancelled") });
@@ -266,6 +289,9 @@ describe("Runtime Trace observers", () => {
       "turn.cancelled",
       "run.cancelled",
     ]);
+    expect(
+      replay.find((event) => event.kind === "tool.execution.cancelled")?.payload,
+    ).toMatchObject({ outputPersistenceFailure: "seal failed" });
   });
 });
 

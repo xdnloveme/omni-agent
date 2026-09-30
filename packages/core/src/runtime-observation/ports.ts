@@ -7,6 +7,7 @@ import type {
   RuntimeContextProgressFact,
   RuntimeContextStartedFact,
   RuntimeExecutionCompletedFact,
+  RuntimeExecutionCancelledFact,
   RuntimeExecutionStartedFact,
   RuntimeExecutionTimedOutFact,
   RuntimeFailedFact,
@@ -121,5 +122,5 @@ export interface RuntimeExecutionObservation extends RuntimeObservationScope {
   complete(fact: RuntimeExecutionCompletedFact): void;
   timeout(fact: RuntimeExecutionTimedOutFact): void;
   fail(fact: RuntimeFailedFact): void;
-  cancel(fact: RuntimeCancelledFact): void;
+  cancel(fact: RuntimeExecutionCancelledFact): void;
 }

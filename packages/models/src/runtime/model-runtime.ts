@@ -18,6 +18,8 @@ import type { ProviderContribution } from "../vendors/provider-contribution-type
 import type { VendorRegistry } from "../vendors/registry";
 import { fromBackendMessage, toBackendContext } from "./message-mapper";
 import type { ModelTransportEvent, ModelTransportExecutionOptions } from "../cache/contracts";
+import { catalogToolConstraintCapability, resolveToolConstraints } from "./tool-constraints";
+import { throwIfAborted } from "@omni-agent/core";
 import { resolveModelCacheCapability } from "../cache/capability";
 
 export interface ModelRuntimeOptions {
@@ -165,7 +167,43 @@ export class ModelRuntime {
     const model = selection.requestModelId
       ? { ...catalogModel, id: selection.requestModelId }
       : catalogModel;
-    const stream = this.models.streamSimple(model, toBackendContext(request), {
+    // The prepared request is authoritative. Never silently change its budget here.
+    if (
+      !Number.isSafeInteger(options.maxOutputTokens) ||
+      options.maxOutputTokens < 1 ||
+      options.maxOutputTokens > catalogModel.maxTokens ||
+      options.maxOutputTokens >= selection.contextWindow
+    ) {
+      throw new Error("Invalid prepared model output budget");
+    }
+    throwIfAborted(options.signal);
+    // A request-facing deployment override cannot inherit unverified catalog capabilities.
+    const capability =
+      selection.requestModelId && selection.requestModelId !== catalogModel.id
+        ? { state: "unknown" as const, source: "unknown" as const }
+        : (this.providers
+            .get(selection.providerId)
+            ?.resolveToolConstraintCapability?.({ id: model.id, compat: model.compat }) ??
+          catalogToolConstraintCapability(model.compat));
+    const constraints = resolveToolConstraints(request.tools, model.api, capability);
+    // Compile before yielding observations so callers cannot alter a verified schema mid-request.
+    const context = constraints.failure
+      ? undefined
+      : toBackendContext(request, constraints.decisions);
+    if (constraints.decisions.length)
+      yield { type: "tool_constraint_report", report: structuredClone(constraints) };
+    if (constraints.failure)
+      throw Object.assign(new Error(constraints.failure.message), constraints.failure);
+    throwIfAborted(options.signal);
+    // Normalize protocol capability spelling only after the capability has been resolved.
+    const wireModel =
+      model.api === "anthropic-messages"
+        ? {
+            ...model,
+            compat: { ...model.compat, supportsStrictTools: capability.state === "supported" },
+          }
+        : model;
+    const stream = this.models.streamSimple(wireModel, context!, {
       signal: options.signal,
       timeoutMs: options.timeoutMs,
       maxRetries: options.maxRetries,
@@ -173,7 +211,7 @@ export class ModelRuntime {
       headers: selection.requestHeaders,
       sessionId: options.providerCache.sessionId,
       cacheRetention: options.providerCache.cacheRetention,
-      maxTokens: Math.min(options.maxOutputTokens, catalogModel.maxTokens),
+      maxTokens: options.maxOutputTokens,
       onPayload: this.onPayload,
     });
     let streamedText = "";

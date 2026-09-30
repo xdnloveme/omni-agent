@@ -20,6 +20,8 @@ export interface ToolExecutionContext {
   cwd: string;
   signal?: AbortSignal;
   network?: AuthorizedNetworkClient;
+  outputs?: import("./output").SessionOutputPort;
+  outputCall?: import("./output").OutputCallContext;
 }
 
 export type ToolExecutionStrategy = { kind: "in_process" } | { kind: "process" };
@@ -89,10 +91,16 @@ export interface ProcessInvocation {
   readonly cwd: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly maxOutputBytes: number;
+  /** Human-facing streams may retain both ends; parsers keep the default prefix semantics. */
+  readonly outputPreview?: "head-tail";
   readonly sensitiveValues?: SensitiveValueSet;
 }
 
 export interface ProcessResult {
+  readonly outputSource?: {
+    readonly outputId: string;
+    readonly streams: Readonly<Partial<Record<"stdout" | "stderr", string>>>;
+  };
   readonly stdout: string;
   readonly stderr: string;
   readonly stdoutTruncated: boolean;
@@ -102,7 +110,11 @@ export interface ProcessResult {
 }
 
 export interface ProcessExecutionRouterPort {
-  run(plan: ProcessExecutionPlan, signal?: AbortSignal): Promise<ProcessResult>;
+  run(
+    plan: ProcessExecutionPlan,
+    signal?: AbortSignal,
+    output?: import("./output").OutputCallContext,
+  ): Promise<ProcessResult>;
 }
 
 export interface ProcessExecutionPlanningRequest {

@@ -1,3 +1,4 @@
+import { configuredToolConstraintCapability } from "../../runtime/tool-constraints";
 import {
   createProvider,
   envApiKeyAuth,
@@ -60,7 +61,11 @@ export const compatibleProviderFactory: ConnectionProviderFactory<CompatibleConn
     } as const;
     const fetchModels = config.fetchModels;
     const mapModel = (model: CompatibleModelDefinition) =>
-      applyPortableProtocolPolicy(toProviderModel(model, modelContext), config.compat);
+      applyPortableProtocolPolicy(
+        toProviderModel(model, modelContext),
+        config.compat,
+        model.supportsStrictMode,
+      );
     return [
       createProviderContribution(
         createProvider({
@@ -84,6 +89,12 @@ export const compatibleProviderFactory: ConnectionProviderFactory<CompatibleConn
         }),
         config.credentialAliases,
         config.cacheCapability,
+        (model) =>
+          configuredToolConstraintCapability(
+            model,
+            config.models,
+            config.compat?.supportsStrictMode,
+          ),
       ),
     ];
   },
@@ -92,15 +103,20 @@ export const compatibleProviderFactory: ConnectionProviderFactory<CompatibleConn
 function applyPortableProtocolPolicy(
   model: Model<Api>,
   compat: CompatibleProviderCompat | undefined,
+  modelStrictMode: boolean | undefined,
 ): Model<Api> {
+  const mergedCompat = {
+    ...model.compat,
+    ...compat,
+    ...(modelStrictMode === undefined ? {} : { supportsStrictMode: modelStrictMode }),
+  };
   if (model.api !== "openai-completions" && model.api !== "openai-responses") {
-    return compat ? ({ ...model, compat: { ...model.compat, ...compat } } as Model<Api>) : model;
+    return compat ? ({ ...model, compat: mergedCompat } as Model<Api>) : model;
   }
   return {
     ...model,
     compat: {
-      ...model.compat,
-      ...compat,
+      ...mergedCompat,
       supportsDeveloperRole: false,
     },
   } as Model<Api>;

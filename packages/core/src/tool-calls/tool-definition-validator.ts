@@ -29,8 +29,14 @@ export class ToolDefinitionValidator {
       throw new Error(`Tool schema is required: ${tool.name}`);
     }
     this.inputValidator.assertValidSchema(tool.schema);
-    if (tool.strict !== undefined && typeof tool.strict !== "boolean") {
-      throw new Error(`Invalid strict schema setting: ${tool.name}`);
+    if (tool.outputReader !== undefined && tool.outputReader !== true)
+      throw new Error(`Invalid output reader capability: ${tool.name}`);
+    if ("strict" in tool) throw new Error(`Tool ${tool.name}: replace strict with inputConstraint`);
+    if (
+      tool.inputConstraint !== undefined &&
+      !["off", "prefer", "require"].includes(tool.inputConstraint)
+    ) {
+      throw new Error(`Invalid input constraint: ${tool.name}`);
     }
     if (
       tool.preflight !== undefined &&

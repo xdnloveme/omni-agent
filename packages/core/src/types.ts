@@ -21,11 +21,13 @@ import type {
 import type { SessionRecord, SessionSnapshot } from "./session";
 import type { RuntimeRunObservation } from "./runtime-observation";
 
+import type { ToolInputConstraint } from "./models/runtime";
+
 interface AgentToolDefinitionBase {
   name: string;
   description: string;
   schema: Record<string, unknown>;
-  strict?: boolean;
+  inputConstraint?: ToolInputConstraint;
   preflight?: ToolPreflightDescriptor;
   timeout: ToolTimeoutPolicy;
   access: ToolAccessDescriptor;
@@ -33,6 +35,8 @@ interface AgentToolDefinitionBase {
   invocation?: ToolInvocationPresentation;
   scheduling?: ToolSchedulingPolicy;
   context?: ToolContextPolicy;
+  /** Declares access to the Session output capability; independent of the tool name. */
+  outputReader?: true;
 }
 
 export interface InProcessToolDefinition extends AgentToolDefinitionBase {
@@ -121,7 +125,13 @@ export function isProcessTool(
 }
 
 export type ToolResultContent =
-  | { type: "text"; text: string; annotations?: ToolContentAnnotations }
+  | {
+      type: "text";
+      text: string;
+      annotations?: ToolContentAnnotations;
+      /** Runtime-only captured-body or page declaration. Travels with its text block, never its array slot. */
+      readonly outputSource?: import("./execution/output").ToolOutputSource;
+    }
   | {
       type: "image";
       data: string;
@@ -179,6 +189,12 @@ export interface ToolResultPresentationData {
 }
 
 export interface ToolResultMetadata extends Record<string, unknown> {
+  readonly output?: import("./execution/output").OutputRecord;
+  /** Existing record read by this call, distinct from output created by this call. */
+  readonly outputRead?: {
+    readonly outputId: string;
+    readonly partId: string;
+  };
   readonly presentation?: ToolResultPresentationData;
 }
 

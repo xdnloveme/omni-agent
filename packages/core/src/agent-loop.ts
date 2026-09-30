@@ -2,6 +2,7 @@ import type { StreamSession } from "./stream/index";
 import { throwIfAborted } from "./execution";
 import { createLoopProtection } from "./loop-protection";
 import { WorkingConversation } from "./agent/workingConversation";
+import { OutputRecovery } from "./agent/loop/output-recovery";
 import { runLoopIteration } from "./agent/loop/orchestrator";
 import { maxTurnsFailure } from "./agent/loop/failures";
 import { NOOP_RUNTIME_RUN_OBSERVATION } from "./runtime-observation";
@@ -13,6 +14,8 @@ import { dispatchPostEventHooks } from "./hooks";
 export interface AgentLoopOptions {
   /** Optional StreamSession for state-machine-driven event dispatch */
   session?: StreamSession;
+  readonly outputs?: import("./execution/output").SessionOutputPort;
+  readonly deadline?: import("./execution/run-deadline").RunDeadline;
 }
 
 /**
@@ -45,6 +48,7 @@ export async function* runAgentLoop(input: AgentLoopInput): AsyncGenerator<Agent
             middleware: input.config.middleware ?? [],
             lifecycleAdapters: input.config.toolLifecycleAdapters ?? [],
             origin: "hook",
+            outputs: input.options?.outputs,
           },
           signal: input.signal,
         },
@@ -61,6 +65,7 @@ async function* runIterations(
   const maxTurns = input.config.maxTurns;
   const session = input.options?.session;
   const loopProtection = createLoopProtection();
+  const outputRecovery = new OutputRecovery();
   const runObservation = input.observation ?? NOOP_RUNTIME_RUN_OBSERVATION;
   let lastUsage: TokenUsage | undefined;
 
@@ -85,6 +90,9 @@ async function* runIterations(
         modelRuntime: input.modelRuntime,
         toolCallCoordinator: input.toolCallCoordinator,
         loopProtection,
+        outputRecovery,
+        deadline: input.options?.deadline,
+        outputs: input.options?.outputs,
         runObservation,
         session,
         signal: input.signal,

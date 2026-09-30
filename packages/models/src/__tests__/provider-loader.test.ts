@@ -113,6 +113,29 @@ describe("ProviderRepository", () => {
     );
   });
 
+  it("preserves explicit connection and model strict capabilities without inferring support", async () => {
+    const { cwd, globalDirectory } = workspace();
+    writeProviders(join(cwd, "omni.providers.json"), [
+      {
+        id: "team",
+        displayName: "Team",
+        connections: [
+          connection({
+            compat: { supportsStrictMode: false },
+            models: [
+              { id: "explicit", contextWindow: 32000, maxTokens: 1024, supportsStrictMode: true },
+              { id: "unknown", contextWindow: 32000, maxTokens: 1024 },
+            ],
+          }),
+        ],
+      },
+    ]);
+    const providers = await new ProviderRepository({ cwd, globalDirectory }).list();
+    expect(providers[0].connections[0].compat).toEqual({ supportsStrictMode: false });
+    expect(providers[0].connections[0].models[0].supportsStrictMode).toBe(true);
+    expect(providers[0].connections[0].models[1]).not.toHaveProperty("supportsStrictMode");
+  });
+
   it("reports the exact invalid connection field", async () => {
     const { cwd, globalDirectory } = workspace();
     writeProviders(join(cwd, "omni.providers.json"), [

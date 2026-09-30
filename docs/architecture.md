@@ -150,6 +150,26 @@ plugins but must not contain provider construction, model definitions, or
 vendor-specific request logic. Providers are never split into directories by
 individual model name.
 
+## Isolated model execution
+
+Models also provides a single-admission Unix socket transport through `ModelTransportRuntimePort`.
+App's `AgentModelService` separates execution/selection from optional local `ModelAdministration`.
+`CacheAwareModelRuntime` remains in the Agent process; the isolated server binds the existing
+`ModelRuntime` to a configured selection and retains credentials and private headers. It does not
+implement another provider stack or an HTTP forwarding proxy. Apps owns the headless client and
+model execution process entries. A remote session rejects configuration changes rather than silently
+falling back to local execution.
+
+The server removes its listening socket before acknowledging the connection. Tool children do not
+inherit the connected descriptor. Disconnection aborts provider work; a partially consumed stream
+closes the session. Terminal transport boundaries are drained before exposing terminal events to the
+cache wrapper. Protocol v1 is single-flight, with 16 MiB maximum JSON frames and socket backpressure.
+
+Deployment owns network and process isolation. The benchmark adapter gives the solver no network
+interface except loopback and uses a private volume for initial Unix socket admission; only the model
+service has network and credentials. This is not an isolation boundary against trusted in-process
+extensions or arbitrary code injection into the Agent process.
+
 ## System prompt contributions
 
 The Coding Agent owns its base prompt. Core supplies domain-neutral contributors for the working
@@ -772,10 +792,11 @@ identities, middleware and policy-stage versions, before/after estimates, checkp
 lineage, message counts, decisions, and stable SHA-256 digests; it contains no message
 text. A `model_context_prepared` event exposes it without adding it to the Session.
 
-Compression uses `usableInputBudget = contextWindow - requestedOutputTokens`. The catalog's
-`modelMaxOutputTokens` is only a capability ceiling; Models resolves a distinct per-call
-`requestedOutputTokens` budget (16,384 by default, capped by the model and context window),
-and the same value is sent to the Provider and recorded in the Context manifest. Stable Micro uses
+Compression uses a stable input budget of `contextWindow - ceil(contextWindow * 0.05)`.
+Models resolves the Provider capability and explicit user ceiling, without a uniform output
+cap. Context computes the actual request output from the final estimated input and stores
+it in the manifest; transport sends that exact budget or fails validation. The budget
+policy is shared within Context, not owned by a compression implementation. Stable Micro uses
 the dynamic warning-buffer threshold documented below. The mandatory Heavy gate starts at
 90%, limits its internal summary to 10% of usable input, and targets a post-checkpoint
 context at or below 50%. It preserves
@@ -1070,3 +1091,32 @@ Commands depend on Core's `CommandInteractionPort`, not a TUI type or `AgentConf
 Skill reload asks `AgentApplication.refreshInstructions()` to rebuild instructions; CLI
 code does not mutate runtime configuration. Skill tool-event claiming lives exclusively
 in `SkillStreamPresenter`, so generic Tool presentation contains no Skill special case.
+
+### Output truncation recovery
+
+The existing Agent Loop owns output recovery. `length` is incomplete output, never a successful
+Run terminal. At most three consecutive recovery requests use the same Run cancellation and
+turn budget, with fresh model-call identities. Recovery instructions enter prepared context,
+not durable user messages. Raw partial responses remain in the transcript/Trace; unexecuted
+truncated tool calls are excluded from request projection and compression tool-cycle analysis.
+Signed tool envelopes that cannot be safely projected fail explicitly. No tools are replayed
+by recovery. Normal stop/toolUse resets the streak; exhaustion and unsupported stop reasons
+use existing structured failures. The request Trace records recovery attempt and parent call.
+
+### Generic tool output storage
+
+Core owns OutputRecord, SessionOutputPort and the unified post-execution retention policy. App's persistence/SessionArtifactStore owns Session binding, storage budgets, integrity and lifecycle. Tools implement process capture and the generic output_read reader using Core ports; App never depends on Tools. The neutral text-page reader and file snapshot helper were moved from Tools to Core and are shared with file_read. Coding only selects the reader through its tool catalog. Benchmark archives and checks the existing native state without becoming the storage owner.
+
+Output recovery persists part intent before body I/O. Under the exclusive Session lease it reconstructs interrupted sizes/digests, marks missing bodies explicitly and reclaims only store-owned orphan/temporary names. The shared InterprocessFileLock now supports cancellable acquisition; no second lock implementation is introduced.
+
+### Provider tool constraint ownership
+
+Models compiles tool generation intents into the existing SDK or custom transport request.
+Core exposes the neutral `inputConstraint` contract and observes the resolution report, but
+never interprets vendor compatibility. Provider/model capability declarations belong to
+Models; they do not grant tool execution access. There is one request path, no proxy service
+or alternate executor. See `docs/tool-call-runtime.md` for migration, schema limits and replay
+semantics. Constraint decisions are resolved once per call; the same decision feeds request
+mapping and observation. Existing cache fingerprints include tool intents, and their semantic
+version changes when the protocol mapping changes; they remain semantic evidence rather than
+an assertion about provider cache hits.

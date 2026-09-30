@@ -241,7 +241,7 @@ describe("Context policy pipeline", () => {
     expect(microCompressionTarget(estimate)).toBe(128_800);
   });
 
-  it("reserves the requested output budget instead of the model output capacity", () => {
+  it("keeps compression admission independent of the request output ceiling", () => {
     const estimator = new ApproximateContextTokenEstimator();
     const source = createContextEnvelope({
       systemPrompt: "system",
@@ -256,8 +256,13 @@ describe("Context policy pipeline", () => {
     });
 
     const estimate = estimator.estimate(source);
-    expect(estimate.usableInputBudget).toBe(184_000);
-    expect(microCompressionThreshold(estimate)).toBe(138_000);
+    expect(estimate.usableInputBudget).toBe(190_000);
+    expect(microCompressionThreshold(estimate)).toBe(142_500);
+    const expanded = {
+      ...source,
+      fixed: { ...source.fixed, model: { ...source.fixed.model, requestedOutputTokens: 128_000 } },
+    };
+    expect(estimator.estimate(expanded).usableInputBudget).toBe(estimate.usableInputBudget);
   });
 
   it("keeps an assistant tool call and its result in the same partition group", () => {
@@ -744,7 +749,7 @@ describe("StableMicroCompressionStage", () => {
     expect(projections.artifacts).toHaveLength(2);
     expect(begin).toHaveBeenCalledWith(
       "artifact_projection",
-      expect.objectContaining({ usableInputBudget: 99_900 }),
+      expect.objectContaining({ usableInputBudget: 95_000 }),
     );
     expect(record).toHaveBeenCalledWith({ kind: "artifact_projection", affectedCount: 2 });
     expect(

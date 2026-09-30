@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import type { ModelRequest, RuntimeModelSelection } from "@omni-agent/core";
 import type { ModelCacheFingerprint } from "./contracts";
 
-export const MODEL_CACHE_SEMANTICS_VERSION = 1;
+export const MODEL_CACHE_SEMANTICS_VERSION = 2;
 
 export class ModelCacheFingerprinter {
   fingerprint(selection: RuntimeModelSelection, request: ModelRequest): ModelCacheFingerprint {

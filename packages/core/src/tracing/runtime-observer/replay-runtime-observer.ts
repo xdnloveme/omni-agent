@@ -396,7 +396,13 @@ export class ReplayRuntimeObserver implements RuntimeObserverPort {
           this.record({
             kind: "tool.execution.cancelled",
             correlation,
-            ...(fact.error ? { payload: { error: errorMessage(fact.error) } } : {}),
+            payload: {
+              ...(fact.error ? { error: errorMessage(fact.error) } : {}),
+              ...(fact.output ? { output: fact.output } : {}),
+              ...(fact.outputPersistenceFailure
+                ? { outputPersistenceFailure: fact.outputPersistenceFailure }
+                : {}),
+            },
           }),
         ),
     };
@@ -432,6 +438,8 @@ function modelOutputKind(
       return "model.thinking.delta";
     case "thinking_completed":
       return "model.thinking.completed";
+    case "tool_constraints_reported":
+      return "model.tool_constraints.reported";
     case "cache_reported":
       return "model.cache.reported";
   }
@@ -465,6 +473,8 @@ function modelOutputEvent(
         contentIndex: fact.contentIndex,
         content: fact.content,
       };
+    case "tool_constraints_reported":
+      return { type: "tool_constraint_report", report: cloneData(fact.report) };
     case "cache_reported":
       return { type: "model_cache_report", report: cloneData(fact.report) };
   }
