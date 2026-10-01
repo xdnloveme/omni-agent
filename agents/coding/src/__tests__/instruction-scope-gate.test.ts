@@ -7,42 +7,55 @@ import { InstructionScopeGate } from "../instructions";
 import { bashTool } from "@omni-agent/tools";
 
 describe("InstructionScopeGate", () => {
-  it("loads exact Bash target rules even when a workspace subtree already covers access", async () => {
-    const root = await realpath(await mkdtemp(join(tmpdir(), "omni-scope-coverage-")));
-    try {
-      await mkdir(join(root, "nested"));
-      await writeFile(join(root, "nested", "AGENTS.md"), "Do not edit generated files.");
-      if (bashTool.access.kind !== "dynamic") throw new Error("Expected dynamic Bash access");
-      const intent = await bashTool.access.assess(
-        {
-          command: "printf x > nested/output.txt",
-          sandbox_scope: { write_paths: [{ path: root, scope: "subtree" }] },
-        },
-        {
-          cwd: root,
-          workspaceRoot: root,
-          workspaceId: "review",
-          agentId: "coding",
-          toolCallId: "call",
-          hostRuntime: { platform: "darwin", home: "/Users/test" },
-        },
-      );
-      const gate = await InstructionScopeGate.create(root);
-      await gate.contributor(root);
-      const batch = {
-        calls: [{ preparation: "ready", accessIntent: intent }],
-      } as unknown as PreparedToolBatch;
-      const decision = await gate.evaluate(batch, { origin: "agent" });
-      expect(decision.kind).toBe("deferred");
-      if (decision.kind !== "deferred") throw new Error("Expected scoped rules");
-      expect(decision.promptSections?.[0]?.content).toContain("Do not edit generated files.");
-      await expect(gate.evaluate(batch, { origin: "agent" })).resolves.toEqual({
-        kind: "executable",
-      });
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
-  });
+  it.each([
+    { command: "printf x > nested/output.txt", declared: true, mutation: "bounded" },
+    {
+      command: "printf x > nested/output.txt; python3 -c 'print(1)'",
+      declared: false,
+      mutation: "unbounded",
+    },
+  ])(
+    "loads known Bash target rules when mutation is $mutation",
+    async ({ command, declared, mutation }) => {
+      const root = await realpath(await mkdtemp(join(tmpdir(), "omni-scope-coverage-")));
+      try {
+        await mkdir(join(root, "nested"));
+        await writeFile(join(root, "nested", "AGENTS.md"), "Do not edit generated files.");
+        if (bashTool.access.kind !== "dynamic") throw new Error("Expected dynamic Bash access");
+        const intent = await bashTool.access.assess(
+          {
+            command,
+            ...(declared
+              ? { sandbox_scope: { write_paths: [{ path: root, scope: "subtree" }] } }
+              : {}),
+          },
+          {
+            cwd: root,
+            workspaceRoot: root,
+            workspaceId: "review",
+            agentId: "coding",
+            toolCallId: "call",
+            hostRuntime: { platform: "darwin", home: "/Users/test" },
+          },
+        );
+        expect(intent.filesystemMutation).toBe(mutation);
+        const gate = await InstructionScopeGate.create(root);
+        await gate.contributor(root);
+        const batch = {
+          calls: [{ preparation: "ready", accessIntent: intent }],
+        } as unknown as PreparedToolBatch;
+        const decision = await gate.evaluate(batch, { origin: "agent" });
+        expect(decision.kind).toBe("deferred");
+        if (decision.kind !== "deferred") throw new Error("Expected scoped rules");
+        expect(decision.promptSections?.[0]?.content).toContain("Do not edit generated files.");
+        await expect(gate.evaluate(batch, { origin: "agent" })).resolves.toEqual({
+          kind: "executable",
+        });
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
   it("activates more than sixteen small manifests while keeping digest reuse", async () => {
     const root = await mkdtemp(join(tmpdir(), "omni-instructions-many-"));
     const paths: string[] = [];
@@ -106,7 +119,7 @@ describe("InstructionScopeGate", () => {
     expect(refreshedBase).not.toContain("left rule");
   });
 
-  it("does not scan external approved roots and rejects unbounded mutation", async () => {
+  it("does not scan external approved roots or reject unknown mutation", async () => {
     const root = await mkdtemp(join(tmpdir(), "omni-instructions-"));
     const external = await mkdtemp(join(tmpdir(), "omni-external-"));
     await writeFile(join(external, "AGENTS.md"), "must not load");
@@ -117,10 +130,22 @@ describe("InstructionScopeGate", () => {
     ).resolves.toEqual({
       kind: "executable",
     });
-    await expect(gate.evaluate(unboundedBatch(), { origin: "agent" })).resolves.toMatchObject({
+    for (const origin of ["agent", "hook"] as const) {
+      await expect(gate.evaluate(unboundedBatch(), { origin })).resolves.toEqual({
+        kind: "executable",
+      });
+    }
+    await writeFile(join(root, "AGENTS.md"), "new root rule");
+    await expect(gate.evaluate(unboundedBatch(), { origin: "hook" })).resolves.toMatchObject({
       kind: "failed",
-      code: "project_instruction_scope_undetermined",
-      source: { kind: "calls", toolCallIds: ["call"] },
+      code: "project_instructions_not_activated",
+    });
+    const refreshed = await gate.evaluate(unboundedBatch(), { origin: "agent" });
+    expect(refreshed.kind).toBe("deferred");
+    if (refreshed.kind !== "deferred") throw new Error("Expected updated root rules");
+    expect(refreshed.promptSections?.[0]?.content).toContain("new root rule");
+    await expect(gate.evaluate(unboundedBatch(), { origin: "agent" })).resolves.toEqual({
+      kind: "executable",
     });
   });
 

@@ -389,3 +389,15 @@ No partial state replacement or missing-outcome fallback is supported.
 命令自身的潜在写入与重定向目标独立分析，再合并到原有访问事实。输出目标不能证明未知程序没有其他写入；已识别且无需新增文件范围的重定向，也不能因没有文件路径而被标为未知写入。普通文件重定向保留具体路径，动态或无法解析的写入目标继续要求显式范围。
 
 数字文件描述符复制/关闭不产生新的文件目标。`/dev/null` 是明确的空设备；`/dev/stdin`、`/dev/stdout`、`/dev/stderr`、`/dev/fd/*` 和 `/dev/tty` 的实际去向不由当前有界分析证明，不能与空设备一概跳过。现有危险目标拦截继续生效。解析器对 `<>` 等形式返回 partial 时保持不确定，不用字符串补解析替代 Tree-sitter。
+
+### Coding project-rule preparation
+
+Coding loads project rules for known workspace paths and their ancestors. A declared subtree
+contributes its root path; it does not trigger recursive rule discovery. New or changed rules
+still use the existing deferred-call flow, and hooks cannot activate unseen rules themselves.
+
+Unknown mutation targets do not independently fail Coding preparation or require an additional
+write-scope declaration for rule discovery. Access authorization, required scopes, approvals,
+and process sandbox enforcement remain owned by Core and Tools. Passing rule preparation is
+not an access grant. Dynamic paths computed inside a process may have nested rules that cannot
+be discovered before execution; complete advance coverage of those paths is not guaranteed.
