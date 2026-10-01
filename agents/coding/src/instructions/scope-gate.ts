@@ -50,16 +50,7 @@ export class InstructionScopeGate implements ToolBatchPreparationPolicy {
     context: ToolBatchPreparationContext,
   ): Promise<ToolBatchPreparationDecision> {
     const ready = batch.calls.filter((call) => call.preparation === "ready");
-    const unbounded = ready.filter((call) => call.accessIntent?.filesystemMutation === "unbounded");
-    if (unbounded.length > 0) {
-      return {
-        kind: "failed",
-        code: "project_instruction_scope_undetermined",
-        source: { kind: "calls", toolCallIds: unbounded.map((call) => call.toolCallId) },
-        message:
-          "Write targets could not be determined statically. Reissue the command with sandbox_scope.write_paths covering its potential writes, including workspace paths, so applicable project rules can be loaded. Use exact for a known file or subtree for an existing output directory. Empty write_paths or read_paths alone are insufficient. This requirement also applies in unrestricted mode; declaring a scope does not grant access.",
-      };
-    }
+    // Rule discovery follows known paths; unknown effects remain the access/execution owners' concern.
     const targets = new Set<string>([this.discovery.workspaceRoot]);
     for (const call of ready) {
       for (const resource of call.accessIntent?.resources ?? []) {

@@ -111,7 +111,7 @@ packages/core/src/
 ├── access/types.ts                       # 条件：已有拒绝结构不足时补详情
 └── access/tool-access-controller.ts      # 条件：沿唯一拒绝路径保留详情
 agents/coding/src/__tests__/
-└── instruction-scope-gate.test.ts         # 正常查询通过，未知写入仍受约束
+└── instruction-scope-gate.test.ts         # 正常查询与已知路径规则加载；未知目标行为以文末对齐契约为准
 docs/
 ├── tool-call-runtime.md                  # 固定边界、分析限制与失败反馈契约
 └── plans/workspace-boundary-and-shell-semantics.md
@@ -271,3 +271,40 @@ Linux benchmark 的容器隔离与 macOS Seatbelt 属于不同边界：前者显
 Git 实证使用隔离临时仓库和本机 Git 2.50.1：git log --output 创建文件；修改已跟踪文件 mtime 后，git status 更新 .git/index。当前 inferPathAccess 按可执行文件分类，Git 子命令识别只参与网络效果判断，因此保留 unknown 不是 -C 参数回归。不能仅用子命令白名单解决；本轮不改 Git 语义、不改命令或增加 GIT_OPTIONAL_LOCKS 等执行覆盖。
 
 额外观察：那条 unbounded → bounded 的命令保留了 sed 普通替换的保守 write 路径事实，非本次新增，也未因此获得权限。进一步细化命令参数语义需要独立证据与范围，不在本轮扩大修改。证据与可重跑脚本保存在 benchmark/artifacts/redirection-analysis-20260928/batch-replay/（gitignore 排除）。本轮只补充既有文档与忽略的验证资产，无生产代码变更，未重复全仓测试、容器或付费运行。
+
+### 2026-10-02：撤销子树扫描扩张，核查权限与规则准备边界
+
+撤销本轮尚未提交的 Coding 递归子树扫描、10,000 条目上限、目录符号链接一律拒绝，以及配套测试和契约描述。恢复 HEAD 中的规则发现和检查实现；未改变 Core、Tools、权限、沙箱或 benchmark，也未删除原有 `project_instruction_scope_undetermined` 拒绝。
+
+免费对照直接调用正式 Bash access assessment、ToolAccessController 和 InstructionScopeGate；使用临时工作区，不执行这些对照命令，不调用模型：
+
+| 输入                                     | controlled / autonomous 权限结果 | Coding 规则结果                    |
+| ---------------------------------------- | -------------------------------- | ---------------------------------- |
+| `git diff`，未声明写入范围               | allowed，sandbox 路由            | scope_undetermined 拒绝            |
+| 动态 Python 写入嵌套文件，声明工作区子树 | allowed，sandbox 路由            | executable，但未加载嵌套规则       |
+| 精确重定向写入嵌套文件                   | allowed，sandbox 路由            | deferred，加载嵌套规则             |
+| 读取未批准的工作区外文件                 | denied                           | executable；规则放行不等于权限放行 |
+
+unrestricted 对照由权限层返回 host 路由，规则结果保持上述区别；外部文件访问按该模式允许。测试没有执行动态 Python 或 Git 命令。结果证明规则拒绝与权限判断是独立决策，不能把删除前者描述为移除重复权限校验；同时，当前有界子树声明本身并不能保证发现动态目标的全部嵌套规则。
+
+验证：`OMNI_TEST_SANDBOX=1 pnpm exec vitest run agents/coding/src/__tests__/instruction-scope-gate.test.ts packages/core/src/__tests__/tool-access-controller.test.ts packages/core/src/__tests__/tool-call-coordinator.test.ts tests/process-workspace-boundary.test.ts`，4 文件、34 项通过，包括真实 macOS Seatbelt 外部访问拒绝、退出码及错误输出保持。该证据不等于验证所有运行模式或 benchmark 容器；本轮没有付费运行。
+
+后续修改前需明确的契约：Coding 是否仅承诺加载已知目标的规则，并允许动态目标未知的调用继续进入独立权限与执行流程。未对齐前保留旧拒绝。不得通过 Git 白名单、忽略目录名单、自动补宽范围或替代执行链路绕过这一决策。
+
+### 2026-10-02：已对齐并实施已知目标规则契约
+
+用户明确接受：Coding 加载已知目标及祖先规则，未知动态目标不承诺完整提前覆盖；不再仅因 filesystemMutation 为 unbounded 而拒绝调用。此决策替代上一节的待对齐状态。
+
+删除 scope-gate 中的 project_instruction_scope_undetermined 分支及要求补充 sandbox_scope 的提示，未更改 Tools 的分析事实或 Core 权限策略。保留已知目标发现、完整规则快照、规则变化后的 deferred 流程和 Hook 激活限制。未引入命令白名单、自动补范围、递归扫描、兼容分支或第二条执行链路。测试覆盖未知目标放行仍会检查根规则变化，以及混合命令中的已知目标仍需先加载规则。
+
+实施后验证：上述 12 组访问/规则对照中，三个运行模式的未知目标调用均不再被 Coding 拒绝；精确嵌套目标仍 deferred 并加载规则；controlled/autonomous 的外部路径仍 denied，路由仍为 sandbox。`pnpm run typecheck` 通过；`OMNI_TEST_SANDBOX=1 pnpm run test` 为 141 文件、1063 项全部通过，包含真实本地沙箱验证。未改包导出、依赖、CLI 启动或组合根，因此未额外构建或运行交互启动；未进行付费 benchmark，不据此声明耗时或解题成功率改善。
+
+### 2026-10-02：历史调用免费差分回放
+
+从已归档的 8035 Run `6d70aa51-4e06-4f46-af99-4b35b797b761` 提取全部 21 次 Bash 输入。以 HEAD `733ec792` 的原始 scope-gate 为旧版、工作区修改为新版，两侧复用相同正式 Bash 访问分析与规则发现。分别在仅根规则、含嵌套规则两种临时布局上顺序回放，合计 42 次前后对照。只调用访问分析与规则准备，不执行历史命令，不调用模型。
+
+两种布局结果均为 19 次不变、2 次从 scope_undetermined 变为 executable；变化对应 tool.call.started seq 16（ls 与 git log）和 13462（git diff），其历史错误结果分别在 seq 19、13463。无效目录声明 seq 13913 的 sandbox_scope_invalid 访问事实保持不变；Coding 的 executable 不代表授权通过。未重放整批 67 次工具调用，不能声称 glob 连带阻塞或所有工具执行已经端到端验证。
+
+限制：归档没有每次调用的完整文件系统快照；/testbed 在命令与范围字段中统一映射至临时工作区，外部 /tmp 路径仍使用本地状态。两种布局都不是历史文件系统恢复，也没有复现历史模型状态。差分结果仅验证规则准备变化，不能推导整题耗时或通过率。原始输入、差分结果和本地回放脚本保存在 Git-ignore 的 benchmark/artifacts/scope-gate-replay-2026-10-02/，脚本包含当前机器的源码引用路径。
+
+负面对照：不声明范围的 Python 动态写入 nested/out，目录有嵌套 AGENTS.md。旧版拒绝，新版 executable，均未提前加载嵌套规则。这是已接受的契约取舍，不能描述为完整规则覆盖或由权限层补足。没有发现超出该已对齐取舍的差分，因此保留小范围删除，不追加特殊处理。付费整题验证尚未进行。
