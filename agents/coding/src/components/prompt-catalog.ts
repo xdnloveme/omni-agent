@@ -96,5 +96,5 @@ export function createCodingSystemPrompt(
 }
 
 function executionModePrompt(mode: ExecutionMode): string {
-  return `# Execution Mode\n\nCurrent mode: ${mode}. ${EXECUTION_MODE_GUIDANCE[mode]}\n\nIn every mode, Bash commands whose write targets cannot be determined statically need bounded sandbox_scope.write_paths so applicable project rules can be loaded before execution. This includes workspace commands and programs such as Git, test runners, and interpreters. Declare the smallest actual potential write scope; use an existing directory with subtree scope for dynamic outputs. Empty write_paths or read_paths alone do not bound writes. These declarations do not grant access.`;
+  return `# Execution Mode\n\nCurrent mode: ${mode}. ${EXECUTION_MODE_GUIDANCE[mode]}\n\nProject rules are loaded for known workspace targets and their ancestor directories. Rules for dynamically determined targets may not be loaded in advance. Access authorization and execution restrictions are governed independently by the current execution mode and tool access policy; scope declarations do not grant permission.`;
 }
