@@ -71,6 +71,8 @@ pnpm run benchmark report benchmark/jobs/JOB_ID
 
 `prepare` 不需要模型配置或凭据；`check` 只校验适配器参数结构，不解析模型、验证凭据或调用模型。真实 `run` 在容量检查及准备前，通过 Harbor preflight 调用正式 App/Models 校验；Agent 安装阶段再次捕获并校验。自动准备和原生 `--config` 运行共用这条适配器链路。以上检查均不发起模型请求。
 
+写入任何快照前，会复用现有敏感字段策略检查所有配置层，包括被覆盖的层和 MCP 字段。含敏感字段或无法解析的内容会被拒绝，错误不回显原文；运行时模型优先级保持不变。
+
 每个 trial 在 `agent/configuration/` 保存公开的分层配置及合并后的 Provider 定义，`snapshot.json` 记录来源路径和文件摘要。同一快照供作答配置和模型服务使用；Provider 定义与凭据仅进入模型服务，作答容器只接收 Agent 配置层。凭据通过权限受限的临时文件交付，模型服务读取后删除，不进入公开快照。模型配置不参与镜像缓存身份，仅切换模型不会重建镜像。
 
 - 必须显式选择 `--all` / `--task` / `--first` / `--sample` 之一，互斥；`--task` 可重复，错误或重复 ID 会拒绝执行。

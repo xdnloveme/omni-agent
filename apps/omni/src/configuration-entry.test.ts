@@ -77,4 +77,28 @@ it("validates the actual isolated configuration without model calls and retains 
   expect(await readFile(join(root, "authenticated/snapshot.json"), "utf8")).not.toContain(
     "fixture-only-secret",
   );
+  await writeFile(
+    join(project, "omni.config.json"),
+    JSON.stringify({
+      model: { vendorId: "fixture", connectionId: "default", modelId: "fixture" },
+      mcp: {
+        servers: [
+          {
+            id: "private",
+            transport: "streamable_http",
+            url: "https://example.invalid/mcp",
+            headers: { Authorization: "synthetic-mcp-secret" },
+          },
+        ],
+      },
+    }),
+  );
+  const unsafe = await run(root, "unsafe");
+  expect(unsafe.code).toBe(1);
+  expect(unsafe.stdout).toBe("");
+  expect(unsafe.stderr).toContain("Secret values are not allowed");
+  expect(unsafe.stderr).not.toContain("synthetic-mcp-secret");
+  await expect(readFile(join(root, "unsafe/omni.config.json"))).rejects.toMatchObject({
+    code: "ENOENT",
+  });
 });
