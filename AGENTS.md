@@ -15,14 +15,16 @@ extensions without coupling the runtime kernel to a product domain.
 
 ```text
 packages/core   Agent execution kernel and stable runtime ports
+packages/network Target-scoped gateway, DNS policy, and authenticated loopback proxy
 packages/models Model runtime, vendor plugins, catalogs, and credentials
 packages/app    Agent package Catalog, Host-neutral Service, lifecycle, extensions, and sessions
-packages/agent-host WebSocket Protocol v1 adapter for AgentServicePort
+packages/agent-host WebSocket Protocol v2 adapter for AgentServicePort
 packages/im-gateway IM platform adapters, admission, routing, scheduling, and Agent Host clients
 packages/tools  Domain-neutral filesystem, shell, search, and web tools
 packages/ui     Interaction hosts, views, presentation models, and input handling
 packages/cli    Commands and Agent use-case orchestration
 apps/omni       Binary entry, process lifecycle, and composition root
+apps/omni-game  Godot character, Session, task interaction, and presentation
 agents/*        Independently packaged business agents
 ```
 
@@ -30,6 +32,7 @@ Allowed workspace dependency direction:
 
 ```text
 tools -> core
+network -> core
 models -> core
 app -> core, models
 agent-host -> app
@@ -37,7 +40,8 @@ im-gateway -> agent-host, core
 agents/* -> app, core, tools
 ui -> app, core
 cli -> app, core, tools, agents/*
-apps/omni -> agent-host, im-gateway, app, core, tools, cli, ui
+apps/omni -> network, agent-host, im-gateway, app, core, tools, cli, ui
+apps/omni-game -> WebSocket Protocol v2 only
 ```
 
 Do not introduce reverse dependencies. `core` and `app` must never import a
@@ -49,6 +53,8 @@ See `docs/agent-service.md` for the Host-neutral Agent discovery, Session, Run,
 failure-projection, and lifecycle contract.
 See `docs/agent-host.md` for the loopback WebSocket protocol, authentication,
 transport cancellation, and process contract.
+See `docs/godot-agent-host-client.md` for the concrete Godot client, Session
+interaction, and development process lifecycle.
 See `docs/tool-call-runtime.md` for the authoritative Tool access, execution,
 cancellation, and sandbox-boundary contract.
 
@@ -61,7 +67,7 @@ cancellation, and sandbox-boundary contract.
 - Put Agent package Catalog behavior, Host-neutral Agent Service orchestration,
   agent/tool/command registration, extension loading, application lifecycle,
   sessions, and configuration in `packages/app`.
-- Put only WebSocket connection, Protocol v1 validation, request correlation,
+- Put only WebSocket connection, Protocol v2 validation, request correlation,
   transport cancellation, bounded writes, and backpressure in `packages/agent-host`.
   Its only business interface is `AgentServicePort`.
 - Put IM platform adapters, allowlists, conversation mapping, task durability,
@@ -74,6 +80,9 @@ cancellation, and sandbox-boundary contract.
 - Keep browser and terminal rendering, view interaction, input handling, and presentation
   lifecycle in `packages/ui`; keep Agent and onboarding workflow orchestration in `packages/cli`;
   keep composition and process lifecycle in `apps/omni`.
+- Keep Godot Socket and Protocol v2 behavior in `AgentHostClient`, game interaction state in
+  `CharacterWorkspaceController`, and Godot presentation in scene UI. Do not add a Gateway or
+  backend Port until a second real backend demonstrates the boundary.
 - Prefer composition and declarative definitions over `BaseAgent` inheritance.
 - Do not add a framework abstraction until at least two real consumers require
   it or it removes meaningful existing complexity.
@@ -155,6 +164,11 @@ Local ESM extensions are trusted local code. Do not imply that
   implementations must not choose their own `process.cwd()`.
 - `ToolCallCoordinator` is the Agent loop's only tool entry. Middleware and
   lifecycle adapters run only after access control.
+- Keep target-scoped network transport, DNS/IP/redirect enforcement, and the authenticated
+  loopback proxy in `packages/network`. Tools receive only a bound `AuthorizedNetworkClient`;
+  `tools` and `core` must not import the concrete network package.
+- Controlled and autonomous Process network access is proxy-only. Never add broad Seatbelt
+  network permission, inherited proxy bypass, or Host fallback.
 - Use Core's shared sanitizer, abort helpers, schema validator, and
   `InterprocessFileLock`; do not create parallel implementations.
 - Return structured errors instead of hiding failures in successful output.

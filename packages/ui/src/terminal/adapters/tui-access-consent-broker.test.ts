@@ -19,20 +19,36 @@ describe("TuiAccessConsentBroker", () => {
     };
     const broker = new TuiAccessConsentBroker(surface);
     const network = broker.request({
-      kind: "network",
+      scopes: [{ path: "/reports", scope: "subtree", access: "read_write" }],
       workspaceId: "workspace",
       agentId: "coding",
       toolName: "web_fetch",
+      toolCallId: "call-1",
+      targets: [{ scheme: "https", host: "example.com", port: 443 }],
+      purpose: "test",
     });
     const filesystem = broker.request({
-      kind: "filesystem",
+      targets: [],
+      purpose: "Read files",
       workspaceId: "workspace",
       agentId: "coding",
       toolName: "file_read",
+      toolCallId: "call-2",
       scopes: [{ path: "/outside\nspoof\u001b[31m", scope: "subtree", access: "read" }],
     });
 
     await vi.waitFor(() => expect(surface.request).toHaveBeenCalledTimes(1));
+    expect(surface.request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        detail: expect.stringContaining("/reports and all descendants"),
+        message: expect.stringContaining("saved together"),
+      }),
+      undefined,
+    );
+    expect(surface.request).toHaveBeenCalledWith(
+      expect.objectContaining({ detail: expect.stringContaining("https://example.com:443") }),
+      undefined,
+    );
     pending.shift()?.({ requestId: "replaced", kind: "dismissed", values: {} });
     await expect(network).resolves.toBe("deny");
     await vi.waitFor(() => expect(surface.request).toHaveBeenCalledTimes(2));
@@ -62,18 +78,24 @@ describe("TuiAccessConsentBroker", () => {
     };
     const broker = new TuiAccessConsentBroker(surface);
     const active = broker.request({
-      kind: "network",
+      scopes: [],
       workspaceId: "workspace",
       agentId: "coding",
       toolName: "web_fetch",
+      toolCallId: "call-3",
+      targets: [{ scheme: "https", host: "example.com", port: 443 }],
+      purpose: "test",
     });
     const abort = new AbortController();
     const queued = broker.request(
       {
-        kind: "network",
+        scopes: [],
         workspaceId: "workspace",
         agentId: "coding",
         toolName: "bash",
+        toolCallId: "call-4",
+        targets: [{ scheme: "https", host: "example.com", port: 443 }],
+        purpose: "test",
       },
       abort.signal,
     );

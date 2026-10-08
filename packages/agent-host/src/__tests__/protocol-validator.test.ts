@@ -4,10 +4,10 @@ import { AgentHostProtocolValidator } from "../protocol-validator";
 describe("AgentHostProtocolValidator", () => {
   const validator = new AgentHostProtocolValidator();
 
-  it("accepts Protocol v1 hello and Service requests without changing their values", () => {
-    const hello = { v: 1, type: "hello", token: "A".repeat(43) };
+  it("accepts Protocol v2 hello and Service requests without changing their values", () => {
+    const hello = { v: 2, type: "hello", token: "A".repeat(43) };
     const run = {
-      v: 1,
+      v: 2,
       id: "run:1",
       type: "run",
       agentId: "coding",
@@ -24,10 +24,10 @@ describe("AgentHostProtocolValidator", () => {
       expect.objectContaining({ code: "invalid_message" }),
     );
     expect(() =>
-      validator.parse(JSON.stringify({ v: 2, id: "list", type: "list_agents" })),
+      validator.parse(JSON.stringify({ v: 1, id: "list", type: "list_agents" })),
     ).toThrowError(expect.objectContaining({ code: "unsupported_version" }));
     expect(() =>
-      validator.parse(JSON.stringify({ v: 1, id: "list", type: "list_agents", cwd: "/tmp" })),
+      validator.parse(JSON.stringify({ v: 2, id: "list", type: "list_agents", cwd: "/tmp" })),
     ).toThrowError(expect.objectContaining({ code: "invalid_message" }));
   });
 
@@ -35,7 +35,7 @@ describe("AgentHostProtocolValidator", () => {
     expect(() =>
       validator.parse(
         JSON.stringify({
-          v: 1,
+          v: 2,
           id: "run",
           type: "run",
           agentId: "coding",
@@ -45,13 +45,13 @@ describe("AgentHostProtocolValidator", () => {
       ),
     ).toThrowError(expect.objectContaining({ code: "payload_too_large" }));
     expect(() =>
-      validator.parse(JSON.stringify({ v: 1, id: "unsafe id", type: "list_agents" })),
+      validator.parse(JSON.stringify({ v: 2, id: "unsafe id", type: "list_agents" })),
     ).toThrowError(expect.objectContaining({ code: "invalid_message" }));
   });
 
-  it("strictly validates every Protocol v1 server response variant", () => {
+  it("strictly validates every Protocol v2 server response variant", () => {
     const completed = {
-      v: 1,
+      v: 2,
       type: "event",
       requestId: "run-1",
       event: { type: "completed" },
@@ -61,7 +61,7 @@ describe("AgentHostProtocolValidator", () => {
     expect(
       validator.parseServerMessage(
         JSON.stringify({
-          v: 1,
+          v: 2,
           type: "event",
           requestId: "run-1",
           event: { type: "text_delta", text: "x".repeat(70_000) },
@@ -71,7 +71,7 @@ describe("AgentHostProtocolValidator", () => {
     expect(() =>
       validator.parseServerMessage(
         JSON.stringify({
-          v: 1,
+          v: 2,
           type: "result",
           id: "session-1",
           result: { kind: "session" },
@@ -81,7 +81,7 @@ describe("AgentHostProtocolValidator", () => {
     expect(() =>
       validator.parseServerMessage(
         JSON.stringify({
-          v: 1,
+          v: 2,
           type: "event",
           requestId: "run-1",
           event: { type: "text_delta" },

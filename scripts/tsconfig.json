@@ -10,6 +10,7 @@
     "build-cli-distribution.ts",
     "pack-cli-distribution.ts",
     "verify-agent-host.ts",
-    "verify-im-agent-link.ts"
+    "verify-im-agent-link.ts",
+    "verify-game.ts"
   ]
 }

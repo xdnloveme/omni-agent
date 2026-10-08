@@ -11,6 +11,7 @@ export function createCodingExtension(
   manifest: AgentManifest,
   tools: readonly AgentToolDefinition[],
   buildSystemPrompt: () => Promise<string>,
+  scopeGate: import("@omni-agent/core").ToolBatchPreparationPolicy,
 ): CodingExtensionBundle {
   return {
     buildSystemPrompt,
@@ -20,7 +21,7 @@ export function createCodingExtension(
         tools: [...tools],
         agents: [
           {
-            definition: createCodingAgent(manifest, buildSystemPrompt),
+            definition: createCodingAgent(manifest, buildSystemPrompt, scopeGate),
             tools: { include: tools.map((tool) => tool.name) },
           },
         ],

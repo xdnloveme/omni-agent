@@ -1,0 +1,39 @@
+{
+  "version": 1,
+  "manifest": "../suites/swe-verified-mini-hal-50-v1/manifest.json",
+  "task_root": "../artifacts/prepared/swe-verified-mini-hal-50-v1",
+  "execution": {
+    "n_attempts": 1,
+    "n_concurrent_trials": 1,
+    "retry": {
+      "max_retries": 0
+    },
+    "environment": {
+      "type": "docker",
+      "delete": true
+    },
+    "agents": [
+      {
+        "import_path": "benchmark.adapters.omni.agent:OmniAgent"
+      }
+    ],
+    "benchmark": {
+      "agent_timeout_sec": 1800
+    }
+  },
+  "preparation": {
+    "taskpack": {
+      "entrypoint": "benchmark.taskpacks.swe.suite:SuiteTaskpack",
+      "options": {
+        "runtime_manifest": "../environments/profiles/swe-python.json",
+        "build_dependencies_manifest": "../taskpacks/swe/profiles/python-build.json"
+      }
+    },
+    "adapter": {
+      "entrypoint": "benchmark.adapters.omni.suite:SuiteAdapter",
+      "options": {
+        "source": "../.."
+      }
+    }
+  }
+}

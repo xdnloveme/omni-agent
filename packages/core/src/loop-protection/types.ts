@@ -47,6 +47,8 @@ export interface BatchCycleEvaluation {
 }
 
 export interface ToolResultObservation {
+  /** Runtime-owned disposition; ToolResult metadata cannot exempt a call from detection. */
+  disposition: "result" | "context_deferred" | "turn_barrier_deferred";
   call: ToolCallContent;
   toolIdentity?: string;
   result: ToolResult;

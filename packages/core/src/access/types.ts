@@ -5,10 +5,11 @@ import type {
   ProcessExecutableRequirement,
 } from "../execution";
 import type { RegisteredAgentTool, ToolResult } from "../types";
+import type { NetworkCapability, NetworkTarget } from "../network";
 
 export interface WorkspaceExecutionSettings {
   readonly mode: ExecutionMode;
-  readonly controlledNetworkEnabled: boolean;
+  readonly approvedNetworkTargets: readonly NetworkTarget[];
   readonly approvedFilesystemRoots: readonly FilesystemCapabilityScope[];
 }
 
@@ -34,7 +35,11 @@ export type AccessResource =
       readonly location: "workspace" | "external";
       readonly sensitivity: AccessSensitivity;
     }
-  | { readonly kind: "network" }
+  | {
+      readonly kind: "network";
+      readonly target: NetworkTarget;
+      readonly purpose: string;
+    }
   | { readonly kind: "process" };
 
 export interface ToolAccessIntent {
@@ -43,6 +48,9 @@ export interface ToolAccessIntent {
   readonly controlledConsentCandidates?: readonly FilesystemConsentCandidate[];
   /** Accesses observed by domain analysis but not covered by the tool's declared scope. */
   readonly uncoveredResources?: readonly AccessResource[];
+  readonly filesystemMutation?: "none" | "bounded" | "unbounded";
+  /** Network effects were observed without declared targets for a sandboxed call. */
+  readonly networkScopeRequired?: boolean;
   /** A domain or access-contract rejection that is not a security hard-stop. */
   readonly denial?: { readonly code: string; readonly reason: string };
   readonly hardStop?: { readonly code: string; readonly reason: string };
@@ -56,6 +64,11 @@ export interface ToolAccessContext {
   readonly toolCallId: string;
   readonly hostRuntime: HostRuntimeContext;
   readonly signal?: AbortSignal;
+  readonly onPermissionResolved?: (event: {
+    readonly permissionId: string;
+    readonly decision: "approve" | "deny";
+    readonly reason: string;
+  }) => void | Promise<void>;
 }
 
 export type ToolAccessDescriptor =
@@ -79,6 +92,16 @@ export interface ToolAccessRequest {
   readonly context: ToolAccessContext;
 }
 
+declare const preparedToolAccessBrand: unique symbol;
+
+export interface PreparedToolAccess {
+  readonly [preparedToolAccessBrand]: true;
+  readonly tool: RegisteredAgentTool;
+  readonly input: Readonly<Record<string, unknown>>;
+  readonly intent: ToolAccessIntent;
+  readonly context: ToolAccessContext;
+}
+
 export type ToolAccessResult =
   | {
       readonly outcome: "allowed";
@@ -96,14 +119,17 @@ export interface ToolAccessGrant {
   readonly mode: ExecutionMode;
   readonly processAccess: ProcessAccessPlan;
   readonly executableRequirements: readonly ProcessExecutableRequirement[];
+  readonly network?: NetworkCapability;
 }
 
 export interface ExecutionSettingsPort {
   getSettings(workspaceId: string, agentId: string): Promise<WorkspaceExecutionSettings>;
-  enableControlledNetwork(workspaceId: string, agentId: string): Promise<void>;
-  addApprovedFilesystemRoots(
+  addApprovedAccess(
     workspaceId: string,
     agentId: string,
-    roots: readonly FilesystemCapabilityScope[],
+    access: {
+      readonly scopes: readonly FilesystemCapabilityScope[];
+      readonly targets: readonly NetworkTarget[];
+    },
   ): Promise<void>;
 }

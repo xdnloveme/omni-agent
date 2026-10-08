@@ -13,7 +13,7 @@ import type {
 } from "@omni-agent/core";
 import type { ConfigService } from "../config/config-service";
 import type { AgentExtension } from "../extensions/types";
-import type { ModelSelection, ModelService } from "../models/model-service";
+import type { ModelSelection, AgentModelService } from "../models/model-service";
 import type { WorkspaceContext } from "../workspaces";
 
 export interface AgentManifest {
@@ -154,11 +154,16 @@ export interface ExtensionSourceLoader {
 }
 
 export interface AgentHostDependencies {
+  /** Initial capture policy; omitted preserves the default disabled Trace state. */
+  readonly traceEnabled?: boolean;
   readonly interactionSurface: InteractionSurfacePort;
   readonly accessConsentBroker: AccessConsentBroker;
   readonly processRouter: ProcessExecutionRouterPort;
   readonly processPlanner: ProcessExecutionPlannerPort;
   readonly hostRuntime: HostRuntimeContext;
+  readonly networkRuntime: import("@omni-agent/core").NetworkRuntimePort;
+  readonly mcpEnvironment?: Readonly<Record<string, string | undefined>>;
+  readonly mcpOAuthInteraction?: import("../mcp").McpOAuthInteractionPort;
   readonly environmentProvider?: RuntimeEnvironmentProviderPort;
   readonly reservedCommandNames: readonly string[];
   readonly onLateToolSettlement?: (event: LateToolSettlementEvent) => void | Promise<void>;
@@ -170,7 +175,7 @@ export interface AgentAssemblyRequest {
   readonly workspaceRoots: readonly string[];
   readonly globalDirectory: string;
   readonly configService: ConfigService;
-  readonly modelService: ModelService;
+  readonly modelService: AgentModelService;
   readonly host: AgentHostDependencies;
   readonly extensionSourceLoader?: ExtensionSourceLoader;
 }
@@ -197,7 +202,7 @@ export interface ResolvedAgentAssemblyPlan {
 export interface AgentAssemblyEnvironment {
   readonly blueprint: AgentBlueprint;
   readonly configService: ConfigService;
-  readonly modelService: ModelService;
+  readonly modelService: AgentModelService;
   readonly host: AgentHostDependencies;
   readonly extensionSourceLoader?: ExtensionSourceLoader;
 }

@@ -36,6 +36,23 @@ export class ToolRegistry {
     this.tools.delete(name);
   }
 
+  /** Validates the complete replacement before mutating the live catalog. */
+  replaceOrigin(originId: string, tools: readonly AgentToolDefinition[]): void {
+    const replacementNames = new Set<string>();
+    for (const tool of tools) {
+      this.validate(tool, originId);
+      if (replacementNames.has(tool.name)) throw new Error(`Tool already registered: ${tool.name}`);
+      const current = this.tools.get(tool.name);
+      if (current && current.originId !== originId)
+        throw new Error(`Tool already registered: ${tool.name}`);
+      replacementNames.add(tool.name);
+    }
+    for (const [name, current] of this.tools)
+      if (current.originId === originId) this.tools.delete(name);
+    for (const tool of tools)
+      this.tools.set(tool.name, { ...tool, originId, toolIdentity: `${originId}:${tool.name}` });
+  }
+
   has(name: string): boolean {
     return this.tools.has(name);
   }

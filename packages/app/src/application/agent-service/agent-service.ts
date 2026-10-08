@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import {
   createAbortError,
+  assertRunDeadline,
+  RunDeadlineExceededError,
   AgentSessionNotFoundError,
   isAbortError,
   type AgentFailure,
@@ -24,10 +26,15 @@ import {
 } from "./contracts";
 import { ServiceEventStream } from "./service-event-stream";
 import { toAgentServiceFailure } from "./agent-service-failure";
+import type {
+  AgentServiceAccessConsentBroker,
+  AgentServicePermissionEvent,
+} from "../permissions/service-access-consent-broker";
 
 export interface AgentServiceOptions {
   readonly catalog: AgentPackageCatalogPort;
   readonly factory: Pick<AgentFactory, "create">;
+  readonly permissions?: AgentServiceAccessConsentBroker;
 }
 
 interface OpeningRecord {
@@ -141,6 +148,16 @@ export class AgentService implements AgentServicePort {
       () => controller.abort(createAbortError()),
     );
     return stream;
+  }
+
+  subscribePermissions(
+    sink: (event: AgentServicePermissionEvent) => void | Promise<void>,
+  ): () => void {
+    return this.options.permissions?.subscribe(sink) ?? (() => undefined);
+  }
+
+  resolvePermission(permissionId: string, decision: "approve" | "deny"): boolean {
+    return this.options.permissions?.resolve(permissionId, decision) ?? false;
   }
 
   dispose(): Promise<void> {
@@ -275,6 +292,7 @@ export class AgentService implements AgentServicePort {
   ): void {
     try {
       this.assertReady();
+      assertRunDeadline(request.deadlineAtMs);
       if (this.requests.has(request.requestId)) {
         throw new AgentServiceError(
           "duplicate_request",
@@ -351,6 +369,8 @@ export class AgentService implements AgentServicePort {
     };
     try {
       if (signal.aborted) throw createAbortError(signal);
+      if (request.deadlineAtMs !== undefined && request.deadlineAtMs <= Date.now())
+        throw new RunDeadlineExceededError();
       if (session.state !== "open") {
         throw new AgentServiceError(
           "session_closing",
@@ -362,7 +382,9 @@ export class AgentService implements AgentServicePort {
         requestId: request.requestId,
         sessionId: request.sessionId,
       });
-      await session.instance.application.run(request.input.text, callbacks, signal);
+      await session.instance.application.run(request.input.text, callbacks, signal, {
+        deadlineAtMs: request.deadlineAtMs,
+      });
       if (!terminal) terminate(signal.aborted ? { type: "cancelled" } : { type: "completed" });
     } catch (error) {
       if (signal.aborted || isAbortError(error)) terminate({ type: "cancelled" });

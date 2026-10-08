@@ -1,0 +1,20 @@
+n_attempts: 1
+n_concurrent_trials: 1
+retry:
+  max_retries: 0
+environment:
+  type: docker
+  delete: true
+agents:
+  - import_path: benchmark.adapters.omni.agent:OmniAgent
+    kwargs:
+      credential_env: OMNI_SMOKE_API_KEY
+      global_directory: benchmark/adapters/omni/fixtures
+      config_file: benchmark/adapters/omni/fixtures/omni.config.json
+      providers_file: benchmark/adapters/omni/fixtures/omni.providers.json
+  - name: oracle
+tasks:
+  - path: benchmark/artifacts/contract-omni/files
+  - path: benchmark/artifacts/contract-omni/patch
+benchmark:
+  agent_timeout_sec: 120

@@ -5,6 +5,9 @@ import { serializeContextValue } from "../digest";
 import { estimateContextTextTokens } from "../../tokenEstimate";
 import { renderEnvironmentContext } from "../../environment";
 
+import { renderRunDeadline } from "../run-deadline";
+import { inputBudget } from "../request-budget";
+
 const MESSAGE_OVERHEAD_TOKENS = 4;
 const CONTENT_BLOCK_OVERHEAD_TOKENS = 2;
 const TOOL_OVERHEAD_TOKENS = 8;
@@ -21,6 +24,9 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
       : 0;
     const messageTokens =
       environmentTokens +
+      (fixed.runDeadline
+        ? MESSAGE_OVERHEAD_TOKENS + estimateContextTextTokens(renderRunDeadline(fixed.runDeadline))
+        : 0) +
       history.entries.reduce((total, entry) => total + this.estimateEntry(entry), 0);
     const toolTokens = fixed.tools.reduce(
       (total, tool) =>
@@ -29,14 +35,12 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
         estimateContextTextTokens(tool.name) +
         estimateContextTextTokens(tool.description) +
         estimateContextTextTokens(serializeContextValue(tool.schema)) +
-        (tool.strict === undefined ? 0 : 1),
+        (tool.inputConstraint === undefined ? 0 : 1),
       0,
     );
     const totalInputTokens = systemPromptTokens + messageTokens + toolTokens;
-    const usableInputBudget = Math.max(
-      1,
-      fixed.model.contextWindow - fixed.model.requestedOutputTokens,
-    );
+    // Keep compression admission independent of the shrinking per-request output budget.
+    const usableInputBudget = inputBudget(fixed.model.contextWindow);
     return {
       systemPromptTokens,
       messageTokens,
@@ -78,6 +82,9 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
     } else if (message.role === "toolResult") {
       total += estimateContextTextTokens(message.toolCallId);
       total += estimateContextTextTokens(message.toolName);
+      if (message.structuredContent !== undefined) {
+        total += estimateContextTextTokens(serializeContextValue(message.structuredContent));
+      }
       total +=
         message.addedToolNames?.reduce((sum, name) => sum + estimateContextTextTokens(name), 0) ??
         0;
@@ -88,7 +95,8 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
       total += CONTENT_BLOCK_OVERHEAD_TOKENS;
       if (block.type === "text") {
         total += estimateContextTextTokens(block.text);
-        if (block.textSignature) total += estimateContextTextTokens(block.textSignature);
+        if ("textSignature" in block && block.textSignature)
+          total += estimateContextTextTokens(block.textSignature);
       } else if (block.type === "thinking") {
         total += estimateContextTextTokens(block.thinking);
         if (block.thinkingSignature) {
@@ -99,6 +107,14 @@ export class ApproximateContextTokenEstimator implements ContextTokenEstimatorPo
         total += estimateContextTextTokens(block.name);
         total += estimateContextTextTokens(serializeContextValue(block.arguments));
         if (block.thoughtSignature) total += estimateContextTextTokens(block.thoughtSignature);
+      } else if (block.type === "resource") {
+        total += 256 + estimateContextTextTokens(block.resource.uri);
+        if ("text" in block.resource) total += estimateContextTextTokens(block.resource.text);
+        if (block.resource.mimeType) total += estimateContextTextTokens(block.resource.mimeType);
+      } else if (block.type === "resource_link") {
+        total += 256 + estimateContextTextTokens(block.uri) + estimateContextTextTokens(block.name);
+        if (block.description) total += estimateContextTextTokens(block.description);
+        if (block.mimeType) total += estimateContextTextTokens(block.mimeType);
       } else {
         total += 256;
       }

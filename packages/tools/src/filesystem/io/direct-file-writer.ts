@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import { throwIfAborted } from "@omni-agent/core";
 import { FileToolError } from "./file-errors";
-import { createFileSnapshot, snapshotsEqual, type FileSnapshot } from "./file-snapshot";
+import { createFileSnapshot, snapshotsEqual, type FileSnapshot } from "@omni-agent/core";
 
 export interface DirectWriteRequest {
   path: string;

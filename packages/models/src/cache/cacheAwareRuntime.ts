@@ -47,7 +47,7 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
       signal: options.signal,
       timeoutMs: options.timeoutMs,
       maxRetries: options.maxRetries,
-      maxOutputTokens: options.maxOutputTokens ?? selection.requestedOutputTokens,
+      maxOutputTokens: options.maxOutputTokens,
       credential: options.credential,
       providerCache: toProviderCacheOptions(decision.directive, capability),
     };
@@ -55,6 +55,7 @@ export class CacheAwareModelRuntime implements ModelRuntimePort {
     try {
       for await (const event of this.inner.stream(selection, request, executionOptions)) {
         if (
+          event.type === "tool_constraint_report" ||
           event.type === "text_delta" ||
           event.type === "thinking_start" ||
           event.type === "thinking_delta" ||

@@ -11,11 +11,13 @@
     "dev:coding": "pnpm run dev:prepare && node --import tsx apps/omni/src/index.ts run coding",
     "dev:financial-analysis": "pnpm run dev:prepare && node --import tsx apps/omni/src/index.ts run financial-analysis",
     "dev:im": "pnpm run dev:prepare && node --import tsx apps/omni/src/im-gateway-entry.ts",
+    "game": "node --import tsx apps/omni/src/game/game-entry.ts",
     "verify:host": "node --import tsx scripts/verify-agent-host.ts",
     "verify:im": "node --import tsx scripts/verify-im-agent-link.ts",
+    "verify:game": "node --import tsx scripts/verify-game.ts",
     "clean": "node scripts/clean-dist.mjs",
-    "build": "pnpm run build:sandbox && pnpm run clean && tsc -b --force packages/core packages/tools packages/models packages/app packages/agent-host packages/im-gateway agents/coding agents/financial-analysis examples/minimal-agent packages/ui packages/cli apps/omni && pnpm --filter @omni-agent/ui build",
-    "typecheck": "tsc -b packages/core packages/tools packages/models packages/app packages/agent-host packages/im-gateway agents/coding agents/financial-analysis examples/minimal-agent packages/ui packages/cli apps/omni && tsc -p scripts/tsconfig.json && tsc -p packages/core/evals/checkpointSummary/tsconfig.json && tsc -p agents/coding/evals/clarificationRouting/tsconfig.json",
+    "build": "pnpm run build:sandbox && pnpm run clean && tsc -b --force packages/core packages/network packages/tools packages/models packages/app packages/agent-host packages/im-gateway agents/coding agents/financial-analysis examples/minimal-agent packages/ui packages/cli apps/omni && pnpm --filter @omni-agent/ui build",
+    "typecheck": "tsc -b packages/core packages/network packages/tools packages/models packages/app packages/agent-host packages/im-gateway agents/coding agents/financial-analysis examples/minimal-agent packages/ui packages/cli apps/omni && tsc -p scripts/tsconfig.json && tsc -p packages/core/evals/checkpointSummary/tsconfig.json && tsc -p agents/coding/evals/clarificationRouting/tsconfig.json",
     "test": "vitest run",
     "test:watch": "vitest",
     "eval:checkpoint": "tsx packages/core/evals/checkpointSummary/runner.ts",
@@ -25,7 +27,10 @@
     "format:check": "prettier --check .",
     "build:cli": "node --import tsx scripts/build-cli-distribution.ts",
     "pack:cli": "node --import tsx scripts/pack-cli-distribution.ts",
-    "prepare": "husky"
+    "prepare": "husky",
+    "headless": "node --import tsx apps/omni/src/headless-entry.ts",
+    "benchmark": "uv run --frozen --project benchmark python -m benchmark.run",
+    "verify:sandbox": "pnpm run build:sandbox && OMNI_TEST_SANDBOX=1 vitest run tests/process-workspace-boundary.test.ts"
   },
   "devDependencies": {
     "@types/node": "^22.10.5",

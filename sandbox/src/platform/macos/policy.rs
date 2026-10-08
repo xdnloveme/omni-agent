@@ -1,7 +1,7 @@
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-use crate::invocation::{Invocation, PathScope, ScopeKind};
+use crate::invocation::{Invocation, NetworkPolicy, PathScope, ScopeKind};
 use crate::SandboxError;
 
 const BASE_POLICY: &str = include_str!("../../../policies/macos/base.sbpl");
@@ -78,8 +78,10 @@ pub(crate) fn build(invocation: &Invocation) -> Result<String, SandboxError> {
         &invocation.allowed_read_names,
         &[],
     )?;
-    if invocation.network {
-        profile.push_str("(allow network*)\n");
+    if let NetworkPolicy::LoopbackProxy { port } = invocation.network {
+        profile.push_str(&format!(
+            "(allow network-outbound (remote tcp \"localhost:{port}\"))\n"
+        ));
     }
     Ok(profile)
 }
@@ -228,7 +230,7 @@ mod tests {
         let invocation = Invocation::parse(
             vec![
                 "--protocol-version",
-                "3",
+                "4",
                 "--diagnostic-token",
                 "0123456789abcdef0123456789abcdef",
                 "--mode",

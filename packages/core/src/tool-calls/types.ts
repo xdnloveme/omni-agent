@@ -2,6 +2,9 @@ import type { ToolExecutionMiddleware } from "../middleware";
 import type { ToolLifecycleAdapter } from "../tool-lifecycle";
 import type { JsonValue } from "../data";
 import type { ToolResult } from "../types";
+import type { RegisteredAgentTool } from "../types";
+import type { ToolAccessIntent } from "../access";
+import type { RuntimeToolBatchObservation } from "../runtime-observation";
 
 export interface ToolCallRequest {
   toolName: string;
@@ -11,6 +14,7 @@ export interface ToolCallRequest {
 }
 
 export interface ToolCallEnvironment {
+  readonly outputs?: import("../execution/output").SessionOutputPort;
   agentId: string;
   workspaceId: string;
   workspaceRoot: string;
@@ -18,9 +22,79 @@ export interface ToolCallEnvironment {
   cwd: string;
   middleware: readonly ToolExecutionMiddleware[];
   lifecycleAdapters: readonly ToolLifecycleAdapter[];
+  origin?: "agent" | "hook";
+  onPermissionResolved?: (event: {
+    readonly permissionId: string;
+    readonly decision: "approve" | "deny";
+    readonly reason: string;
+  }) => void | Promise<void>;
+}
+
+declare const preparedToolCallBrand: unique symbol;
+
+export interface PreparedToolCall {
+  readonly [preparedToolCallBrand]: true;
+  readonly toolName: string;
+  readonly toolCallId: string;
+  readonly input: Readonly<Record<string, unknown>>;
+  readonly tool?: RegisteredAgentTool;
+  readonly accessIntent?: ToolAccessIntent;
+  readonly preparation: "ready" | "failed";
+  readonly failure?: ValidatedToolResult;
+}
+
+export interface PreparedToolBatch {
+  readonly calls: readonly PreparedToolCall[];
+}
+
+export interface ToolBatchPreparationRequest {
+  readonly tools: readonly RegisteredAgentTool[];
+  readonly calls: readonly ToolCallRequest[];
+  readonly environment: ToolCallEnvironment;
+  readonly observation?: RuntimeToolBatchObservation;
+}
+
+export interface PreparedToolExecutionContext {
+  readonly environment: ToolCallEnvironment;
+  readonly observation?: RuntimeToolBatchObservation;
+  /** Rechecks mutable preparation facts after consent, before planning or execution. */
+  readonly revalidate?: () => Promise<ToolResult | undefined>;
+}
+
+export type ToolBatchPreparationDecision =
+  | { readonly kind: "executable" }
+  | {
+      readonly kind: "deferred";
+      readonly code: string;
+      readonly message: string;
+      readonly promptSections?: readonly import("../system-prompt").RuntimePromptSection[];
+    }
+  | {
+      readonly kind: "failed";
+      readonly code: string;
+      readonly message: string;
+      /** Attribution only; a failure still stops the entire prepared batch. */
+      readonly source:
+        | { readonly kind: "batch" }
+        | { readonly kind: "calls"; readonly toolCallIds: readonly string[] };
+    };
+
+export interface ToolBatchPreparationPolicy {
+  beginRun?(): void | Promise<void>;
+  /** Compaction can remove facts previously delivered through deferred ToolResults. */
+  onContextCheckpoint?(checkpointId: string): void | Promise<void>;
+  evaluate(
+    batch: PreparedToolBatch,
+    context: ToolBatchPreparationContext,
+  ): Promise<ToolBatchPreparationDecision>;
+}
+
+export interface ToolBatchPreparationContext {
+  readonly origin: "agent" | "hook";
 }
 
 export interface ToolCallMetrics {
+  executed: boolean;
   accessMs: number;
   executionMs: number;
   totalMs: number;

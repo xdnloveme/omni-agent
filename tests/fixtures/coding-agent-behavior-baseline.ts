@@ -7,7 +7,7 @@ export const CODING_AGENT_BEHAVIOR_BASELINE = Object.freeze({
   description: "Local coding agent with filesystem, shell, search, web, and skills capabilities.",
   manifestApiVersion: "omni-agent/v2",
   blueprintApiVersion: 2,
-  systemPromptDigest: "a2e8710fdffa533d0a216a42600361548ec7bffc7c48a54b697311870b752cb2",
+  systemPromptDigest: "e283a8d304195b673a816e69e472ee129a3ce2f1a5051e159a5ebee3d58c4fb7",
   toolNames: Object.freeze([
     "bash",
     "file_read",
@@ -19,6 +19,7 @@ export const CODING_AGENT_BEHAVIOR_BASELINE = Object.freeze({
     "web_search",
     "request_user_input",
     "skill_read",
+    "output_read",
   ]),
   hostCommandNames: Object.freeze([
     "config",
@@ -28,6 +29,7 @@ export const CODING_AGENT_BEHAVIOR_BASELINE = Object.freeze({
     "clear",
     "skills",
     "trace",
+    "mcp",
   ]),
   promptAnchors: Object.freeze([
     "# Communication",

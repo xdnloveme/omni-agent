@@ -1,4 +1,4 @@
-import type { ToolResult } from "@omni-agent/core";
+import { TextReadError, type ToolResult } from "@omni-agent/core";
 
 export type FileToolErrorCode =
   | "invalid_pagination"
@@ -23,7 +23,7 @@ export class FileToolError extends Error {
   }
 }
 
-export function fileToolErrorResult(error: FileToolError): ToolResult {
+export function fileToolErrorResult(error: FileToolError | TextReadError): ToolResult {
   return {
     content: [{ type: "text", text: error.message }],
     isError: true,

@@ -1,5 +1,7 @@
+import { setTimeout as delay } from "node:timers/promises";
+import { throwIfAborted } from "../execution/abort";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rmdir, stat, unlink, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rename, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
 interface LockMetadata {
@@ -32,42 +34,49 @@ export class InterprocessFileLock {
     this.reclaimPath = join(path, "reclaim");
   }
 
-  async runExclusive<T>(operation: () => Promise<T>): Promise<T> {
-    const owner = await this.acquire();
+  async runExclusive<T>(operation: () => Promise<T>, signal?: AbortSignal): Promise<T> {
+    const owner = await this.acquire(signal);
     try {
+      throwIfAborted(signal);
       return await operation();
     } finally {
       await this.release(owner);
     }
   }
 
-  private async acquire(): Promise<string> {
+  private async acquire(signal?: AbortSignal): Promise<string> {
+    throwIfAborted(signal);
     await mkdir(dirname(this.path), { recursive: true });
     const deadline = Date.now() + this.timeoutMs;
-    while (true) {
-      const owner = randomUUID();
-      try {
-        await mkdir(this.path, { mode: 0o700 });
+    const owner = randomUUID();
+    const candidate = await mkdtemp(`${this.path}.pending-`);
+    const candidateMetadata = join(candidate, "owner.json");
+    try {
+      await writeFile(
+        candidateMetadata,
+        JSON.stringify({ pid: process.pid, owner, createdAt: Date.now() }),
+        { mode: 0o600, flag: "wx" },
+      );
+      while (true) {
+        throwIfAborted(signal);
         try {
-          await writeFile(
-            this.metadataPath,
-            JSON.stringify({ pid: process.pid, owner, createdAt: Date.now() }),
-            { mode: 0o600, flag: "wx" },
-          );
+          // Publish metadata and ownership together. An empty retired directory can be
+          // replaced, but rename cannot replace a non-empty directory owned by a live call.
+          await rename(candidate, this.path);
           return owner;
         } catch (error) {
-          await unlink(this.metadataPath).catch(() => undefined);
-          await rmdir(this.path).catch(() => undefined);
-          throw error;
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code !== "EEXIST" && code !== "ENOTEMPTY") throw error;
+          await this.removeStale();
+          if (Date.now() >= deadline) {
+            throw new Error(`Timed out waiting for file lock: ${this.path}`);
+          }
+          await delay(this.retryMs, undefined, { signal });
         }
-      } catch (error) {
-        if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-        await this.removeStale();
-        if (Date.now() >= deadline) {
-          throw new Error(`Timed out waiting for file lock: ${this.path}`);
-        }
-        await delay(this.retryMs);
       }
+    } finally {
+      await unlink(candidateMetadata).catch(ignoreMissing);
+      await rmdir(candidate).catch(ignoreMissing);
     }
   }
 
@@ -105,14 +114,17 @@ export class InterprocessFileLock {
       const current = await this.readMetadata();
       if (current?.pid !== pid || current.owner !== owner || isProcessAlive(pid)) return;
       await unlink(this.metadataPath);
-      await unlink(this.reclaimPath);
-      await rmdir(this.path);
     } catch (error) {
       const code = (error as NodeJS.ErrnoException).code;
       if (code !== "ENOENT" && code !== "ENOTEMPTY") throw error;
     } finally {
       await unlink(this.reclaimPath).catch((error: NodeJS.ErrnoException) => {
         if (!isRemovedDirectoryRace(error.code)) throw error;
+      });
+      // Delete our marker exactly once: deleting it again could remove a successor's
+      // marker. rmdir is safe even after replacement because new locks are non-empty.
+      await rmdir(this.path).catch((error: NodeJS.ErrnoException) => {
+        if (error.code !== "ENOENT" && error.code !== "ENOTEMPTY") throw error;
       });
     }
   }
@@ -159,8 +171,8 @@ function isProcessAlive(pid: number): boolean {
   }
 }
 
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+function ignoreMissing(error: NodeJS.ErrnoException): void {
+  if (error.code !== "ENOENT") throw error;
 }
 
 function isRemovedDirectoryRace(code: string | undefined): boolean {

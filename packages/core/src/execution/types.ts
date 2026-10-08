@@ -1,4 +1,6 @@
 import type { ProcessToolDefinition, RegisteredAgentTool, ToolResult } from "../types";
+import type { AuthorizedNetworkClient, NetworkCapability, NetworkProxyRoute } from "../network";
+import type { SensitiveValueSet } from "../security";
 
 export type ExecutionMode = "controlled" | "autonomous" | "unrestricted";
 
@@ -17,6 +19,9 @@ export interface ProcessExecutableRequirement {
 export interface ToolExecutionContext {
   cwd: string;
   signal?: AbortSignal;
+  network?: AuthorizedNetworkClient;
+  outputs?: import("./output").SessionOutputPort;
+  outputCall?: import("./output").OutputCallContext;
 }
 
 export type ToolExecutionStrategy = { kind: "in_process" } | { kind: "process" };
@@ -29,7 +34,9 @@ export interface SandboxPathScope {
 export interface SandboxPolicy {
   readonly mode: "controlled" | "autonomous";
   readonly workspaceRoot: string;
-  readonly network: boolean;
+  readonly network:
+    | { readonly kind: "disabled" }
+    | { readonly kind: "loopback_proxy"; readonly host: "127.0.0.1"; readonly port: number };
   readonly read: readonly SandboxPathScope[];
   readonly write: readonly SandboxPathScope[];
   readonly protectedWriteRoots: readonly string[];
@@ -54,6 +61,8 @@ export type ProcessExecutionPlan =
 export interface ToolExecutionPlan {
   readonly mode: ExecutionMode;
   readonly process?: ProcessExecutionPlan;
+  readonly network?: NetworkCapability;
+  readonly sensitiveValues?: SensitiveValueSet;
 }
 
 export interface AuthorizedExecutionContext extends ToolExecutionContext {
@@ -82,9 +91,16 @@ export interface ProcessInvocation {
   readonly cwd: string;
   readonly env?: NodeJS.ProcessEnv;
   readonly maxOutputBytes: number;
+  /** Human-facing streams may retain both ends; parsers keep the default prefix semantics. */
+  readonly outputPreview?: "head-tail";
+  readonly sensitiveValues?: SensitiveValueSet;
 }
 
 export interface ProcessResult {
+  readonly outputSource?: {
+    readonly outputId: string;
+    readonly streams: Readonly<Partial<Record<"stdout" | "stderr", string>>>;
+  };
   readonly stdout: string;
   readonly stderr: string;
   readonly stdoutTruncated: boolean;
@@ -94,7 +110,11 @@ export interface ProcessResult {
 }
 
 export interface ProcessExecutionRouterPort {
-  run(plan: ProcessExecutionPlan, signal?: AbortSignal): Promise<ProcessResult>;
+  run(
+    plan: ProcessExecutionPlan,
+    signal?: AbortSignal,
+    output?: import("./output").OutputCallContext,
+  ): Promise<ProcessResult>;
 }
 
 export interface ProcessExecutionPlanningRequest {
@@ -103,6 +123,8 @@ export interface ProcessExecutionPlanningRequest {
   readonly context: ToolExecutionContext;
   readonly access: ProcessAccessPlan;
   readonly executableRequirements: readonly ProcessExecutableRequirement[];
+  readonly networkProxy?: NetworkProxyRoute;
+  readonly sensitiveValues?: SensitiveValueSet;
 }
 
 export interface ProcessExecutionPlannerPort {

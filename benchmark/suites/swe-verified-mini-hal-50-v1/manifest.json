@@ -1,0 +1,966 @@
+{
+  "schema_version": 1,
+  "suite_id": "swe-verified-mini-hal-50-v1",
+  "sources": {
+    "hal": {
+      "repository": "https://github.com/princeton-pli/hal-harness",
+      "commit": "16bb03ebc11577fb5ea6dc8bb6c968387085e6aa",
+      "ids_path": "hal/benchmarks/swebench_verified_mini_task_ids.txt",
+      "ids_file_sha256": "ee9f2273637b18488018603dfa222f6cca73e6f62ede44b2ef6cf9245ccc471f",
+      "loader_path": "hal/benchmarks/swebench.py"
+    },
+    "selection": {
+      "repository": "https://github.com/mariushobbhahn/SWEBench-verified-mini",
+      "commit": "1ce432065d9ed226017ef1ac88b5f91818383c64",
+      "ids_path": "data/subsets/size_optimized_sample_ids.json",
+      "ids_file_sha256": "04c17d83724b3fd0c6107bdbbd78f1e8679d26e7f7e3fb86f771ed5ba0926819",
+      "method": "published size-optimized selection; cluster allocation and environment footprint optimization using historical model results"
+    },
+    "dataset": {
+      "id": "MariusHobbhahn/swe-bench-verified-mini",
+      "revision": "b316c349947c29963fce3f4a65967c9807a4b673",
+      "file": "data/test-00000-of-00001.parquet",
+      "file_sha256": "f9ba19dea78884f1081355d2d8afb671899981f24180aa0c4c1aa14d2c23e855"
+    },
+    "parent_dataset": {
+      "id": "SWE-bench/SWE-bench_Verified",
+      "revision": "78f471bf655a3137b2e8a75af1501690ec009ec3",
+      "file": "data/test-00000-of-00001.parquet",
+      "file_sha256": "030cfd7f2a704c4c0226e7f104c725a3b41230b1d3517f9c915ad7ea5be3fa25"
+    },
+    "harbor": {
+      "repository": "https://github.com/laude-institute/harbor-datasets",
+      "commit": "61366953049fd63a7dff54f67193bf39f5d1cde6",
+      "path": "datasets/swebench-verified"
+    }
+  },
+  "identity_checks": {
+    "hal_equals_published_optimized_ids": true,
+    "hal_equals_huggingface_mini_ids": true,
+    "all_ids_in_parent_verified": true,
+    "public_task_metadata_matches_parent": true,
+    "all_ids_in_harbor_snapshot": true,
+    "harbor_instructions_match_parent_after_newline_blank_line_outer_whitespace_normalization": true
+  },
+  "coverage": {
+    "task_count": 50,
+    "repository_counts": {
+      "django/django": 25,
+      "sphinx-doc/sphinx": 25
+    },
+    "languages": ["python"]
+  },
+  "tasks": [
+    {
+      "id": "django__django-11790",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "b1d6b35e146aea83b171c1b921178bbaae2795ed",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "AuthenticationForm's username field doesn't set maxlength HTML attribute.",
+      "problem_statement_sha256": "4482bb11e178b43b0d8d59d373ea8ed2631996c27f7ec51d89d65dad47ab37cb",
+      "harbor_task_path": "datasets/swebench-verified/django__django-11790",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "e70c0c71a21e7c71b6cd29aa42b183a7c2835b1ac143050c06a564bf49d56b52",
+        "environment/Dockerfile": "2e1ce71beaeb1119c08ff8a517578b9cc07e2db2e3f10ef0f93197c7de7229f7"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11790:latest",
+      "source_difficulty": "15 min - 1 hour",
+      "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-11790@sha256:061b5e37b0dfc15512b9604c843618b47aece8e603d08d0926c3990e0e9b3ac4"
+    },
+    {
+      "id": "django__django-11815",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "e02f67ef2d03d48128e7a118bf75f0418e24e8ac",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Migrations uses value of enum object instead of its name.",
+      "problem_statement_sha256": "e022afa957e8b3db88243013133760019ad87c3d207851d0da7af9fdd8483efd",
+      "harbor_task_path": "datasets/swebench-verified/django__django-11815",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "8b04b7918f2b9ad10a3a3f94293955aff62c2e4d5172130e7f7d85a0912040aa",
+        "environment/Dockerfile": "cbddc26850ee833966f3a5215bd4d522935b974309f1abaedeb1a7b23f903943"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11815:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-11848",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "f0adf3b9b7a19cdee05368ff0c0c2d087f011180",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "django.utils.http.parse_http_date two digit year check is incorrect",
+      "problem_statement_sha256": "cce2d9dc991da88832938161e2da1d3b1b829f72c5e178ed15a7d9ae8435db74",
+      "harbor_task_path": "datasets/swebench-verified/django__django-11848",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "2254095ad7b168a19e3cf35135f943546d0acec6885beeede770ca2f01cb83e1",
+        "environment/Dockerfile": "6db1ab18194c6865b269abfa8b0a4ddce6cae4f56801b1043d8da8f3046b01ae"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11848:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-11880",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "06909fe084f87a65459a83bd69d7cdbe4fce9a7c",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Form Field’s __deepcopy__ does not (deep)copy the error messages.",
+      "problem_statement_sha256": "e602e90dd73a70f9faf006238dfda2347f4aa08bb29365ae2611b3ea92f3eff4",
+      "harbor_task_path": "datasets/swebench-verified/django__django-11880",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "eaea154f8ded45c3034fa9147858e1c761ed8bde6fbf3c9896b4255446bcff04",
+        "environment/Dockerfile": "a0db2c2b201dba8397c651f37f9786de6d0775abb0d574447a6763f7166d2ac6"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11880:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "django__django-11885",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "04ac9b45a34440fa447feb6ae934687aacbfc5f4",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Combine fast delete queries",
+      "problem_statement_sha256": "bd6ce8dcb4e3ccf23898a9f244352cc8d464c3f6e5fff1f656d5a30446a6ea10",
+      "harbor_task_path": "datasets/swebench-verified/django__django-11885",
+      "harbor_source_sha256": {
+        "task.toml": "c062317afc83dc6b0135001faf7fac6818014986409442efee9de6fa0fc7d414",
+        "instruction.md": "71711d2d9272e794f3a553f1ca82eeda7c6258c92762a5c00a99a4fcaf2b3fe9",
+        "environment/Dockerfile": "391e811c4beee43546a2375a3b031ddad6e84f88312023eb119040c8c23c7d91"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11885:latest",
+      "source_difficulty": "1-4 hours",
+      "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-11885@sha256:4a0f8c7fbcfa5101ffa2ba697c2a75aa58174acff3a286a81b0807a8395a46fc"
+    },
+    {
+      "id": "django__django-11951",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "312049091288dbba2299de8d07ea3e3311ed7238",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "bulk_create batch_size param overrides the compatible batch size calculation",
+      "problem_statement_sha256": "7c7ff1d81171a59af83ad9d0934053aa7c4e9bf6698ae2b3acde3e4d6353c169",
+      "harbor_task_path": "datasets/swebench-verified/django__django-11951",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "6db5ac3bf1636fc7c588ad02d71cc82b93e6faf83d32545ec5505f17a5fd0efc",
+        "environment/Dockerfile": "efe232cb0988179d7a7c531a39901bb3704163a90b590a2f82b89aa75a999bd3"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11951:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "django__django-11964",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "fc2b1cc926e34041953738e58fa6ad3053059b22",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "The value of a TextChoices/IntegerChoices field has a differing type",
+      "problem_statement_sha256": "9f510b2ad7d3833f07816f18dfa6dbb8dacf72061c288cfe399418bfe4da25ab",
+      "harbor_task_path": "datasets/swebench-verified/django__django-11964",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "031d7caad86803e2da47d366bfebe0a0a199e5e437bf87d72efa999a62a14e24",
+        "environment/Dockerfile": "c477b9128da1ce3c4724d486a210c40076fedb344aef012a3e8b9b4f6015dc32"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11964:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "django__django-11999",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "84633905273fc916e3d17883810d9969c03f73c2",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Cannot override get_FOO_display() in Django 2.2+.",
+      "problem_statement_sha256": "5c317d46980d58d2ca75a9fb2c1af025e27357abd4dcd5ea37d4b2dcd8bcd63c",
+      "harbor_task_path": "datasets/swebench-verified/django__django-11999",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "a218957f3dfca1105aa36fe62657ebc2b1f85b344833ab0c6985d7b9babbddd7",
+        "environment/Dockerfile": "e146b9c86234997b47f711c9c2d55a7b0d73907a776cb57dabba861d40e1f959"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11999:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-12039",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "58c1acb1d6054dfec29d0f30b1033bae6ef62aec",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Use proper whitespace in CREATE INDEX statements",
+      "problem_statement_sha256": "2d2bf1ab2eecd3ede142cda952d8b44ef51fab8febe416c2a85636fd4e13ea3d",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12039",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "c27b6ea41bb7b6b735828e83d03cf6fb4130e9da59af11d7ad142323fa6c2cd3",
+        "environment/Dockerfile": "3a29c536a7beb845786be6382ed3ea8b7c4f674b711c92a08463309a79d6d9d4"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12039:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-12050",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "b93a0e34d9b9b99d41103782b7e7aeabf47517e3",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Query.resolve_lookup_value coerces value of type list to tuple",
+      "problem_statement_sha256": "161289bab4cda50aeb7a81ed68bb3a025e2a99db08588000a2f91ee206fbaa19",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12050",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "68619e3cb56b3712b39b8a3dd749e4d3f6e25b0db59b35e510ca6f84c0805454",
+        "environment/Dockerfile": "c386f3258c79f70fd32aee827a88f6f88e189c69e6e145e4a791755a3755aa0c"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12050:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-12143",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "5573a54d409bb98b5c5acdb308310bed02d392c2",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Possible data loss in admin changeform view when using regex special characters in formset prefix",
+      "problem_statement_sha256": "ea44d6cab1951bed46e10efdbfdb78f383cedc26f1d76a88cc7075ab774c2d87",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12143",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "4c59f6682964db72e25f2c6b28e071cba0f70e268b44a0e0da6ff564a8c429c0",
+        "environment/Dockerfile": "9680c91a12f0688ade685996173f04782fec7f5d809b6441326e470157e40789"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12143:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-12155",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "e8fcdaad5c428878d0a5d6ba820d957013f75595",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "docutils reports an error rendering view docstring when the first line is not empty",
+      "problem_statement_sha256": "9f32a4a285f49a0f7005c54b76bcfa9d413dcf203ccc4e6f03bdb5bd89f537a4",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12155",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "3a534b85c839d58b0f74e7e34aae7b5527a00f53fe0ea470bd20d20eb0534c2b",
+        "environment/Dockerfile": "a3e454a24cbeda5d296585af2f4e91238a63fdf640650002d8990aaad0f2c0f0"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12155:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-12193",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "3fb7c12158a2402f0f80824f6778112071235803",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "SplitArrayField with BooleanField always has widgets checked after the first True value.",
+      "problem_statement_sha256": "6bd02eebf7c0609141d1497e235bcffa2070916542617dcee089b19d8d844eeb",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12193",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "49e3fbd16b7f98c71f537d25ecb99aee5973040fc604360139f9115bb415b73e",
+        "environment/Dockerfile": "5fdefa3e17cb48babebad857c394276d59b6d70be47f0677a97fe4504e1a3ed8"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12193:latest",
+      "source_difficulty": "<15 min fix",
+      "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-12193@sha256:f2f0882bb350e6c7b073569444629513f4c0bd6821f3610d243a26b2b4eae26e"
+    },
+    {
+      "id": "django__django-12209",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "5a68f024987e6d16c2626a31bf653a2edddea579",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Change in behaviour when saving a model instance with an explcit pk value if the pk field has a default",
+      "problem_statement_sha256": "5e48c4a578224647481334cf10311fff1141a4897260744d719b8af678daf53c",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12209",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "b4e4b117c2d11adf58080447a07a52abe0bceedc08c32312fa281d65aaec80fa",
+        "environment/Dockerfile": "86ac7bd6977dd705c8a03b28c17ee99bc2ae4d480bdc7fd7c61ce4a55cde7d0f"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12209:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "django__django-12262",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "69331bb851c34f05bc77e9fc24020fe6908b9cd5",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Custom template tags raise TemplateSyntaxError when keyword-only arguments with defaults are provided.",
+      "problem_statement_sha256": "eb0c9b99667bc7666a6ff518747eaa71c6d392f727583d3f90cabe5cf4afe994",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12262",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "ff95df8fb98690f7de5b7719c7588439c8271ea9ecc5aeb23b8a8b881c68b816",
+        "environment/Dockerfile": "890495da7cf0591f7925d7c9fe4a3f893880709fdcf2c1d4e576cb3cdf6bee56"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12262:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-12273",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "927c903f3cd25c817c21738328b53991c035b415",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Resetting primary key for a child model doesn't work.",
+      "problem_statement_sha256": "0ddf00d3800106f5e154fc638ba1e50b97e2fbebc27ab4639e16040bcf2685ca",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12273",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "dce1a3c2840f6d6131a468109f950128ca9d55ffa1dbaaface8bbc07bfc9d7ac",
+        "environment/Dockerfile": "32f7e4985031c442dea238c1fafd09f5f182746c60be5e91fbf809d53ccc841b"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12273:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-12276",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "53d8646f799de7f92ab9defe9dc56c6125448102",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "FileInput shouldn't display required attribute when initial data exists.",
+      "problem_statement_sha256": "e8baf7faea7833b073ddc3bc0336ed0bbc8dae41004fbaf398cb6b8c8f667a8b",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12276",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "103270a8781602bf407c3fd08ac496ebc263e752f4e7576de287fc2b14742127",
+        "environment/Dockerfile": "46f3bd2441a3ab2e8a7a9b50948c84f73f35434eb84696b1d97048a0da08101e"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12276:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "django__django-12304",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "4c1b401e8250f9f520b3c7dc369554477ce8b15a",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Enumeration Types are not usable in templates.",
+      "problem_statement_sha256": "99dceeb9e23295f6b10e7778f737b9bfb3cf49f99eca1cfae9b10505324c3901",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12304",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "683ded6d359eec6e3081bc495140b449582e9a7f21e52a30acd1980161b14faf",
+        "environment/Dockerfile": "ed70e74b33d86c81147db25e99da112c5fae54e5d952701a4d61161927b7e015"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12304:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "django__django-12308",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "2e0f04507b17362239ba49830d26fec504d46978",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "JSONField are not properly displayed in admin when they are readonly.",
+      "problem_statement_sha256": "3a5c42ef1352e5d34855a9b6efc54b08f2e6122a861306f8f47e323775851784",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12308",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "1ffa8fbf27fd21a83a5da3cb0e53eb289ce1fa06f728b5019a73c5112556e569",
+        "environment/Dockerfile": "b3ea91b71cd7e0464c90dd6fd4633731320fa79b62fa401bea955c71fa725fdf"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12308:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "django__django-12325",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "29c126bb349526b5f1cd78facbe9f25906f18563",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "pk setup for MTI to parent get confused by multiple OneToOne references.",
+      "problem_statement_sha256": "8f920ccb5f6169fecd052cc74e6c0149701d063e78802c8f33d585a69bb18c02",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12325",
+      "harbor_source_sha256": {
+        "task.toml": "c062317afc83dc6b0135001faf7fac6818014986409442efee9de6fa0fc7d414",
+        "instruction.md": "0605cc79cab1090c35e1c974a4e7dd222aaa6b4b25c761de34e0b3ca40d97f05",
+        "environment/Dockerfile": "d4be99561b38f72db336a5616b5ae8cbedecab62271bb2d6e2256870a6a3c205"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12325:latest",
+      "source_difficulty": "1-4 hours",
+      "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-12325@sha256:9c15847c3fd7d269adf15233bd7034bb9e0491e45fefe87454013d2bdf7a6efe"
+    },
+    {
+      "id": "django__django-12406",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "335c9c94acf263901fb023404408880245b0c4b4",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "ModelForm RadioSelect widget for foreign keys should not present a blank option if blank=False on the model",
+      "problem_statement_sha256": "0c14152f7ac2ba5dc35c69013918f93d4c0941bee9547f5eaf4e55012f00e717",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12406",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "eb235f1f8f48a98aedffdfca65b1874592dc2b03213d74ff541010ddef7671ca",
+        "environment/Dockerfile": "c01ce689d8cea70c9900de1dd1b670a5224fcfe3796c43367121634a117122a4"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12406:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-12708",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "447980e72ac01da1594dd3373a03ba40b7ee6f80",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Migration crashes deleting an index_together if there is a unique_together on the same fields",
+      "problem_statement_sha256": "773681998993eff75a3b69f04821e4e8683f89cfffdee38f19fe11cb3c7a98be",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12708",
+      "harbor_source_sha256": {
+        "task.toml": "c062317afc83dc6b0135001faf7fac6818014986409442efee9de6fa0fc7d414",
+        "instruction.md": "92f1ebee8b6a82487f32a1ae6682a22f42752a0aa153e13bdf2ad98215a8b10a",
+        "environment/Dockerfile": "122a171fa35db93b7cf0e62bcca9d3dfe89b5ba568e996f3bfaa0384fee94952"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12708:latest",
+      "source_difficulty": "1-4 hours",
+      "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-12708@sha256:5f920ccf13410e9fbc43b9e3a83e2b876f5a28d6b0db5369b428552320567b7d"
+    },
+    {
+      "id": "django__django-12713",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "5b884d45ac5b76234eca614d90c83b347294c332",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Allow overridding widget in formfield_for_manytomany().",
+      "problem_statement_sha256": "daa45ff786da924bd2c4d52dd6d87b42fef8c43cac605a5b7853ac7dd298fe60",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12713",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "5fd095c6fe00f31834f629bac3e74930b75fab43c683c7c9e65c711ffb58847b",
+        "environment/Dockerfile": "843b90318bfda06bc08c43c3a774365315ff7d44ed42a7e1da9b8ba919665ab6"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12713:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-12774",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "67f9d076cfc1858b94f9ed6d1a5ce2327dcc8d0d",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Allow QuerySet.in_bulk() for fields with total UniqueConstraints.",
+      "problem_statement_sha256": "8c35fba9272466eec8851a624ea13c5c07eb184359c94dfb922efed85b0fc3b6",
+      "harbor_task_path": "datasets/swebench-verified/django__django-12774",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "e73e028f94dfd976257442fa3452daf019834eda5ba930a505c62d68c0d6a74d",
+        "environment/Dockerfile": "6adabb25e8ec6e61cd575561bbc7e0332d4863c49de64f9c4be3dcb78ebeb6ed"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12774:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "django__django-9296",
+      "repository": "django/django",
+      "language": "python",
+      "base_commit": "84322a29ce9b0940335f8ab3d60e55192bef1e50",
+      "environment_setup_commit": "0668164b4ac93a5be79f5b87fae83c657124d9ab",
+      "project_version": "3.1",
+      "title": "Paginator just implement the __iter__ function",
+      "problem_statement_sha256": "1dad6e4ae15cb47af74a688dc59b6a40fa55b6ec0086f587e16c784c78acfc23",
+      "harbor_task_path": "datasets/swebench-verified/django__django-9296",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "0f2fefa3dd66b7507ac629a51a10e1a13b7908eaeec3be8ead60836fe680d33f",
+        "environment/Dockerfile": "f710f1db94779d88a66bb27b292dc61e3bdf4863931a400049ff1680b17eb520"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-9296:latest",
+      "source_difficulty": "<15 min fix",
+      "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-9296@sha256:c63adb629b6dafbb12aa506778e27b02f06387c64df3f2cebaba47f9b5f26150"
+    },
+    {
+      "id": "sphinx-doc__sphinx-10323",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "31eba1a76dd485dc633cae48227b46879eda5df4",
+      "environment_setup_commit": "60775ec4c4ea08509eee4b564cbf90f316021aff",
+      "project_version": "5.0",
+      "title": "Use of literalinclude prepend results in incorrect indent formatting for code eamples",
+      "problem_statement_sha256": "789a19432537c3948b2c7389aa497711b6ec5a68c9f0d8c3ce2b73eb15f57753",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-10323",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "789a19432537c3948b2c7389aa497711b6ec5a68c9f0d8c3ce2b73eb15f57753",
+        "environment/Dockerfile": "9634b2341e5ed70245d180f5928922b3186f691efce232c8645bfe7edb43970a"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10323:latest",
+      "source_difficulty": "<15 min fix",
+      "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10323@sha256:b27e055730cb8a826e4e2cf0503d03c6770d537ab29cb6df8caa93ef5db51e8f"
+    },
+    {
+      "id": "sphinx-doc__sphinx-10435",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "f1061c012e214f16fd8790dec3c283d787e3daa8",
+      "environment_setup_commit": "60775ec4c4ea08509eee4b564cbf90f316021aff",
+      "project_version": "5.0",
+      "title": "LaTeX: new Inline code highlighting from #10251 adds whitespace at start and end in pdf output",
+      "problem_statement_sha256": "a7667cf5cb9cc0846f633b6b55eb826a593b62faeefd644de9e2612875ccac12",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-10435",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "a7667cf5cb9cc0846f633b6b55eb826a593b62faeefd644de9e2612875ccac12",
+        "environment/Dockerfile": "17021e703a88a4a2b9cff73f7bd5f92385ba941bb952981830097a91b7c5957a"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10435:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "sphinx-doc__sphinx-10466",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "cab2d93076d0cca7c53fac885f927dde3e2a5fec",
+      "environment_setup_commit": "60775ec4c4ea08509eee4b564cbf90f316021aff",
+      "project_version": "5.0",
+      "title": "Message.locations duplicate unnecessary",
+      "problem_statement_sha256": "78f4344e3d2bd2d617628d3b78ad561a400fc79d5c2c9f4269e3b32f907bd4cb",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-10466",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "78f4344e3d2bd2d617628d3b78ad561a400fc79d5c2c9f4269e3b32f907bd4cb",
+        "environment/Dockerfile": "c8a9d6a61e588655416ae4164f4c1851ca3d34f3199a6428f8063fa3708e3c56"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10466:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "sphinx-doc__sphinx-10673",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "f35d2a6cc726f97d0e859ca7a0e1729f7da8a6c8",
+      "environment_setup_commit": "a651e6bf4ad7a1dc293525d0a70e6d0d11b827db",
+      "project_version": "5.2",
+      "title": "toctree contains reference to nonexisting document 'genindex', 'modindex', 'search'",
+      "problem_statement_sha256": "f455450f1dbed1a4b75c2bcd97f9147d124b866223283f6287bd09ce6eab7d8e",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-10673",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "f455450f1dbed1a4b75c2bcd97f9147d124b866223283f6287bd09ce6eab7d8e",
+        "environment/Dockerfile": "ab1a463ff7c37a13ed60ae3053517233f78b6696960a146e99e2f54353e63000"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10673:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "sphinx-doc__sphinx-11510",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "6cb783c0024a873722952a67ebb9f41771c8eb6d",
+      "environment_setup_commit": "7758e016231c3886e5a290c00fcb2c75d1f36c18",
+      "project_version": "7.2",
+      "title": "source-read event does not modify include'd files source",
+      "problem_statement_sha256": "e7ae2e2a1619fdc7fa58451dae12c5dd8b268002fdb30b4b3f457a6a9ef26762",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-11510",
+      "harbor_source_sha256": {
+        "task.toml": "c062317afc83dc6b0135001faf7fac6818014986409442efee9de6fa0fc7d414",
+        "instruction.md": "e7ae2e2a1619fdc7fa58451dae12c5dd8b268002fdb30b4b3f457a6a9ef26762",
+        "environment/Dockerfile": "bf4d5d133059cf4ce1bd98ce45590f9f28cb8f4bca15e1d0acef6cf5dbd64665"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-11510:latest",
+      "source_difficulty": "1-4 hours",
+      "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-11510@sha256:01bf15e77e5d0f6988c8107bf81a5091900228ca0d160bf677d9b07dd17e1a0f"
+    },
+    {
+      "id": "sphinx-doc__sphinx-7590",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "2e506c5ab457cba743bb47eb5b8c8eb9dd51d23d",
+      "environment_setup_commit": "5afc77ee27fc01c57165ab260d3a76751f9ddb35",
+      "project_version": "3.1",
+      "title": "C++ User Defined Literals not supported",
+      "problem_statement_sha256": "23b9b88e30541f1109b04492ccf35a93a15fdeecb2b736bf22be5a2a6173f84e",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-7590",
+      "harbor_source_sha256": {
+        "task.toml": "f6f1ce0d62533b89d57a48e3af79a1063b2d25dc6061a567824eb79038b0e733",
+        "instruction.md": "23b9b88e30541f1109b04492ccf35a93a15fdeecb2b736bf22be5a2a6173f84e",
+        "environment/Dockerfile": "8857be749fe70d59094d741be76935236493808f534c40199e8d3c073061ba81"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7590:latest",
+      "source_difficulty": ">4 hours",
+      "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7590@sha256:5c86dab7120b83b3bdb4af86743a3910da328029ed92183477fe9865ea76cb2f"
+    },
+    {
+      "id": "sphinx-doc__sphinx-7748",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "9988d5ce267bf0df4791770b469431b1fb00dcdd",
+      "environment_setup_commit": "5afc77ee27fc01c57165ab260d3a76751f9ddb35",
+      "project_version": "3.1",
+      "title": "autodoc_docstring_signature with overloaded methods",
+      "problem_statement_sha256": "8d2fa20fad9e7875f1cfb475ed77cbdea0daee392ce09045da39a7468b6e1c99",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-7748",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "fcffd96b0276a1bbe6039ae7bbc758f0ca78aa55cf4c32a1f0c18a939995c24b",
+        "environment/Dockerfile": "a37f34671aba41caab0a64495c266094467ee3c07386c3599e123940e2d903af"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7748:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "sphinx-doc__sphinx-7757",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "212fd67b9f0b4fae6a7c3501fdf1a9a5b2801329",
+      "environment_setup_commit": "5afc77ee27fc01c57165ab260d3a76751f9ddb35",
+      "project_version": "3.1",
+      "title": "The default value for positional only argument has vanished",
+      "problem_statement_sha256": "3f43b5effb6183c93b07ad0706394845cec8f7306b6fad5d9b60b531bad2328d",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-7757",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "3f43b5effb6183c93b07ad0706394845cec8f7306b6fad5d9b60b531bad2328d",
+        "environment/Dockerfile": "9e4a38e9b51acc6d52c63478e86e0ca5e43d4fa05e1462011b5442f027800666"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7757:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "sphinx-doc__sphinx-7985",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "f30284ef926ebaf04b176f21b421e2dffc679792",
+      "environment_setup_commit": "f92fa6443fe6f457ab0c26d41eb229e825fda5e1",
+      "project_version": "3.2",
+      "title": "linkcheck could also check local (internal) links",
+      "problem_statement_sha256": "388fe0c5ce4e1358bcc58e7e4314ba618c2bb432bc814c80f0855adcc3659ec4",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-7985",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "d6ea21759d42bb143d7e3af7326ec9d78ce5817c7d615ca31c01f9ef515b8eb0",
+        "environment/Dockerfile": "fa820981ad89f021c28ea2f9856019317580f11206200bc0050c50d971557f7f"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7985:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "sphinx-doc__sphinx-8035",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "5e6da19f0e44a0ae83944fb6ce18f18f781e1a6e",
+      "environment_setup_commit": "f92fa6443fe6f457ab0c26d41eb229e825fda5e1",
+      "project_version": "3.2",
+      "title": "Support defining specific `:private-members:` for autodoc",
+      "problem_statement_sha256": "9960c2dd48b9675a179b60d4f9ad656c08cf4c9929417d8f245d58e5a3d43825",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-8035",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "e2449d527af547a3b2b1bdf563805706ec7ccff1a0683c90406bf1ba9b2f6fbe",
+        "environment/Dockerfile": "2054778958c73b733f716780d02aaa3da1fced1116d76cc89d32fe610e63ad8d"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8035:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "sphinx-doc__sphinx-8056",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "e188d56ed1248dead58f3f8018c0e9a3f99193f7",
+      "environment_setup_commit": "f92fa6443fe6f457ab0c26d41eb229e825fda5e1",
+      "project_version": "3.2",
+      "title": "Render error when combining multiple input parameters in docstring",
+      "problem_statement_sha256": "4ad73beedadd0040b395a860a9ece993226dfb83750d36cef213cb166e04589b",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-8056",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "13afa0452152994f36c60bc13bc51c4045ac767cc75564e819bbc7c289e87dba",
+        "environment/Dockerfile": "3758bb992e7df53b4507b22c56d178ddb01eb5fe68ab1af45422ec125b1069a7"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8056:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "sphinx-doc__sphinx-8265",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "b428cd2404675475a5c3dc2a2b0790ba57676202",
+      "environment_setup_commit": "3b85187ffa3401e88582073c23188c147857a8a3",
+      "project_version": "3.3",
+      "title": "docstring default arg is broken",
+      "problem_statement_sha256": "12de68889c589ea2508d8777d1e79daf4a61a9df309d11d02e9dc7d09bef6178",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-8265",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "7b09bcc375791e3ae56bc7d3967881dc8e2749ebeab091642e3d171b78be3424",
+        "environment/Dockerfile": "e4fa35002bf6937a9cc84e22c05caecdc017ec223670d9e0f68e9ef7803c8275"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8265:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "sphinx-doc__sphinx-8269",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "1e2ccd8f0eca0870cf6f8fce6934e2da8eba9b72",
+      "environment_setup_commit": "3b85187ffa3401e88582073c23188c147857a8a3",
+      "project_version": "3.3",
+      "title": "Linkcheck should report HTTP errors instead of Anchor not found",
+      "problem_statement_sha256": "f40b2a7070b7417ff6f4fabda0357b7559760868d01607bbdc94f81a459ee0ef",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-8269",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "f40b2a7070b7417ff6f4fabda0357b7559760868d01607bbdc94f81a459ee0ef",
+        "environment/Dockerfile": "815d9f1af83c801d3e34438cacaa0d4f170ceda53457a6fac00e3af044502293"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8269:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "sphinx-doc__sphinx-8475",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "3ea1ec84cc610f7a9f4f6b354e264565254923ff",
+      "environment_setup_commit": "3f560cd67239f75840cc7a439ab54d8509c855f6",
+      "project_version": "3.4",
+      "title": "Extend linkchecker GET fallback logic to handle Too Many Redirects",
+      "problem_statement_sha256": "eb853c25d5bef73ec730b1b49aeda892f80fa01bce481e71b1a35942d6c9ca0f",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-8475",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "cb750302bfb6372dc8b53c62362214d812da62cedbea36d48e1b056a66cfbf63",
+        "environment/Dockerfile": "5812cf099c12dfabb11b143ba8232560f9da5319a8998dc935ca61ac07f5c597"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8475:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "sphinx-doc__sphinx-8548",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "dd1615c59dc6fff633e27dbb3861f2d27e1fb976",
+      "environment_setup_commit": "3f560cd67239f75840cc7a439ab54d8509c855f6",
+      "project_version": "3.4",
+      "title": "autodoc inherited-members won't work for inherited attributes (data members).",
+      "problem_statement_sha256": "f0c8a912cffb03b9d6346146e11cf044329280bfe2a193fd9e46980b193cffb0",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-8548",
+      "harbor_source_sha256": {
+        "task.toml": "c062317afc83dc6b0135001faf7fac6818014986409442efee9de6fa0fc7d414",
+        "instruction.md": "41d41953098abd02cc2c54c7953ccbec0bafe1fb3367ab6a933f6b7a9639e892",
+        "environment/Dockerfile": "9302c17cf43211293ed4005a6c4fc758703a4eb7936a7e672dbb279ec15b4bcb"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8548:latest",
+      "source_difficulty": "1-4 hours",
+      "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8548@sha256:2a068d5390185b7b54da95f749fab5fc9e3bcfc4c182a4132d6cf57207d6385a"
+    },
+    {
+      "id": "sphinx-doc__sphinx-8551",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "57ed10c68057c96491acbd3e62254ccfaf9e3861",
+      "environment_setup_commit": "3f560cd67239f75840cc7a439ab54d8509c855f6",
+      "project_version": "3.4",
+      "title": ":type: and :rtype: gives false ambiguous class lookup warnings",
+      "problem_statement_sha256": "59b1b15138bca3802f81a94c49ced00a098c6dc015474f0a7c06967bc623d7b6",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-8551",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "59b1b15138bca3802f81a94c49ced00a098c6dc015474f0a7c06967bc623d7b6",
+        "environment/Dockerfile": "d9e5007beaaf21661b2bbd7505d0f1385e58fe9a0ed3c86287745774d7d86eb0"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8551:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "sphinx-doc__sphinx-8638",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "4b452338f914d4f6b54704222d70ae8a746e3db5",
+      "environment_setup_commit": "8939a75efaa911a12dbe6edccedf261e88bf7eef",
+      "project_version": "4.0",
+      "title": "Instance variables link to other variables of the same name in the project",
+      "problem_statement_sha256": "bcfbf8c2f2b843cf3892b3ec7af0762b44dbf3e9d2d0ed45b4024391108a3677",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-8638",
+      "harbor_source_sha256": {
+        "task.toml": "89760344f93862da427f7f5e9a443cb4cdbc04c75522a8f40e49acff3f0bc1b1",
+        "instruction.md": "bcfbf8c2f2b843cf3892b3ec7af0762b44dbf3e9d2d0ed45b4024391108a3677",
+        "environment/Dockerfile": "7da1ee99ee2401317df20611a5d5e9fce2baec565859d744f1b6405a61d68b63"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8638:latest",
+      "source_difficulty": "15 min - 1 hour"
+    },
+    {
+      "id": "sphinx-doc__sphinx-8721",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "82ef497a8c88f0f6e50d84520e7276bfbf65025d",
+      "environment_setup_commit": "4f8cb861e3b29186b38248fe81e4944fd987fcce",
+      "project_version": "3.5",
+      "title": "viewcode creates pages for epub even if `viewcode_enable_epub=False` on `make html epub`",
+      "problem_statement_sha256": "684041d7ab737dd04914a0017b92d238cd8dae72182457e3f3a21f494e7acb3e",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-8721",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "e8c62bf3ab962eceada870d550cda6559139d33aedd34c2970236310587384a7",
+        "environment/Dockerfile": "020b8ee2fc69a6a63173ae10bf0e65e080034174e5a6a3ee7d055e05dc000667"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8721:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "sphinx-doc__sphinx-9229",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "876fa81e0a038cda466925b85ccf6c5452e0f685",
+      "environment_setup_commit": "9a2c3c4a1559e37e95fdee88c128bb116642c897",
+      "project_version": "4.1",
+      "title": "Inconsistent behaviour with type alias documentation (not overwriting all the default messages, just some)",
+      "problem_statement_sha256": "b7113d548cb7ce3722699857d638d2acf607a5547ab13feaff1272d633d15e58",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-9229",
+      "harbor_source_sha256": {
+        "task.toml": "c062317afc83dc6b0135001faf7fac6818014986409442efee9de6fa0fc7d414",
+        "instruction.md": "75bc0ab4b7ea5865af1ab49fc89069081dc1999307f0591212fdcd39963b289a",
+        "environment/Dockerfile": "c96bb191a8c90b23bcbc58d78f8e53b7ef5a8b2b0b72db145b3c0d5e62c6bc7e"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9229:latest",
+      "source_difficulty": "1-4 hours"
+    },
+    {
+      "id": "sphinx-doc__sphinx-9230",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "567ff22716ac258b9edd2c1711d766b440ac0b11",
+      "environment_setup_commit": "9a2c3c4a1559e37e95fdee88c128bb116642c897",
+      "project_version": "4.1",
+      "title": "Doc rendering is incorrect when :param has datatype dict(str,str)",
+      "problem_statement_sha256": "e814405fe0885a2284bec4dfdf1efa5bd0386117d02410e9ad0ec98c0e1712ab",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-9230",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "54e31b01bebeb73cc84d12a9462864d808ac6c9d37521127610f6d899a9d90c4",
+        "environment/Dockerfile": "9bd2b22d35be5d31d79a97deb9b7671d2b8585e1866357aeb0e7c27e7bc8bec7"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9230:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "sphinx-doc__sphinx-9281",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "8ec06e9a1bd862cd713b9db748e039ccc7b3e15b",
+      "environment_setup_commit": "9a2c3c4a1559e37e95fdee88c128bb116642c897",
+      "project_version": "4.1",
+      "title": "Python Enum values (used to show default values in function signatures) are rendered ugly.",
+      "problem_statement_sha256": "696b5942cd9fe6b1dc6e2502106c1c07dcf1a2499d4cbba1315a66b6eb359c11",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-9281",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "61fc986f2378de0bc922494c7a3484618f0760d4f534c3fdcbc92e037e8c38ec",
+        "environment/Dockerfile": "beab72cabe6682576d22e8fdd7b250210ebd6fdbb5bd544316089f16ca6a1841"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9281:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "sphinx-doc__sphinx-9320",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "e05cef574b8f23ab1b57f57e7da6dee509a4e230",
+      "environment_setup_commit": "9a2c3c4a1559e37e95fdee88c128bb116642c897",
+      "project_version": "4.1",
+      "title": "`sphinx-quickstart` with existing conf.py doesn't exit easily",
+      "problem_statement_sha256": "1e80458fcccbe9d7ea035db6f115cf94f82a81db1d68582850a9067f52818ca0",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-9320",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "2e7fde3d7c09ff487495baf20a6f59107e09e55e107bcb12a070a0aff35fc062",
+        "environment/Dockerfile": "07d810968f67226e5a421eb903d0de8a70aef326d0f677e99af4595bb190721f"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9320:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "sphinx-doc__sphinx-9367",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "6918e69600810a4664e53653d6ff0290c3c4a788",
+      "environment_setup_commit": "9a2c3c4a1559e37e95fdee88c128bb116642c897",
+      "project_version": "4.1",
+      "title": "1-element tuple rendered incorrectly",
+      "problem_statement_sha256": "0194a1f3d78c24e2cd8d0647655aec554403841bf37f6a97294bdc909de61241",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-9367",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "d7cf8f79a123c2d9f6dac831d0090a05302f7b2834b6e1d4c75de99a741240fd",
+        "environment/Dockerfile": "f51dbaec65a9add7fb20f453cee4455a06823cdd315cb2710a6f5c3b32e9aafa"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9367:latest",
+      "source_difficulty": "<15 min fix"
+    },
+    {
+      "id": "sphinx-doc__sphinx-9461",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "939c7bb7ff7c53a4d27df067cea637540f0e1dad",
+      "environment_setup_commit": "336605b8e4b14c5da9f4d872fb730dc6894edb77",
+      "project_version": "4.2",
+      "title": "Methods decorated with @classmethod and @property do not get documented.",
+      "problem_statement_sha256": "cc2eb5d4afca2da5e00ca423f2dce2bf467613a98b9686da7dc19a08e1f4de0f",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-9461",
+      "harbor_source_sha256": {
+        "task.toml": "c062317afc83dc6b0135001faf7fac6818014986409442efee9de6fa0fc7d414",
+        "instruction.md": "cc2eb5d4afca2da5e00ca423f2dce2bf467613a98b9686da7dc19a08e1f4de0f",
+        "environment/Dockerfile": "cd861b71ab629adf9400546e926ec435edb01d1deffdaa5598a82304606b6515"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9461:latest",
+      "source_difficulty": "1-4 hours"
+    },
+    {
+      "id": "sphinx-doc__sphinx-9698",
+      "repository": "sphinx-doc/sphinx",
+      "language": "python",
+      "base_commit": "f050a7775dfc9000f55d023d36d925a8d02ccfa8",
+      "environment_setup_commit": "6c6cc8a6f50b18331cb818160d168d7bb9c03e55",
+      "project_version": "4.3",
+      "title": "An index entry with parens was registered for `py:method` directive with `:property:` option",
+      "problem_statement_sha256": "e2bd3a063a06ffaaccbff166bc0a3c4dc2e1b016c1917f0d21afc9675cb64c41",
+      "harbor_task_path": "datasets/swebench-verified/sphinx-doc__sphinx-9698",
+      "harbor_source_sha256": {
+        "task.toml": "e9a5d7dd94ed43a89396fc12e7b7b32578c9114806bf017620aa694525dd9cba",
+        "instruction.md": "e2bd3a063a06ffaaccbff166bc0a3c4dc2e1b016c1917f0d21afc9675cb64c41",
+        "environment/Dockerfile": "3cbb537524a768014360d5d51c4c56cd7373f784cfeb935a2759ed9bd87efd5b"
+      },
+      "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9698:latest",
+      "source_difficulty": "<15 min fix",
+      "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9698@sha256:38120cc331db6bb9d962101a6795a515d56c8a4ace9983f17afede39fd926d5b"
+    }
+  ]
+}

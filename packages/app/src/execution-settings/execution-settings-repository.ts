@@ -3,11 +3,14 @@ import { join } from "node:path";
 import { InterprocessFileLock } from "@omni-agent/core";
 import { AtomicJsonFile } from "../persistence/atomic-json-file";
 import { migrateExecutionSettingsV4 } from "./migrations/migrate-execution-v4-to-v5";
+import { migrateExecutionSettingsV5 } from "./migrations/migrate-execution-v5-to-v6";
 import {
   EMPTY_EXECUTION_SETTINGS,
   isPersistedExecutionSettings,
   isPersistedExecutionSettingsV4,
+  isPersistedExecutionSettingsV5,
   type PersistedExecutionSettings,
+  type PersistedExecutionSettingsV5,
 } from "./persisted-types";
 
 export class ExecutionSettingsRepository {
@@ -27,7 +30,9 @@ export class ExecutionSettingsRepository {
     const value = await this.readCurrentFile();
     if (value === undefined) return undefined;
     if (isPersistedExecutionSettings(value)) return value;
-    if (isPersistedExecutionSettingsV4(value)) return this.migrateV4();
+    if (isPersistedExecutionSettingsV5(value) || isPersistedExecutionSettingsV4(value)) {
+      return this.migrateToV6();
+    }
     this.reportInvalidSettings();
     return structuredClone(EMPTY_EXECUTION_SETTINGS);
   }
@@ -55,7 +60,7 @@ export class ExecutionSettingsRepository {
     });
   }
 
-  private async migrateV4(): Promise<PersistedExecutionSettings> {
+  private async migrateToV6(): Promise<PersistedExecutionSettings> {
     let migrated: PersistedExecutionSettings | undefined;
     try {
       await this.enqueueWrite(async () => {
@@ -64,12 +69,28 @@ export class ExecutionSettingsRepository {
           migrated = raw;
           return;
         }
-        if (!isPersistedExecutionSettingsV4(raw)) {
-          throw new Error("Execution settings changed while migrating version 4");
+        let sourceVersion: 4 | 5;
+        let version5: PersistedExecutionSettingsV5;
+        if (isPersistedExecutionSettingsV5(raw)) {
+          sourceVersion = 5;
+          version5 = raw;
+        } else if (isPersistedExecutionSettingsV4(raw)) {
+          sourceVersion = 4;
+          version5 = migrateExecutionSettingsV4(raw);
+        } else {
+          throw new Error("Execution settings changed while migrating to version 6");
         }
-        migrated = migrateExecutionSettingsV4(raw);
+        const migration = migrateExecutionSettingsV5(version5);
+        migrated = migration.settings;
         await new AtomicJsonFile<PersistedExecutionSettings>(this.path).write(migrated);
-        this.reportDiagnostic("Migrated execution settings from version 4 to version 5.");
+        this.reportDiagnostic(
+          `Migrated execution settings from version ${sourceVersion} to version 6.`,
+        );
+        if (migration.discardedCoarseNetworkGrants > 0) {
+          this.reportDiagnostic(
+            `coarse_network_grant_discarded: Discarded ${migration.discardedCoarseNetworkGrants} coarse network grant(s) while migrating to target-scoped network access.`,
+          );
+        }
       });
       return migrated!;
     } catch {
@@ -105,6 +126,9 @@ export class ExecutionSettingsRepository {
 
 function currentSettings(value: unknown): PersistedExecutionSettings {
   if (isPersistedExecutionSettings(value)) return value;
-  if (isPersistedExecutionSettingsV4(value)) return migrateExecutionSettingsV4(value);
+  if (isPersistedExecutionSettingsV5(value)) return migrateExecutionSettingsV5(value).settings;
+  if (isPersistedExecutionSettingsV4(value)) {
+    return migrateExecutionSettingsV5(migrateExecutionSettingsV4(value)).settings;
+  }
   return structuredClone(EMPTY_EXECUTION_SETTINGS);
 }

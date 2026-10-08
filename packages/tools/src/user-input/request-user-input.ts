@@ -18,7 +18,7 @@ export function createRequestUserInputTool(
     name: "request_user_input",
     description:
       "Collect 1 to 3 structured decision answers from the current user using single-select, multi-select, or text fields. Every predefined option requires a stable id and non-empty user-visible label. Returns submitted answers or a skipped outcome. This tool does not change runtime access boundaries.",
-    strict: true,
+    inputConstraint: "prefer",
     schema: requestUserInputSchema,
     preflight: createRequestUserInputPreflight(),
     access: { kind: "internal" },

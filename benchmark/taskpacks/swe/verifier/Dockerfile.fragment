@@ -1,0 +1,12 @@
+COPY . /tests/
+RUN mkdir -p /submission /logs/verifier && /root/.local/bin/uv sync --script /tests/grade.py --locked
+RUN /root/.local/bin/uv run --locked --script /tests/grade.py prepare
+# Warm official repository install/test dependencies before evaluation.
+RUN touch /submission/changes.patch && /root/.local/bin/uv run --locked --script /tests/grade.py grade
+# Restore the image's initial tree, including upstream environment instrumentation.
+RUN git -C /testbed reset --hard HEAD && git -C /testbed clean -fd && test -z "$(git -C /testbed status --porcelain)" && rm -f /logs/verifier/* /submission/changes.patch
+# pip build isolation must resolve from task-owned artifacts without downloading new build dependencies during grading.
+ENV PIP_NO_INDEX=1 PIP_FIND_LINKS=/tests/build-wheels UV_OFFLINE=1
+# The actual official evaluator is the gate, for every language supported by the taskpack.
+# A failed setup or wrong gold/empty result prevents publication of this image.
+RUN /root/.local/bin/uv run --locked --script /tests/grade.py validate-controls

@@ -257,6 +257,7 @@ function isEligible(
     cycle?.status === "completed" &&
     cycle.consumed &&
     !message.isError &&
+    !(message.details && typeof message.details === "object" && "output" in message.details) &&
     message.content.every((block) => block.type === "text")
   );
 }

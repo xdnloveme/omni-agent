@@ -1,6 +1,7 @@
-import type { DeepReadonly, JsonValue } from "../data";
+import { isJsonValue, type DeepReadonly, type JsonValue } from "../data";
 import { cloneData } from "../dataCopy";
 import type { ImageContent, TextContent, ThinkingContent, ToolCallContent } from "./content";
+import type { ToolResultContent } from "../types";
 
 export const MessageRole = {
   User: "user",
@@ -73,7 +74,8 @@ export interface ToolResultTranscriptMessage {
   role: "toolResult";
   toolCallId: string;
   toolName: string;
-  content: Array<TextContent | ImageContent>;
+  content: ToolResultContent[];
+  structuredContent?: JsonValue;
   details?: JsonValue;
   usage?: ModelUsage;
   addedToolNames?: string[];
@@ -127,7 +129,9 @@ export function assertTranscriptMessages(
         typeof candidate.toolCallId !== "string" ||
         typeof candidate.toolName !== "string" ||
         !Array.isArray(candidate.content) ||
-        typeof candidate.isError !== "boolean"
+        typeof candidate.isError !== "boolean" ||
+        !candidate.content.every(isToolResultContent) ||
+        (candidate.structuredContent !== undefined && !isJsonValue(candidate.structuredContent))
       ) {
         throw error("contains an invalid tool-result message");
       }
@@ -135,4 +139,26 @@ export function assertTranscriptMessages(
     }
     throw error("contains a message with an unknown role");
   }
+}
+
+function isToolResultContent(value: unknown): value is ToolResultContent {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const block = value as Record<string, unknown>;
+  if (block.type === "text") return typeof block.text === "string";
+  if (block.type === "image" || block.type === "audio")
+    return typeof block.data === "string" && typeof block.mimeType === "string";
+  if (block.type === "resource_link")
+    return typeof block.name === "string" && typeof block.uri === "string";
+  if (
+    block.type !== "resource" ||
+    !block.resource ||
+    typeof block.resource !== "object" ||
+    Array.isArray(block.resource)
+  )
+    return false;
+  const resource = block.resource as Record<string, unknown>;
+  return (
+    typeof resource.uri === "string" &&
+    (typeof resource.text === "string" || typeof resource.blob === "string")
+  );
 }

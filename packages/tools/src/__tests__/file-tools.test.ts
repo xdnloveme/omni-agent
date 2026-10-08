@@ -8,11 +8,7 @@ import { fileWriteTool } from "../filesystem/file-write";
 import { invokeToolImplementation, invokeUnboundToolImplementation } from "./tool-test-helper";
 import { fileMutex } from "../filesystem/file-mutex";
 import { writeDirectFile } from "../filesystem/io/direct-file-writer";
-import {
-  createFileSnapshot,
-  snapshotVersion,
-  type FileSnapshot,
-} from "../filesystem/io/file-snapshot";
+import { createFileSnapshot, snapshotVersion, type FileSnapshot } from "@omni-agent/core";
 
 let tmpDir: string;
 
@@ -78,7 +74,7 @@ describe("fileReadTool", () => {
       nextOffset: 501,
     });
     expect(result.content[0].text).toContain("offset=501, limit=500");
-    expect(Buffer.byteLength(result.content[0].text)).toBeLessThanOrEqual(64 * 1024);
+    expect(Buffer.byteLength(result.content[0].text!)).toBeLessThanOrEqual(64 * 1024);
   });
 
   it("accepts an explicit 2000-line range while preserving the output budget", async () => {
@@ -94,7 +90,7 @@ describe("fileReadTool", () => {
       isError: false,
       meta: { pagination: { returnedLines: 2000, hasMore: false } },
     });
-    expect(Buffer.byteLength(result.content[0].text)).toBeLessThanOrEqual(64 * 1024);
+    expect(Buffer.byteLength(result.content[0].text!)).toBeLessThanOrEqual(64 * 1024);
     const limitSchema = (fileReadTool.schema.properties as Record<string, Record<string, unknown>>)
       .limit;
     expect(limitSchema).toMatchObject({ minimum: 1, maximum: 2000 });
@@ -148,7 +144,9 @@ describe("fileReadTool", () => {
       const result = await invokeToolImplementation(fileReadTool, input);
       expect(result.isError).toBe(false);
       const pagination = result.meta?.pagination as Record<string, unknown>;
-      const body = result.content[0].text.split("\n[Partial line]")[0].split("\n[More content")[0];
+      const body = result.content[0]
+        .text!.split("\n[Partial line]")[0]!
+        .split("\n[More content")[0]!;
       chunks.push(body.slice(body.indexOf("|") + 1));
       if (pagination.mode !== "line_chunk") break;
       input = {

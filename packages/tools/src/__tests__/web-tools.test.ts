@@ -1,248 +1,196 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { AgentToolDefinition, NetworkResponse } from "@omni-agent/core";
 import { webFetchTool } from "../web/web-fetch";
 import { webSearchTool } from "../web/web-search";
 import { invokeToolImplementation } from "./tool-test-helper";
 
-// Mock global fetch
-const mockFetch = vi.fn();
-vi.stubGlobal("fetch", mockFetch);
+const request = vi.fn();
 
-function makeResponse(body: string, options: { status?: number; contentType?: string } = {}) {
-  const { status = 200, contentType = "text/html" } = options;
+beforeEach(() => request.mockReset());
+
+function response(
+  body: string,
+  options: { status?: number; contentType?: string } = {},
+): NetworkResponse {
   return {
-    ok: status >= 200 && status < 300,
-    status,
-    statusText: status === 200 ? "OK" : "Not Found",
-    headers: new Headers({ "content-type": contentType }),
-    text: () => Promise.resolve(body),
-    json: () => Promise.resolve(JSON.parse(body)),
+    requestedUrl: "https://example.com/requested",
+    finalUrl: "https://example.com/final",
+    status: options.status ?? 200,
+    headers: { "content-type": options.contentType ?? "text/html; charset=utf-8" },
+    body: Buffer.from(body),
+    compressedBytes: Buffer.byteLength(body),
+    redirectCount: 0,
   };
 }
 
-beforeEach(() => {
-  mockFetch.mockReset();
-});
-
-// ─── web_fetch ───────────────────────────────────────────────────────────────
+function invoke(tool: AgentToolDefinition, input: Record<string, unknown>) {
+  return invokeToolImplementation(tool, input, {
+    cwd: process.cwd(),
+    network: { request, requestStream: vi.fn() },
+  });
+}
 
 describe("webFetchTool", () => {
-  it("should extract text from HTML, stripping scripts and styles", async () => {
-    const html = `
-      <html>
-        <head><style>body { color: red; }</style></head>
-        <body>
-          <script>alert('hi')</script>
-          <nav>Navigation</nav>
-          <main><p>Hello World</p></main>
-          <footer>Footer content</footer>
-        </body>
-      </html>
-    `;
-    mockFetch.mockResolvedValueOnce(makeResponse(html, { contentType: "text/html" }));
-
-    const result = await invokeToolImplementation(webFetchTool, { url: "https://example.com" });
-
-    expect(result.isError).toBe(false);
-    const text = result.content[0].text;
-    expect(text).toContain("Hello World");
-    expect(text).not.toContain("alert");
-    expect(text).not.toContain("color: red");
-    expect(text).not.toContain("Navigation");
-    expect(text).not.toContain("Footer content");
-  });
-
-  it("should return JSON content formatted", async () => {
-    const json = JSON.stringify({ key: "value", num: 42 });
-    mockFetch.mockResolvedValueOnce(makeResponse(json, { contentType: "application/json" }));
-
-    const result = await invokeToolImplementation(webFetchTool, {
-      url: "https://api.example.com/data",
-    });
-
-    expect(result.isError).toBe(false);
-    const text = result.content[0].text;
-    expect(text).toContain('"key": "value"');
-    expect(text).toContain('"num": 42');
-  });
-
-  it("should return plain text as-is", async () => {
-    mockFetch.mockResolvedValueOnce(
-      makeResponse("plain text content", { contentType: "text/plain" }),
+  it("extracts safe HTML text and exposes navigation facts in both projections", async () => {
+    request.mockResolvedValueOnce(
+      response("<title>Example</title><script>bad()</script><main>Hello World</main>"),
     );
-
-    const result = await invokeToolImplementation(webFetchTool, {
-      url: "https://example.com/file.txt",
-    });
+    const result = await invoke(webFetchTool, { url: "https://example.com" });
 
     expect(result.isError).toBe(false);
-    expect(result.content[0].text).toBe("plain text content");
+    expect(result.content[0]?.text).toContain("Requested URL: https://example.com/requested");
+    expect(result.content[0]?.text).toContain("Hello World");
+    expect(result.content[0]?.text).not.toContain("bad()");
+    expect(result.structuredContent).toMatchObject({
+      finalUrl: "https://example.com/final",
+      title: "Example",
+      truncated: false,
+    });
   });
 
-  it("should return error for non-2xx status", async () => {
-    mockFetch.mockResolvedValueOnce(makeResponse("", { status: 404 }));
-
-    const result = await invokeToolImplementation(webFetchTool, {
-      url: "https://example.com/missing",
+  it("formats valid JSON and rejects invalid declared JSON", async () => {
+    request.mockResolvedValueOnce(response('{"key":"value"}', { contentType: "application/json" }));
+    await expect(invoke(webFetchTool, { url: "https://example.com/data" })).resolves.toMatchObject({
+      isError: false,
+      structuredContent: { content: expect.stringContaining('"key": "value"') },
     });
 
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("HTTP 404");
-  });
-
-  it("should return error when url is missing", async () => {
-    const result = await invokeToolImplementation(webFetchTool, {});
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("url is required");
-  });
-
-  it("should truncate output exceeding 20000 chars", async () => {
-    const longText = "x".repeat(25000);
-    mockFetch.mockResolvedValueOnce(makeResponse(longText, { contentType: "text/plain" }));
-
-    const result = await invokeToolImplementation(webFetchTool, { url: "https://example.com/big" });
-
-    expect(result.isError).toBe(false);
-    expect(result.content[0].text.length).toBeLessThan(25000);
-    expect(result.content[0].text).toContain("truncated");
-  });
-
-  it("should handle network errors gracefully", async () => {
-    mockFetch.mockRejectedValueOnce(new Error("ECONNREFUSED"));
-
-    const result = await invokeToolImplementation(webFetchTool, {
-      url: "https://down.example.com",
+    request.mockResolvedValueOnce(response("not-json", { contentType: "application/json" }));
+    await expect(invoke(webFetchTool, { url: "https://example.com/data" })).resolves.toMatchObject({
+      isError: true,
+      meta: { code: "web_json_invalid" },
     });
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("ECONNREFUSED");
   });
 
-  it("should handle timeout errors", async () => {
-    mockFetch.mockImplementationOnce(
-      async (_url: string, init: RequestInit) =>
-        await new Promise((_resolve, reject) => {
-          init.signal?.addEventListener("abort", () => reject(init.signal?.reason), {
-            once: true,
-          });
+  it("rejects binary responses without decoding them as text", async () => {
+    request.mockResolvedValueOnce(response("%PDF", { contentType: "application/pdf" }));
+    await expect(
+      invoke(webFetchTool, { url: "https://example.com/report.pdf" }),
+    ).resolves.toMatchObject({ isError: true, meta: { code: "web_content_type_unsupported" } });
+  });
+
+  it("uses schema-bound deadline policy and bounded gateway sizes", async () => {
+    request.mockResolvedValueOnce(response("ok", { contentType: "text/plain" }));
+    await invoke(webFetchTool, { url: "https://example.com", timeout_ms: 250 });
+    expect(webFetchTool.timeout).toEqual({
+      kind: "input",
+      parameter: "timeout_ms",
+      defaultMs: 10_000,
+      minMs: 100,
+      maxMs: 120_000,
+    });
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({
+        maxCompressedBytes: 8 * 1024 * 1024,
+        maxDecompressedBytes: 16 * 1024 * 1024,
+      }),
+    );
+  });
+
+  it("returns a structured HTTP error", async () => {
+    request.mockResolvedValueOnce(response("", { status: 404 }));
+    await expect(
+      invoke(webFetchTool, { url: "https://example.com/missing" }),
+    ).resolves.toMatchObject({
+      isError: true,
+      meta: { code: "web_http_error", status: 404 },
+    });
+  });
+
+  it.each(["plain", "large-title", "escaped-json"])(
+    "bounds both output projections for %s",
+    async (kind) => {
+      const body =
+        kind === "plain"
+          ? "x".repeat(80 * 1024)
+          : kind === "large-title"
+            ? `<title>${"标".repeat(80 * 1024)}</title><body>BODY_SENTINEL</body>`
+            : JSON.stringify({ text: '\\"'.repeat(80 * 1024) });
+      request.mockResolvedValueOnce(
+        response(body, {
+          contentType:
+            kind === "plain"
+              ? "text/plain"
+              : kind === "escaped-json"
+                ? "application/json"
+                : "text/html",
         }),
-    );
-
-    const result = await invokeToolImplementation(webFetchTool, {
-      url: "https://slow.example.com",
-      timeout_ms: 100,
-    });
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("timed out");
-  });
-
-  it("propagates user cancellation instead of reporting a request timeout", async () => {
-    mockFetch.mockImplementationOnce(
-      async (_url: string, init: RequestInit) =>
-        await new Promise((_resolve, reject) => {
-          init.signal?.addEventListener("abort", () => reject(init.signal?.reason), {
-            once: true,
-          });
-        }),
-    );
-    const controller = new AbortController();
-    const pending = invokeToolImplementation(
-      webFetchTool,
-      { url: "https://slow.example.com" },
-      { cwd: process.cwd(), signal: controller.signal },
-    );
-    controller.abort();
-
-    await expect(pending).rejects.toMatchObject({ name: "AbortError" });
-  });
+      );
+      const result = await invoke(webFetchTool, { url: "https://example.com/large" });
+      expect(
+        Buffer.byteLength(result.content[0]?.text ?? "") +
+          Buffer.byteLength(JSON.stringify(result.structuredContent)),
+      ).toBeLessThanOrEqual(64 * 1024 - 256);
+      expect(result.structuredContent).toMatchObject({ truncated: true });
+      if (kind === "large-title") expect(result.content[0]?.text).toContain("BODY_SENTINEL");
+      expect(result.content[0]?.text).not.toContain("\uFFFD");
+    },
+  );
 });
 
-// ─── web_search ──────────────────────────────────────────────────────────────
-
 describe("webSearchTool", () => {
-  const ddgHtml = `
-    <html>
-      <body>
-        <div class="result">
-          <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage1">Result One</a>
-          <a class="result__snippet">This is the first snippet</a>
-        </div>
-        <div class="result">
-          <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage2">Result Two</a>
-          <a class="result__snippet">This is the second snippet</a>
-        </div>
-        <div class="result">
-          <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage3">Result Three</a>
-          <a class="result__snippet">This is the third snippet</a>
-        </div>
-      </body>
-    </html>
-  `;
+  const html = `
+    <div class="result">
+      <a class="result__a" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fone">One</a>
+      <span class="result__snippet">First</span>
+    </div>
+    <div class="result">
+      <a class="result__a" href="https://example.com/two">Two</a>
+      <span class="result__snippet">Second</span>
+    </div>`;
 
-  it("requires source URLs to remain attached to important conclusions", () => {
-    expect(webSearchTool.description).toContain("retain the supporting source URL");
+  it("returns ranked, provider-tagged structured results", async () => {
+    request.mockResolvedValueOnce(response(html));
+    const result = await invoke(webSearchTool, { query: "test" });
+    expect(result.isError).toBe(false);
+    expect(result.structuredContent).toEqual([
+      {
+        rank: 1,
+        title: "One",
+        url: "https://example.com/one",
+        snippet: "First",
+        provider: "duckduckgo",
+      },
+      {
+        rank: 2,
+        title: "Two",
+        url: "https://example.com/two",
+        snippet: "Second",
+        provider: "duckduckgo",
+      },
+    ]);
   });
 
-  it("should parse DuckDuckGo results correctly", async () => {
-    mockFetch.mockResolvedValueOnce(makeResponse(ddgHtml, { contentType: "text/html" }));
-
-    const result = await invokeToolImplementation(webSearchTool, { query: "test query" });
-
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed).toHaveLength(3);
-    expect(parsed[0]).toEqual({
-      title: "Result One",
-      url: "https://example.com/page1",
-      snippet: "This is the first snippet",
+  it("distinguishes no results and HTTP failure", async () => {
+    request.mockResolvedValueOnce(response("<div>No results</div>"));
+    await expect(invoke(webSearchTool, { query: "none" })).resolves.toMatchObject({
+      isError: false,
+      meta: { code: "web_search_no_results" },
     });
-    expect(parsed[1].title).toBe("Result Two");
-    expect(parsed[2].url).toBe("https://example.com/page3");
+
+    request.mockResolvedValueOnce(response("", { status: 503 }));
+    await expect(invoke(webSearchTool, { query: "error" })).resolves.toMatchObject({
+      isError: true,
+      meta: { code: "web_search_http_error" },
+    });
   });
 
-  it("should respect max_results", async () => {
-    mockFetch.mockResolvedValueOnce(makeResponse(ddgHtml, { contentType: "text/html" }));
+  it("distinguishes transport failure from unrecognized provider markup", async () => {
+    request.mockRejectedValueOnce(new Error("socket failed"));
+    await expect(invoke(webSearchTool, { query: "transport" })).resolves.toMatchObject({
+      isError: true,
+      meta: { code: "web_search_transport_error" },
+    });
 
-    const result = await invokeToolImplementation(webSearchTool, { query: "test", max_results: 2 });
-
-    expect(result.isError).toBe(false);
-    const parsed = JSON.parse(result.content[0].text);
-    expect(parsed).toHaveLength(2);
+    request.mockResolvedValueOnce(response("<main>provider layout changed</main>"));
+    await expect(invoke(webSearchTool, { query: "parser" })).resolves.toMatchObject({
+      isError: true,
+      meta: { code: "web_search_parser_error" },
+    });
   });
 
-  it("should return error when query is missing", async () => {
-    const result = await invokeToolImplementation(webSearchTool, {});
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("query is required");
-  });
-
-  it("should handle fetch failure gracefully", async () => {
-    mockFetch.mockRejectedValueOnce(new Error("Network error"));
-
-    const result = await invokeToolImplementation(webSearchTool, { query: "test" });
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("Network error");
-  });
-
-  it("should handle non-2xx response from DuckDuckGo", async () => {
-    mockFetch.mockResolvedValueOnce(makeResponse("", { status: 503 }));
-
-    const result = await invokeToolImplementation(webSearchTool, { query: "test" });
-
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toContain("HTTP 503");
-  });
-
-  it("should return message when no results found", async () => {
-    const emptyHtml = "<html><body><div class='no-results'>No results</div></body></html>";
-    mockFetch.mockResolvedValueOnce(makeResponse(emptyHtml, { contentType: "text/html" }));
-
-    const result = await invokeToolImplementation(webSearchTool, { query: "xyznonexistent" });
-
-    expect(result.isError).toBe(false);
-    expect(result.content[0].text).toContain("No results found");
+  it("uses the fixed timeout and does not imply result URL authorization", () => {
+    expect(webSearchTool.timeout).toEqual({ kind: "fixed", timeoutMs: 15_000 });
+    expect(webSearchTool.description).toContain("not automatically authorized");
   });
 });

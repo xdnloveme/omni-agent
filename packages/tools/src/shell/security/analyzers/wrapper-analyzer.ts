@@ -34,6 +34,7 @@ const NO_OPTIONS_WITH_VALUE = new Set<string>();
 export type WrapperAnalysis =
   | {
       kind: "argv";
+      stateScope: "current" | "child";
       target: ShellCommandView;
       wrapperOperands: readonly ShellWord[];
       targetContext?: WrapperTargetContext;
@@ -57,9 +58,9 @@ export function analyzeWrapper(command: ShellCommandView): WrapperAnalysis | nul
     if (args.some(({ staticValue }) => staticValue === "-v" || staticValue === "-V")) {
       return { kind: "none", wrapperOperands: args };
     }
-    return argvTarget(args);
+    return argvTarget(args, NO_OPTIONS_WITH_VALUE, false, "current");
   }
-  if (primary === "builtin") return argvTarget(args);
+  if (primary === "builtin") return argvTarget(args, NO_OPTIONS_WITH_VALUE, false, "current");
   if (primary === "exec") return argvTarget(args, EXEC_OPTIONS_WITH_VALUE);
   if (primary === "nohup") return argvTarget(args);
   if (primary === "time") return argvTarget(args, TIME_OPTIONS_WITH_VALUE);
@@ -83,6 +84,7 @@ function analyzeEnvWrapper(args: readonly ShellWord[]): WrapperAnalysis | null {
   const wrapperOperands = args.slice(0, index);
   return {
     kind: "argv",
+    stateScope: "child",
     target,
     wrapperOperands,
     targetContext: envTargetContext(wrapperOperands),
@@ -114,11 +116,14 @@ function argvTarget(
   args: readonly ShellWord[],
   optionsWithValue: ReadonlySet<string> = NO_OPTIONS_WITH_VALUE,
   skipAssignments = false,
+  stateScope: "current" | "child" = "child",
 ): WrapperAnalysis | null {
   const index = findWrappedCommandIndex(args, optionsWithValue, skipAssignments);
   if (index === null) return { kind: "none", wrapperOperands: args };
   const target = commandViewFromWords(args.slice(index));
-  return target ? { kind: "argv", target, wrapperOperands: args.slice(0, index) } : null;
+  return target
+    ? { kind: "argv", stateScope, target, wrapperOperands: args.slice(0, index) }
+    : null;
 }
 
 function findWrappedCommandIndex(

@@ -1,3 +1,4 @@
+import { SessionArtifactStore } from "../persistence/session-artifact-store";
 import { join } from "node:path";
 import {
   AgentSessionRepository,
@@ -10,6 +11,9 @@ import {
   type AgentConfig,
 } from "@omni-agent/core";
 import { AgentApplication } from "../application/agent-application";
+import { AgentMcpController } from "../mcp/agent-mcp-controller";
+import { McpActivationStore } from "../mcp/activation-store";
+import { McpCatalogService, McpSdkClient, KeychainMcpCredentialStore } from "../mcp";
 import type { AgentInstance } from "../application/agent-factory";
 import { createContextRuntime } from "../context/contextRuntime";
 import { ContextSidecarLayout } from "../context/sidecarLayout";
@@ -111,8 +115,16 @@ export class AgentRuntimeAssembler {
         model: plan.resolvedModel,
         systemPrompt,
         tools,
+        toolBatchPreparationPolicies: contribution.definition.toolBatchPreparationPolicies,
         middleware: manager.middleware,
         toolLifecycleAdapters: module.capabilities.skills?.runtime.lifecycleAdapters(),
+        hooks: manager.hooks,
+        onHookDiagnostic: (value) =>
+          manager.diagnostics.push({
+            extensionId: "builtin-hooks",
+            source: value.hookId,
+            message: `${value.code}: ${value.message}`,
+          }),
       };
 
       const workspaceStorage = new WorkspaceStorageLayout(plan.globalDirectory);
@@ -124,6 +136,13 @@ export class AgentRuntimeAssembler {
       source = "session-repository";
       const sessions = new AgentSessionRepository({ agentId, sessionsRoot });
       await sessions.restoreLatestOrCreate();
+      const outputReaders = tools.filter((tool) => tool.outputReader);
+      const outputStore = outputReaders.length
+        ? new SessionArtifactStore(
+            join(sessionsRoot, agentId, "outputs"),
+            await environment.configService.resolveOutputLimits(),
+          )
+        : undefined;
       const sidecarLayout = new ContextSidecarLayout(join(sessionsRoot, agentId, "context"));
       const diagnostic = (extensionId: string, source: string, message: string) =>
         manager.diagnostics.push({ extensionId, source, message });
@@ -169,6 +188,7 @@ export class AgentRuntimeAssembler {
         }),
         inputValidator: toolInputValidator,
         hostRuntime: environment.host.hostRuntime,
+        networkRuntime: environment.host.networkRuntime,
       });
       stage = "environment";
       source = "runtime-environment-provider";
@@ -212,10 +232,46 @@ export class AgentRuntimeAssembler {
         onDiagnostic: (value) => diagnostic("builtin-tracing", value.operation, value.message),
       });
       transaction.defer("trace_runtime", () => traceRuntime.dispose());
+      if (environment.host.traceEnabled) traceRuntime.control.start();
 
       stage = "application";
       source = "agent-application";
+      let mcpConfigs: import("../mcp/config/types").ResolvedMcpConfiguration = {
+        servers: [],
+        diagnostics: [],
+      };
+      try {
+        mcpConfigs = await environment.configService.resolveMcpServers();
+      } catch (error) {
+        diagnostic(
+          "builtin-mcp",
+          "configuration",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
       const application = new AgentApplication({
+        outputStore,
+        mcp: new AgentMcpController(
+          mcpConfigs,
+          new McpActivationStore(join(sessionsRoot, agentId, "mcp-activation.json")),
+          new McpCatalogService(
+            manager.tools,
+            new McpSdkClient(
+              new KeychainMcpCredentialStore(),
+              environment.host.mcpEnvironment,
+              environment.host.mcpOAuthInteraction,
+            ),
+          ),
+          toolCallCoordinator,
+          {
+            agentId,
+            workspaceId: plan.workspace.id,
+            workspaceRoot: plan.workspace.root,
+            cwd: plan.workspace.root,
+            middleware: [],
+            lifecycleAdapters: [],
+          },
+        ),
         extensions: manager,
         agentModule: module,
         sessions,
@@ -236,6 +292,15 @@ export class AgentRuntimeAssembler {
         runObservation: traceRuntime,
         assemblyEvidence,
       });
+      try {
+        await application.initializeMcp();
+      } catch (error) {
+        diagnostic(
+          "builtin-mcp",
+          "activation",
+          error instanceof Error ? error.message : String(error),
+        );
+      }
       transaction.commit();
       let disposePromise: Promise<void> | undefined;
       return {

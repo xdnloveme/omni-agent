@@ -11,6 +11,7 @@
     { "path": "../../packages/cli" },
     { "path": "../../packages/core" },
     { "path": "../../packages/im-gateway" },
+    { "path": "../../packages/network" },
     { "path": "../../packages/tools" },
     { "path": "../../packages/ui" }
   ],

@@ -33,6 +33,10 @@ export class AgentAssemblyEvidence {
     });
   }
 
+  updateTools(toolNames: readonly string[]): void {
+    this.replace({ ...this.facts(), toolNames: [...toolNames] });
+  }
+
   private replace(facts: AgentAssemblyFacts): void {
     this.current = createAgentAssemblySnapshot(facts);
   }

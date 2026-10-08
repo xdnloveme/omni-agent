@@ -8,26 +8,72 @@ describe("ExecutionSettingsService", () => {
   const workspaceA = "a".repeat(64);
   const workspaceB = "b".repeat(64);
 
+  it("persists combined approval atomically and retains prior settings on invalid updates", async () => {
+    const root = await mkdtemp(join(tmpdir(), "omni-combined-access-"));
+    const repository = new ExecutionSettingsRepository(root);
+    const service = new ExecutionSettingsService(repository);
+    const access = {
+      scopes: [{ path: "/outside", scope: "subtree" as const, access: "read" as const }],
+      targets: [{ scheme: "http" as const, host: "localhost", port: 3000 }],
+    };
+    await service.addApprovedAccess(workspaceA, "coding", access);
+    const before = await readFile(repository.path, "utf8");
+    await expect(
+      service.addApprovedAccess(workspaceA, "coding", {
+        scopes: [{ path: "/another", scope: "subtree", access: "read_write" }],
+        targets: Array.from({ length: 65 }, (_, i) => ({
+          scheme: "https",
+          host: `server-${i}.test`,
+          port: 443,
+        })),
+      }),
+    ).rejects.toThrow("cannot exceed");
+    expect(await readFile(repository.path, "utf8")).toBe(before);
+    const reloaded = new ExecutionSettingsService(new ExecutionSettingsRepository(root));
+    expect(await reloaded.getSettings(workspaceA, "coding")).toMatchObject({
+      approvedFilesystemRoots: access.scopes,
+      approvedNetworkTargets: access.targets,
+    });
+    expect(await reloaded.getSettings(workspaceB, "coding")).toMatchObject({
+      approvedFilesystemRoots: [],
+      approvedNetworkTargets: [],
+    });
+  });
+
   it("isolates settings and manages normalized filesystem roots", async () => {
     const root = await mkdtemp(join(tmpdir(), "omni-execution-settings-"));
     const service = new ExecutionSettingsService(new ExecutionSettingsRepository(root));
     await service.setMode(workspaceA, "coding", "autonomous");
-    await service.setControlledNetworkEnabled(workspaceA, "coding", true);
-    await service.addApprovedFilesystemRoots(workspaceA, "coding", [
-      { path: "/outside/project/src", scope: "subtree", access: "read" },
-      { path: "/outside/project", scope: "subtree", access: "read_write" },
+    await service.addApprovedNetworkTargets(workspaceA, "coding", [
+      { scheme: "https", host: "EXAMPLE.com.", port: 443 },
     ]);
+    await service.addApprovedAccess(workspaceA, "coding", {
+      targets: [],
+      scopes: [
+        { path: "/outside/project/src", scope: "subtree", access: "read" },
+        { path: "/outside/project", scope: "subtree", access: "read_write" },
+      ],
+    });
 
     await expect(service.getSettings(workspaceA, "coding")).resolves.toEqual({
       mode: "autonomous",
-      controlledNetworkEnabled: true,
+      approvedNetworkTargets: [{ scheme: "https", host: "example.com", port: 443 }],
       approvedFilesystemRoots: [
         { path: "/outside/project", scope: "subtree", access: "read_write" },
       ],
     });
     await expect(service.getSettings(workspaceB, "coding")).resolves.toEqual({
       mode: "controlled",
-      controlledNetworkEnabled: false,
+      approvedNetworkTargets: [],
+      approvedFilesystemRoots: [],
+    });
+    const reloaded = new ExecutionSettingsService(new ExecutionSettingsRepository(root));
+    await expect(reloaded.getSettings(workspaceA, "coding")).resolves.toMatchObject({
+      approvedNetworkTargets: [{ scheme: "https", host: "example.com", port: 443 }],
+    });
+    await expect(reloaded.getSettings(workspaceA, "financial-analysis")).resolves.toEqual({
+      mode: "controlled",
+      approvedNetworkTargets: [],
       approvedFilesystemRoots: [],
     });
     await service.clearApprovedFilesystemRoots(workspaceA, "coding");
@@ -57,12 +103,15 @@ describe("ExecutionSettingsService", () => {
 
     await expect(service.getSettings(workspaceA, "coding")).resolves.toEqual({
       mode: "autonomous",
-      controlledNetworkEnabled: true,
+      approvedNetworkTargets: [],
       approvedFilesystemRoots: [],
     });
-    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({ version: 5 });
+    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({ version: 6 });
     expect(repository.diagnostics).toContain(
-      "Migrated execution settings from version 4 to version 5.",
+      "Migrated execution settings from version 4 to version 6.",
+    );
+    expect(repository.diagnostics).toContain(
+      "coarse_network_grant_discarded: Discarded 1 coarse network grant(s) while migrating to target-scoped network access.",
     );
   });
 
@@ -82,7 +131,7 @@ describe("ExecutionSettingsService", () => {
 
     await expect(service.getSettings(workspaceA, "coding")).resolves.toEqual({
       mode: "controlled",
-      controlledNetworkEnabled: false,
+      approvedNetworkTargets: [],
       approvedFilesystemRoots: [],
     });
     expect(repository.diagnostics).toContain(
@@ -99,15 +148,50 @@ describe("ExecutionSettingsService", () => {
 
     await expect(service.getSettings(workspaceA, "coding")).resolves.toEqual({
       mode: "controlled",
-      controlledNetworkEnabled: false,
+      approvedNetworkTargets: [],
       approvedFilesystemRoots: [],
     });
     expect(repository.diagnostics).toEqual([
       "Execution settings are invalid; using controlled defaults.",
     ]);
 
-    await service.setControlledNetworkEnabled(workspaceA, "coding", true);
-    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({ version: 5 });
+    await service.addApprovedNetworkTargets(workspaceA, "coding", [
+      { scheme: "https", host: "example.com", port: 443 },
+    ]);
+    expect(JSON.parse(await readFile(path, "utf8"))).toMatchObject({ version: 6 });
+  });
+
+  it("fails closed when persisted network targets are not canonical", async () => {
+    const root = await mkdtemp(join(tmpdir(), "omni-execution-noncanonical-"));
+    const path = join(root, "execution-settings.json");
+    await writeFile(
+      path,
+      JSON.stringify({
+        version: 6,
+        workspaces: {
+          [workspaceA]: {
+            agents: {
+              coding: {
+                mode: "controlled",
+                approvedNetworkTargets: [{ scheme: "https", host: "EXAMPLE.com.", port: 443 }],
+                approvedFilesystemRoots: [],
+              },
+            },
+          },
+        },
+      }),
+    );
+    const repository = new ExecutionSettingsRepository(root);
+    const service = new ExecutionSettingsService(repository);
+
+    await expect(service.getSettings(workspaceA, "coding")).resolves.toEqual({
+      mode: "controlled",
+      approvedNetworkTargets: [],
+      approvedFilesystemRoots: [],
+    });
+    expect(repository.diagnostics).toContain(
+      "Execution settings are invalid; using controlled defaults.",
+    );
   });
 
   it("ignores malformed legacy permissions and keeps controlled defaults", async () => {
@@ -118,7 +202,7 @@ describe("ExecutionSettingsService", () => {
 
     await expect(service.getSettings(workspaceA, "coding")).resolves.toEqual({
       mode: "controlled",
-      controlledNetworkEnabled: false,
+      approvedNetworkTargets: [],
       approvedFilesystemRoots: [],
     });
     expect(repository.diagnostics).toContain(

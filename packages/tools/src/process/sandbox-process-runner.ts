@@ -1,3 +1,4 @@
+import type { OutputCallContext } from "@omni-agent/core";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 import type { ProcessExecutionPlan, ProcessResult } from "@omni-agent/core";
@@ -14,6 +15,7 @@ export async function runSandboxProcess(
   plan: Extract<ProcessExecutionPlan, { route: "sandbox" }>,
   runtime: SandboxProcessRuntime,
   signal?: AbortSignal,
+  output?: OutputCallContext,
 ): Promise<ProcessResult> {
   const { binaryResolver, snapshot, systemRead } = runtime;
   const invocation = plan.invocation;
@@ -45,6 +47,9 @@ export async function runSandboxProcess(
       env: environment,
       signal,
       maxOutputBytes: invocation.maxOutputBytes,
+      outputPreview: invocation.outputPreview,
+      sensitiveValues: invocation.sensitiveValues,
+      output,
     });
     const failure = sandboxLaunchFailure(result.exitCode, result.stderr, compiled.diagnosticToken);
     if (failure) throw failure;

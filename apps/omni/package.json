@@ -14,6 +14,7 @@
     "@omni-agent/cli": "workspace:*",
     "@omni-agent/core": "workspace:*",
     "@omni-agent/im-gateway": "workspace:*",
+    "@omni-agent/network": "workspace:*",
     "@omni-agent/tools": "workspace:*",
     "@omni-agent/ui": "workspace:*"
   },

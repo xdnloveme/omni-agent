@@ -7,6 +7,7 @@ import type {
   ContextMiddlewarePort,
   ContextPolicyStagePort,
   RuntimeMiddleware,
+  PostEventHook,
 } from "@omni-agent/core";
 
 export interface ExtensionManagerOptions {
@@ -60,6 +61,7 @@ interface ActiveExtension {
   readonly middleware: readonly RuntimeMiddleware[];
   readonly contextMiddleware: readonly ContextMiddlewarePort[];
   readonly contextPolicyStages: readonly ContextPolicyStagePort[];
+  readonly hooks: readonly PostEventHook[];
 }
 
 interface ExtensionCleanupOperation {
@@ -74,6 +76,7 @@ export class ExtensionManager {
   readonly middleware: RuntimeMiddleware[] = [];
   readonly contextMiddleware: ContextMiddlewarePort[] = [];
   readonly contextPolicyStages: ContextPolicyStagePort[] = [];
+  readonly hooks: PostEventHook[] = [];
   readonly diagnostics: ExtensionDiagnostic[] = [];
   private readonly cwd: string;
   private readonly active = new Map<string, ActiveExtension>();
@@ -98,6 +101,7 @@ export class ExtensionManager {
     const registeredMiddleware: RuntimeMiddleware[] = [];
     const registeredContextMiddleware: ContextMiddlewarePort[] = [];
     const registeredContextPolicyStages: ContextPolicyStagePort[] = [];
+    const registeredHooks: PostEventHook[] = [];
     try {
       for (const provider of extension.contributions.providers ?? []) {
         if (!this.modelProviders) throw new Error("Model provider contributions are not enabled");
@@ -128,6 +132,10 @@ export class ExtensionManager {
         this.contextPolicyStages.push(stage);
         registeredContextPolicyStages.push(stage);
       }
+      for (const hook of extension.contributions.hooks ?? []) {
+        this.hooks.push(hook);
+        registeredHooks.push(hook);
+      }
       await extension.activate?.({ cwd: this.cwd });
       this.active.set(extension.manifest.id, {
         extension,
@@ -138,6 +146,7 @@ export class ExtensionManager {
         middleware: registeredMiddleware,
         contextMiddleware: registeredContextMiddleware,
         contextPolicyStages: registeredContextPolicyStages,
+        hooks: registeredHooks,
       });
     } catch (error) {
       this.removeLocalContributions({
@@ -149,6 +158,7 @@ export class ExtensionManager {
         middleware: registeredMiddleware,
         contextMiddleware: registeredContextMiddleware,
         contextPolicyStages: registeredContextPolicyStages,
+        hooks: registeredHooks,
       });
       const cleanupFailures = await settleCleanup([
         ...this.createProviderCleanupOperations(registeredProviders),
@@ -314,6 +324,16 @@ export class ExtensionManager {
         throw new Error(`Context policy stage apply is required: ${stage.name}`);
       }
     }
+    const hookIds = new Set<string>();
+    for (const hook of extension.contributions.hooks ?? []) {
+      if (!hook.id?.trim() || hookIds.has(hook.id))
+        throw new Error(`Invalid or duplicate Hook id: ${hook.id}`);
+      hookIds.add(hook.id);
+      if (!Array.isArray(hook.events) || hook.events.length === 0)
+        throw new Error(`Hook events are required: ${hook.id}`);
+      if (!("handle" in hook) && (!("toolName" in hook) || typeof hook.input !== "function"))
+        throw new Error(`Invalid Hook implementation: ${hook.id}`);
+    }
   }
 
   private removeMiddleware(entries: readonly RuntimeMiddleware[]): void {
@@ -338,6 +358,10 @@ export class ExtensionManager {
   }
 
   private removeLocalContributions(entry: ActiveExtension): void {
+    for (const hook of [...entry.hooks].reverse()) {
+      const index = this.hooks.lastIndexOf(hook);
+      if (index >= 0) this.hooks.splice(index, 1);
+    }
     this.removeContextPolicyStages([...entry.contextPolicyStages].reverse());
     this.removeContextMiddleware([...entry.contextMiddleware].reverse());
     this.removeMiddleware([...entry.middleware].reverse());

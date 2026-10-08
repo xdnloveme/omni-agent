@@ -59,6 +59,7 @@ export async function captureEnvironmentPhase(
 }
 
 export interface ContextPhaseInput {
+  readonly deadline?: import("../../execution/run-deadline").RunDeadline;
   readonly turn: number;
   readonly agentId: string;
   readonly config: AgentConfig;
@@ -95,6 +96,7 @@ export async function* prepareContextPhase(
             modelCallId: randomUUID(),
           },
           conversation: conversationSnapshot,
+          runDeadline: input.deadline?.snapshot(),
           systemPrompt: promptLease.systemPrompt,
           tools: input.config.tools,
           model: {

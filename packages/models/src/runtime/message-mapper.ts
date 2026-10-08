@@ -12,7 +12,9 @@ import type {
   DeepReadonly,
   ModelContextMessage,
   ModelRequest,
+  ToolConstraintDecision,
 } from "@omni-agent/core";
+import type { ToolResultContent } from "@omni-agent/core";
 
 const ZERO_USAGE: Usage = {
   input: 0,
@@ -46,18 +48,32 @@ export function toBackendMessages(messages: ModelRequest["messages"]): Message[]
         content:
           typeof message.content === "string" ? message.content : mutableClone(message.content),
         timestamp: 0,
-      };
+      } as Message;
     }
     if (message.role === "toolResult") {
       return {
         role: "toolResult",
         toolCallId: message.toolCallId,
         toolName: message.toolName,
-        content: mutableClone(message.content),
+        content: [
+          ...message.content.map(projectToolContentForBackend),
+          ...(message.structuredContent === undefined
+            ? []
+            : [
+                {
+                  type: "text" as const,
+                  text: `Structured tool result:\n${JSON.stringify(message.structuredContent)}`,
+                },
+              ]),
+        ],
+        details: {
+          omniContent: mutableClone(message.content),
+          structuredContent: mutableClone(message.structuredContent),
+        },
         addedToolNames: message.addedToolNames && [...message.addedToolNames],
         isError: message.isError,
         timestamp: 0,
-      };
+      } as Message;
     }
     return {
       role: "assistant",
@@ -89,11 +105,17 @@ export function fromBackendContextMessages(messages: Message[]): ModelContextMes
       };
     }
     if (message.role === "toolResult") {
+      const details = isRecord(message.details) ? message.details : undefined;
       return {
         role: "toolResult",
         toolCallId: message.toolCallId,
         toolName: message.toolName,
-        content: mutableClone(message.content),
+        content: mutableClone(
+          Array.isArray(details?.omniContent) ? details.omniContent : message.content,
+        ),
+        ...(details?.structuredContent === undefined
+          ? {}
+          : { structuredContent: mutableClone(details.structuredContent) }),
         addedToolNames: message.addedToolNames && [...message.addedToolNames],
         isError: message.isError,
       };
@@ -110,6 +132,48 @@ export function fromBackendContextMessages(messages: Message[]): ModelContextMes
       rawStopReason: message.rawStopReason,
     };
   });
+}
+
+function projectToolContentForBackend(
+  block: DeepReadonly<ToolResultContent>,
+): import("@earendil-works/pi-ai").TextContent | import("@earendil-works/pi-ai").ImageContent {
+  if (block.annotations?.audience && !block.annotations.audience.includes("assistant")) {
+    return { type: "text", text: `[${block.type} content omitted: audience=user]` };
+  }
+  if (block.type === "text") return { type: "text", text: block.text };
+  if (block.type === "image") return { type: "image", data: block.data, mimeType: block.mimeType };
+  if (block.type === "audio") {
+    return {
+      type: "text",
+      text: `[audio: ${block.mimeType}; base64-bytes=${Buffer.byteLength(block.data, "base64")}]`,
+    };
+  }
+  if (block.type === "resource_link") {
+    return {
+      type: "text",
+      text: [
+        `[resource: ${block.name}; uri=${block.uri}`,
+        block.mimeType ? `; mime=${block.mimeType}` : "",
+        block.size === undefined ? "" : `; bytes=${block.size}`,
+        "]",
+        block.description ? `\n${block.description}` : "",
+      ].join(""),
+    };
+  }
+  if ("text" in block.resource) {
+    return {
+      type: "text",
+      text: `[embedded resource: ${block.resource.uri}${block.resource.mimeType ? `; mime=${block.resource.mimeType}` : ""}]\n${block.resource.text}`,
+    };
+  }
+  return {
+    type: "text",
+    text: `[embedded binary resource: ${block.resource.uri}${block.resource.mimeType ? `; mime=${block.resource.mimeType}` : ""}; base64-bytes=${Buffer.byteLength(block.resource.blob, "base64")}]`,
+  };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 export function toBackendAssistantMessage(message: AssistantTranscriptMessage): AssistantMessage {
@@ -166,19 +230,35 @@ export function fromBackendMessage(message: AssistantMessage): AssistantTranscri
   };
 }
 
-function toBackendTools(tools: ModelRequest["tools"]): Tool[] | undefined {
+function toBackendTools(
+  tools: ModelRequest["tools"],
+  decisions: readonly ToolConstraintDecision[],
+): Tool[] | undefined {
   if (!tools?.length) return undefined;
-  return tools.map((tool) => ({
+  if (
+    tools.length !== decisions.length ||
+    tools.some(
+      (tool, index) =>
+        decisions[index]?.toolName !== tool.name || decisions[index]?.outcome === "rejected",
+    )
+  )
+    throw new Error("Tool constraint decisions do not match the model request");
+  return tools.map((tool, index) => ({
+    constrainedSampling:
+      decisions[index]!.outcome === "enabled" ? { type: "json_schema", strict: "require" } : false,
     name: tool.name,
     description: tool.description,
     parameters: mutableClone<TSchema>(tool.schema),
   }));
 }
 
-export function toBackendContext(request: ModelRequest): Context {
+export function toBackendContext(
+  request: ModelRequest,
+  decisions: readonly ToolConstraintDecision[],
+): Context {
   return {
     systemPrompt: request.systemPrompt,
     messages: toBackendMessages(request.messages),
-    tools: toBackendTools(request.tools),
+    tools: toBackendTools(request.tools, decisions),
   };
 }

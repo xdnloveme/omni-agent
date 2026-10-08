@@ -4,14 +4,16 @@
 
 ```text
 packages/core   Agent execution kernel
+packages/network Target-scoped gateway, DNS policy, and authenticated loopback proxy
 packages/models Model runtime, vendor catalog, provider plugins, and credentials
 packages/app    Application lifecycle and extension host
-packages/agent-host WebSocket Protocol v1 adapter for AgentServicePort
+packages/agent-host WebSocket Protocol v2 adapter for AgentServicePort
 packages/im-gateway IM platform adapters, admission, routing, scheduling, and Agent Host clients
 packages/tools  Domain-neutral tool implementations
 packages/ui     User interaction and presentation surfaces
 packages/cli    Commands and Agent use-case orchestration
 apps/omni       Binary entry and composition root
+apps/omni-game  Godot character, Session, and task UI
 agents/*        Independently packaged business agents
 ```
 
@@ -19,6 +21,7 @@ Allowed workspace dependencies:
 
 ```text
 tools -> core
+network -> core
 models -> core
 app -> core, models
 agent-host -> app
@@ -26,7 +29,8 @@ im-gateway -> agent-host, core
 agents/* -> app, core, tools
 ui -> app, core
 cli -> app, core, tools, agents/*
-apps/omni -> agent-host, im-gateway, app, core, tools, cli, ui
+apps/omni -> network, agent-host, im-gateway, app, core, tools, cli, ui
+apps/omni-game -> WebSocket Protocol v2 only
 ```
 
 Core and app must not import a concrete agent. Agent packages must not import the
@@ -44,9 +48,27 @@ concrete Agent dependencies remain outside the package. `apps/omni` is the proce
 composes those dependencies for the standalone `omni-host` entry.
 
 `packages/im-gateway` owns IM platform connections, admission, durable event and task state,
-conversation routing, concurrency policy, presentation throttling, and the Protocol v1 client.
+conversation routing, concurrency policy, presentation throttling, and the Protocol v2 client.
 It does not assemble Agents or import a concrete Agent. `apps/omni` composes the IM-only Host
 profile with isolated configuration, controlled execution settings, and local extensions disabled.
+
+`apps/omni-game` is a separate Godot application. Its concrete `AgentHostClient` connects directly
+to Protocol v2 and owns only Socket, authentication, strict response parsing, request correlation,
+and transport shutdown. `CharacterWorkspaceController` owns character, Session transition,
+foreground Run, transcript, and screen state. Godot UI scenes depend on that Controller and never
+access WebSocket or JSON. The game imports no Workspace package and does not create a Gateway Port,
+Agent runtime, Session repository, or Tool path.
+
+`apps/omni/src/game/GameBootstrap` is the parent process owner for development. It generates the
+ephemeral Token, starts `omni-host` with the developer's original working directory, then starts the
+pinned Godot project. Godot's project path never changes the Host Workspace. Bootstrap owns process
+cleanup but has no access to `AgentServicePort`.
+
+The headless entry shares `apps/omni/src/agent-service-composition.ts` with the WebSocket Host.
+`packages/cli/src/headless/run.ts` owns one Session/Run invocation; Apps owns fresh task state,
+explicit execution-mode initialization, OS signals, shared-resource disposal and native Trace
+association. `benchmark/` is external evaluation tooling, not a production workspace package.
+See [benchmark evaluation](benchmark-evaluation.md) for the process and artifact contract.
 
 ## Process and interaction lifecycle
 
@@ -134,6 +156,33 @@ Provider implementations must live in their owning vendor directory. The
 plugins but must not contain provider construction, model definitions, or
 vendor-specific request logic. Providers are never split into directories by
 individual model name.
+
+## Isolated model execution
+
+Models also provides a single-admission Unix socket transport through `ModelTransportRuntimePort`.
+App's `AgentModelService` separates execution/selection from optional local `ModelAdministration`.
+`CacheAwareModelRuntime` remains in the Agent process; the isolated server binds the existing
+`ModelRuntime` to a configured selection and retains credentials and private headers. It does not
+implement another provider stack or an HTTP forwarding proxy. Apps owns the headless client and
+model execution process entries. A remote session rejects configuration changes rather than silently
+falling back to local execution.
+
+`ModelServiceOptions.authEnvironment` supplies an optional, authoritative snapshot of
+variables for provider authentication. Models resolves this snapshot without mutating
+`process.env` or consulting ambient environment variables or `.env` files. Omission preserves
+normal local authentication lookup; this does not replace the separate `CredentialStore` contract.
+The isolated model entry requires a private `--auth-file`, consumes and deletes it, and passes
+its values through App to Models. Deployment must keep that file outside the solver filesystem.
+
+The server removes its listening socket before acknowledging the connection. Tool children do not
+inherit the connected descriptor. Disconnection aborts provider work; a partially consumed stream
+closes the session. Terminal transport boundaries are drained before exposing terminal events to the
+cache wrapper. Protocol v1 is single-flight, with 16 MiB maximum JSON frames and socket backpressure.
+
+Deployment owns network and process isolation. The benchmark adapter gives the solver no network
+interface except loopback and uses a private volume for initial Unix socket admission; only the model
+service has network and credentials. This is not an isolation boundary against trusted in-process
+extensions or arbitrary code injection into the Agent process.
 
 ## System prompt contributions
 
@@ -405,6 +454,8 @@ ownership remain outside this boundary.
 
 The application contract is summarized in [`agent-service.md`](agent-service.md); the WebSocket
 transport and companion-process contract are in [`agent-host.md`](agent-host.md).
+The concrete Godot client and process handoff are in
+[`godot-agent-host-client.md`](godot-agent-host-client.md).
 
 ## Host interaction surface
 
@@ -755,10 +806,11 @@ identities, middleware and policy-stage versions, before/after estimates, checkp
 lineage, message counts, decisions, and stable SHA-256 digests; it contains no message
 text. A `model_context_prepared` event exposes it without adding it to the Session.
 
-Compression uses `usableInputBudget = contextWindow - requestedOutputTokens`. The catalog's
-`modelMaxOutputTokens` is only a capability ceiling; Models resolves a distinct per-call
-`requestedOutputTokens` budget (16,384 by default, capped by the model and context window),
-and the same value is sent to the Provider and recorded in the Context manifest. Stable Micro uses
+Compression uses a stable input budget of `contextWindow - ceil(contextWindow * 0.05)`.
+Models resolves the Provider capability and explicit user ceiling, without a uniform output
+cap. Context computes the actual request output from the final estimated input and stores
+it in the manifest; transport sends that exact budget or fails validation. The budget
+policy is shared within Context, not owned by a compression implementation. Stable Micro uses
 the dynamic warning-buffer threshold documented below. The mandatory Heavy gate starts at
 90%, limits its internal summary to 10% of usable input, and targets a post-checkpoint
 context at or below 50%. It preserves
@@ -864,11 +916,19 @@ reserve `hardStop` for security facts that override mode-specific evaluation.
 
 The modes are `controlled`, `autonomous`, and `unrestricted`. Controlled confines access to the
 canonical workspace plus filesystem roots explicitly approved for that workspace and Agent, and
-asks once before enabling network. Approved roots distinguish read from read/write and remain
+reuses persisted exact network targets without repeated consent. Targets can be preconfigured with
+`/permissions network add <URL> [URL ...]`. Public, private, and localhost services use the same
+target policy. Approved roots distinguish read from read/write and remain
 subject to sensitive-path policy. Autonomous retains Seatbelt while consuming bounded per-call
-path and network scope. Unrestricted requires explicit mode confirmation and routes Process Tools
+path and network scope without prompts or persistence. Unrestricted requires explicit mode confirmation and routes Process Tools
 directly to the host. It still keeps Schema, preflight, timeout, cancellation, output, and
 file-consistency protections.
+
+`packages/network` has one buffered/streaming HTTP implementation and a process proxy adapter.
+Core supplies the execution mode and call lifetime; the transport does not ask for consent.
+DNS and address checks are internal functions. Known cloud credential metadata addresses require
+unrestricted mode; localhost and private services do not. See `docs/network-security.md` for the
+revocation, redirect, and response-framing boundaries.
 
 Tree-sitter handles Shell syntax once; the tools-local semantic IR is recursively analyzed for
 command, path, effect, uncertainty, and hard-stop facts. A bounded context tracks static cwd,
@@ -906,13 +966,14 @@ ordinary external scope, exact sensitive reads, and rejects protected or sensiti
 Execution still revalidates mutable path state. The shared sensitive-policy snapshot drives both
 TypeScript access inspection and Rust policy construction.
 
-State lives in `~/.omni-agent/execution-settings.json`, keyed by workspace and Agent, and uses v5
-with the shared inter-process lock plus atomic JSON persistence. v4 mode/network settings migrate
-without loss and initialize approved roots empty; legacy permission modes migrate to controlled
-and discard grants. Invalid state fails closed to controlled with network disabled and no roots.
+State lives in `~/.omni-agent/execution-settings.json`, keyed by workspace and Agent, and uses v6
+with the shared inter-process lock plus atomic JSON persistence. The one-way v5 migration preserves
+mode and filesystem roots but discards coarse network grants; exact targets start empty. Earlier
+versions pass through the isolated migrations. Invalid state fails closed to controlled with no
+approved targets or roots.
 
 The formal Rust package under `sandbox/` enforces Process Tool policy with macOS Seatbelt.
-Protocol v3 protects the workspace and each projected read/write subtree root against deletion or
+Protocol v4 permits only the call's proxy port for sandboxed network access and protects the workspace and each projected read/write subtree root against deletion or
 rename while allowing mutations below it. A per-launch diagnostic token distinguishes Rust startup
 failures from target output. Controlled/autonomous never fall back to host.
 The package is rooted directly at `sandbox/`: development and repository builds compile the
@@ -1044,3 +1105,38 @@ Commands depend on Core's `CommandInteractionPort`, not a TUI type or `AgentConf
 Skill reload asks `AgentApplication.refreshInstructions()` to rebuild instructions; CLI
 code does not mutate runtime configuration. Skill tool-event claiming lives exclusively
 in `SkillStreamPresenter`, so generic Tool presentation contains no Skill special case.
+
+### Output truncation recovery
+
+The existing Agent Loop owns output recovery. `length` is incomplete output, never a successful
+Run terminal. At most three consecutive recovery requests use the same Run cancellation and
+turn budget, with fresh model-call identities. Recovery instructions enter prepared context,
+not durable user messages. Raw partial responses remain in the transcript/Trace; unexecuted
+truncated tool calls are excluded from request projection and compression tool-cycle analysis.
+Signed tool envelopes that cannot be safely projected fail explicitly. No tools are replayed
+by recovery. Normal stop/toolUse resets the streak; exhaustion and unsupported stop reasons
+use existing structured failures. The request Trace records recovery attempt and parent call.
+
+### Generic tool output storage
+
+Core owns OutputRecord, SessionOutputPort and the unified post-execution retention policy. App's persistence/SessionArtifactStore owns Session binding, storage budgets, integrity and lifecycle. Tools implement process capture and the generic output_read reader using Core ports; App never depends on Tools. The neutral text-page reader and file snapshot helper were moved from Tools to Core and are shared with file_read. Coding only selects the reader through its tool catalog. Benchmark archives and checks the existing native state without becoming the storage owner.
+
+Output recovery persists part intent before body I/O. Under the exclusive Session lease it reconstructs interrupted sizes/digests, marks missing bodies explicitly and reclaims only store-owned orphan/temporary names. The shared InterprocessFileLock now supports cancellable acquisition; no second lock implementation is introduced.
+
+### Provider tool constraint ownership
+
+Models compiles tool generation intents into the existing SDK or custom transport request.
+Core exposes the neutral `inputConstraint` contract and observes the resolution report, but
+never interprets vendor compatibility. Provider/model capability declarations belong to
+Models; they do not grant tool execution access. There is one request path, no proxy service
+or alternate executor. See `docs/tool-call-runtime.md` for migration, schema limits and replay
+semantics. Constraint decisions are resolved once per call; the same decision feeds request
+mapping and observation. Existing cache fingerprints include tool intents, and their semantic
+version changes when the protocol mapping changes; they remain semantic evidence rather than
+an assertion about provider cache hits.
+
+### Configuration capture for isolated execution
+
+App captures project/global configuration layers through ConfigService and effective Provider definitions through ProviderRepository. Model selection is not reimplemented by deployment adapters. Assembly and isolated validation share `resolveAgentModel`; interactive CLI onboarding remains a host workflow. Models resolves the single explicitly selected environment credential with its normal process/project/global precedence. Keychain and OAuth transfer are outside the current isolated deployment.
+
+Apps exposes a configuration capture process entry. Its stdout is a private authentication transfer to the invoking adapter, not a diagnostic stream. Public snapshots contain source identities and hashes but no authentication values. The headless composition can use an explicit configuration directory independently of the task workspace and fresh Session state. Benchmark captures one snapshot per trial for both execution modes; image preparation does not read model configuration.

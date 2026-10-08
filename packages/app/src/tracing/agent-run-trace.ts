@@ -56,7 +56,12 @@ export class AgentRunTrace {
     const cancelled = isAbortError(error, signal);
     const failure = { message: error instanceof Error ? error.message : String(error) };
     const runtimeFailure = {
-      code: cancelled ? "run_cancelled" : "run_failed",
+      code:
+        error instanceof Error && "code" in error && error.code === "run_deadline_exceeded"
+          ? "run_deadline_exceeded"
+          : cancelled
+            ? "run_cancelled"
+            : "run_failed",
       message: failure.message,
       retryable: false,
     };

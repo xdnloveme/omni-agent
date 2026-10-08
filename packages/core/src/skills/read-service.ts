@@ -4,6 +4,7 @@ import type { SkillMetadata, SkillReadOptions, SkillReadResult } from "./types";
 export interface SkillMetadataRepository {
   list(): SkillMetadata[];
   get(name: string): SkillMetadata | undefined;
+  acceptRead(previous: SkillMetadata, result: SkillReadResult): void;
 }
 
 export class SkillReadService {
@@ -24,12 +25,16 @@ export class SkillReadService {
         }`,
       );
     }
-    if (skill.disableModelInvocation && !options.explicit) {
+    const result = await this.bodyStore.read(skill);
+    this.repository.acceptRead(skill, result);
+    if (result.skill.name !== name)
+      throw new Error('Skill was renamed to "' + result.skill.name + '"; invoke its current name.');
+    if (result.skill.disableModelInvocation && !options.explicit) {
       throw new Error(`Skill "${name}" is disabled for model invocation`);
     }
-    if (options.explicit && !skill.userInvocable) {
+    if (options.explicit && !result.skill.userInvocable) {
       throw new Error(`Skill "${name}" is not user-invocable`);
     }
-    return this.bodyStore.read(skill);
+    return result;
   }
 }

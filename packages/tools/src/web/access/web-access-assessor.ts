@@ -19,8 +19,29 @@ export function createWebAccess(options: {
         if (url.protocol !== "http:" && url.protocol !== "https:") {
           return deny("web_unsupported_protocol", "Only HTTP and HTTPS URLs are allowed");
         }
+        return {
+          resources: [
+            {
+              kind: "network",
+              target: {
+                scheme: url.protocol === "https:" ? "https" : "http",
+                host: url.hostname,
+                port: url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80,
+              },
+              purpose: "Fetch the requested URL",
+            },
+          ],
+        };
       }
-      return { resources: [{ kind: "network" }] };
+      return {
+        resources: [
+          {
+            kind: "network",
+            target: { scheme: "https", host: "html.duckduckgo.com", port: 443 },
+            purpose: "Search the web with DuckDuckGo",
+          },
+        ],
+      };
     },
   };
 }

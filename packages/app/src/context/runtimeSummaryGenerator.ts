@@ -39,6 +39,8 @@ export class RuntimeContextSummaryGenerator implements ContextSummaryGeneratorPo
         throw new Error(event.error.errorMessage ?? "Context summary model call failed");
       }
       if (event.type === "done") {
+        if (event.message.stopReason !== "stop")
+          throw new Error(`Context summary did not finish: ${event.message.stopReason}`);
         const summary = event.message.content
           .filter((block) => block.type === "text")
           .map((block) => block.text)

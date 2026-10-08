@@ -1,0 +1,6 @@
+[
+  {
+    "python": "/opt/miniconda3/envs/testbed/bin/python",
+    "project": "/testbed"
+  }
+]

@@ -54,3 +54,28 @@ describe("OperationDeadlineSupervisor", () => {
     expect(observer).toHaveBeenCalledWith({ operationName: "late", outcome: "fulfilled" });
   });
 });
+
+it("does not overflow long deadlines and removes the chunked timer on cancellation", async () => {
+  vi.useFakeTimers();
+  try {
+    const controller = new AbortController();
+    const pending = new OperationDeadlineSupervisor().run({
+      operationName: "long",
+      timeoutMs: 2_147_483_648,
+      externalSignal: controller.signal,
+      createTimeoutError: (ms) => new ToolTimeoutError(ms),
+      execute: (signal) =>
+        new Promise<void>((_resolve, reject) =>
+          signal.addEventListener("abort", () => reject(signal.reason), { once: true }),
+        ),
+    });
+    const outcome = pending.catch((error) => error);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(vi.getTimerCount()).toBe(1);
+    controller.abort();
+    expect(await outcome).toMatchObject({ name: "AbortError" });
+    expect(vi.getTimerCount()).toBe(0);
+  } finally {
+    vi.useRealTimers();
+  }
+});

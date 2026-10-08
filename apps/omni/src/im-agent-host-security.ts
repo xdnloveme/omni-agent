@@ -41,7 +41,7 @@ export async function prepareImAgentHostSecurityProfile(input: {
   await mkdir(configurationCwd, { recursive: true, mode: 0o700 });
   const settings = new ExecutionSettingsService(new ExecutionSettingsRepository(stateDirectory));
   await settings.setMode(workspace.id, input.agentId, "controlled");
-  await settings.setControlledNetworkEnabled(workspace.id, input.agentId, false);
+  await settings.clearApprovedNetworkTargets(workspace.id, input.agentId);
   await settings.clearApprovedFilesystemRoots(workspace.id, input.agentId);
   return {
     projectDirectory,

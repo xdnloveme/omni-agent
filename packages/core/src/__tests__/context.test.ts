@@ -59,7 +59,7 @@ function tool(): RegisteredAgentTool {
       type: "object",
       properties: { path: { type: "string", metadata: { source: "model" } } },
     },
-    strict: true,
+    inputConstraint: "prefer",
     originId: "test",
     toolIdentity: "test:inspect",
     access: { kind: "internal" },
@@ -119,6 +119,36 @@ function finalGate(): ContextFinalGatePort {
 }
 
 describe("context ownership", () => {
+  it("accounts for embedded resource text and resource-link descriptions", () => {
+    const text = "resource text ".repeat(20_000);
+    const estimator = new ApproximateContextTokenEstimator();
+    for (const content of [
+      [{ type: "resource" as const, resource: { uri: "file:///example.txt", text } }],
+      [
+        {
+          type: "resource_link" as const,
+          uri: "https://example.com",
+          name: "example",
+          description: text,
+        },
+      ],
+    ]) {
+      const estimate = estimator.estimateEntry({
+        kind: "transcript",
+        sourceIndex: 0,
+        message: {
+          role: "toolResult",
+          toolCallId: "call",
+          toolName: "resource",
+          content,
+          isError: false,
+          timestamp: 0,
+        },
+      });
+      expect(estimate).toBeGreaterThanOrEqual(text.length / 4);
+      expect(estimate).toBeLessThan(text.length / 4 + 1024);
+    }
+  });
   it("detaches WorkingConversation, draft messages, tool arguments, and schemas", () => {
     const source = messages();
     const working = WorkingConversation.from({
@@ -237,7 +267,7 @@ describe("context ownership", () => {
       name: "inspect",
       description: "Inspect a file",
       schema: input.preparation.tools[0].schema,
-      strict: true,
+      inputConstraint: "prefer",
     });
     expect("execute" in prepared.tools[0]).toBe(false);
     expect(prepared.manifest.decisions).toEqual([]);

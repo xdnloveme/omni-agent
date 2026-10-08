@@ -1,3 +1,4 @@
+import { ToolInputValidator } from "@omni-agent/core";
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -20,6 +21,36 @@ afterEach(async () => {
 // ─── glob ────────────────────────────────────────────────────────────────────
 
 describe("globTool", () => {
+  it("accepts path and rejects the removed directory parameter", () => {
+    const validator = new ToolInputValidator();
+    expect(validator.validate(globTool.schema, { pattern: "*.ts", path: tmpDir })).toBeNull();
+    for (const input of [
+      { pattern: "*.ts", dir_path: tmpDir },
+      { pattern: "*.ts", path: tmpDir, dir_path: tmpDir },
+    ]) {
+      expect(validator.validate(globTool.schema, input)?.issues).toContainEqual(
+        expect.objectContaining({ keyword: "additionalProperties", field: "dir_path" }),
+      );
+    }
+  });
+
+  it.each([{}, { path: "nested" }])(
+    "discovers files relative to the execution cwd: %j",
+    async (input) => {
+      await fs.mkdir(path.join(tmpDir, "nested"));
+      await fs.writeFile(path.join(tmpDir, "nested", "target.ts"), "target");
+      const result = await invokeToolImplementation(
+        globTool,
+        { pattern: "**/*.ts", ...input },
+        { cwd: tmpDir },
+      );
+      expect(result.isError).toBe(false);
+      expect(result.meta?.files).toEqual([
+        { path: "path" in input ? "target.ts" : "nested/target.ts", sizeBytes: 6 },
+      ]);
+    },
+  );
+
   it("should find files matching a pattern", async () => {
     await fs.writeFile(path.join(tmpDir, "a.ts"), "");
     await fs.writeFile(path.join(tmpDir, "b.ts"), "");
@@ -27,7 +58,7 @@ describe("globTool", () => {
 
     const result = await invokeToolImplementation(globTool, {
       pattern: "*.ts",
-      dir_path: tmpDir,
+      path: tmpDir,
     });
 
     expect(result.isError).toBe(false);
@@ -53,7 +84,7 @@ describe("globTool", () => {
 
     const result = await invokeToolImplementation(globTool, {
       pattern: "**/*.ts",
-      dir_path: tmpDir,
+      path: tmpDir,
     });
 
     expect(result.isError).toBe(false);
@@ -68,7 +99,7 @@ describe("globTool", () => {
 
     const result = await invokeToolImplementation(globTool, {
       pattern: "*.ts",
-      dir_path: tmpDir,
+      path: tmpDir,
       exclude: ["*.test.ts"],
     });
 
@@ -88,7 +119,7 @@ describe("globTool", () => {
 
     const result = await invokeToolImplementation(globTool, {
       pattern: "*.txt",
-      dir_path: tmpDir,
+      path: tmpDir,
     });
 
     expect(result.isError).toBe(false);
@@ -104,7 +135,7 @@ describe("globTool", () => {
   it("should return message when no files match", async () => {
     const result = await invokeToolImplementation(globTool, {
       pattern: "*.xyz",
-      dir_path: tmpDir,
+      path: tmpDir,
     });
 
     expect(result.isError).toBe(false);
@@ -128,6 +159,34 @@ describe("globTool", () => {
 // ─── grep ────────────────────────────────────────────────────────────────────
 
 describe("grepTool", () => {
+  it("accepts path or the default cwd and rejects the removed parameter", () => {
+    const validator = new ToolInputValidator();
+    expect(validator.validate(grepTool.schema, { regex: "target", path: tmpDir })).toBeNull();
+    expect(validator.validate(grepTool.schema, { regex: "target" })).toBeNull();
+    for (const input of [
+      { regex: "target", search_path: tmpDir },
+      { regex: "target", path: tmpDir, search_path: tmpDir },
+    ]) {
+      expect(validator.validate(grepTool.schema, input)?.issues).toContainEqual(
+        expect.objectContaining({ keyword: "additionalProperties", field: "search_path" }),
+      );
+    }
+  });
+
+  it.each([{}, { path: "." }, { path: "target.txt" }])(
+    "resolves an omitted or relative path against the execution cwd: %j",
+    async (input) => {
+      await fs.writeFile(path.join(tmpDir, "target.txt"), "unique-target\n");
+      const result = await invokeToolImplementation(
+        grepTool,
+        { regex: "unique-target", ...input },
+        { cwd: tmpDir },
+      );
+      expect(result.isError).toBe(false);
+      expect(result.content[0].text).toContain("unique-target");
+    },
+  );
+
   it("should find matching lines with line numbers", async () => {
     await fs.writeFile(
       path.join(tmpDir, "sample.ts"),
@@ -136,7 +195,7 @@ describe("grepTool", () => {
 
     const result = await invokeToolImplementation(grepTool, {
       regex: "foo",
-      search_path: tmpDir,
+      path: tmpDir,
     });
 
     expect(result.isError).toBe(false);
@@ -166,7 +225,7 @@ describe("grepTool", () => {
 
     const result = await invokeToolImplementation(grepTool, {
       regex: "hello",
-      search_path: tmpDir,
+      path: tmpDir,
       ignore_case: true,
     });
 
@@ -177,13 +236,13 @@ describe("grepTool", () => {
     expect(text).toContain("HELLO WORLD");
   });
 
-  it("accepts a single file as search_path", async () => {
+  it("accepts a single file as path", async () => {
     const filePath = path.join(tmpDir, "single.txt");
     await fs.writeFile(filePath, "needle\nother\n");
 
     const result = await invokeToolImplementation(grepTool, {
       regex: "needle",
-      search_path: filePath,
+      path: filePath,
     });
 
     expect(result.isError).toBe(false);
@@ -196,7 +255,7 @@ describe("grepTool", () => {
 
     const result = await invokeToolImplementation(grepTool, {
       regex: "target",
-      search_path: tmpDir,
+      path: tmpDir,
       glob: "*.ts",
     });
 
@@ -213,13 +272,13 @@ describe("grepTool", () => {
 
     const result = await invokeToolImplementation(grepTool, {
       regex: "match",
-      search_path: tmpDir,
+      path: tmpDir,
       max_results: 5,
     });
 
     expect(result.isError).toBe(false);
     const text = result.content[0].text;
-    const matchingLines = text.split("\n").filter((line: string) => line.includes("match line"));
+    const matchingLines = text!.split("\n").filter((line: string) => line.includes("match line"));
     expect(matchingLines.length).toBe(5);
     expect(result.meta).toMatchObject({ returnedMatches: 5, totalMatches: 100, truncated: true });
   });
@@ -230,7 +289,7 @@ describe("grepTool", () => {
 
     const result = await invokeToolImplementation(grepTool, {
       regex: "hit",
-      search_path: tmpDir,
+      path: tmpDir,
       max_results: 4,
     });
 
@@ -249,12 +308,12 @@ describe("grepTool", () => {
 
     const result = await invokeToolImplementation(grepTool, {
       regex: "target-",
-      search_path: tmpDir,
+      path: tmpDir,
       max_results: 1000,
     });
 
     expect(result.isError).toBe(false);
-    expect(Buffer.byteLength(result.content[0].text)).toBeLessThanOrEqual(50 * 1024);
+    expect(Buffer.byteLength(result.content[0].text!)).toBeLessThanOrEqual(50 * 1024);
     expect(result.meta).toMatchObject({ totalMatches: 200, truncated: true });
     expect(result.meta?.returnedMatches).toBeLessThan(200);
   });
@@ -264,7 +323,7 @@ describe("grepTool", () => {
 
     const result = await invokeToolImplementation(grepTool, {
       regex: "-needle",
-      search_path: tmpDir,
+      path: tmpDir,
     });
 
     expect(result.isError).toBe(false);
@@ -276,7 +335,7 @@ describe("grepTool", () => {
 
     const result = await invokeToolImplementation(grepTool, {
       regex: "zzzzz_not_found",
-      search_path: tmpDir,
+      path: tmpDir,
     });
 
     expect(result.isError).toBe(false);
@@ -286,7 +345,7 @@ describe("grepTool", () => {
   it("treats every ripgrep exit code other than zero or one as an error", async () => {
     const result = await invokeToolImplementation(grepTool, {
       regex: "[",
-      search_path: tmpDir,
+      path: tmpDir,
     });
 
     expect(result.isError).toBe(true);
@@ -300,7 +359,7 @@ describe("grepTool", () => {
     await expect(
       invokeToolImplementation(
         grepTool,
-        { regex: "content", search_path: tmpDir },
+        { regex: "content", path: tmpDir },
         { cwd: process.cwd(), signal: controller.signal },
       ),
     ).rejects.toMatchObject({ name: "AbortError" });
@@ -309,8 +368,8 @@ describe("grepTool", () => {
 
 describe("search path access", () => {
   it.each([
-    [globTool, { pattern: "*", dir_path: "../outside" }],
-    [grepTool, { regex: "secret", search_path: "../outside" }],
+    [globTool, { pattern: "*", path: "../outside" }],
+    [grepTool, { regex: "secret", path: "../outside" }],
   ])("assesses external search roots for %s", async (tool, input) => {
     if (tool.access.kind !== "dynamic") throw new Error("expected dynamic access");
     const intent = await tool.access.assess(input, {
@@ -324,6 +383,9 @@ describe("search path access", () => {
     expect(intent.resources).toContainEqual(
       expect.objectContaining({ kind: "filesystem", location: "external" }),
     );
+    expect(intent.resources.filter((resource) => resource.kind === "process")).toEqual(
+      tool === grepTool ? [{ kind: "process" }] : [],
+    );
   });
 });
 
@@ -336,11 +398,11 @@ describe("search navigation workflow", () => {
 
     const discovered = await invokeToolImplementation(globTool, {
       pattern: "*.ts",
-      dir_path: tmpDir,
+      path: tmpDir,
     });
     const located = await invokeToolImplementation(grepTool, {
       regex: "targetValue",
-      search_path: tmpDir,
+      path: tmpDir,
     });
     const matchFile = (located.meta?.files as Array<Record<string, unknown>>)[0];
     const match = (matchFile.matches as Array<Record<string, number>>)[0];

@@ -9,7 +9,7 @@ import {
 } from "../analysis/shell-analysis-context";
 import type { ShellCommandSemantics, ShellEffect } from "../semantics/command-semantics";
 import {
-  SHELL_BUILTINS,
+  isShellBuiltinCommand,
   SHELL_INTERPRETERS,
   SHELL_RESERVED_WORDS,
 } from "../semantics/shell-builtins";
@@ -63,13 +63,12 @@ export function applyCommandState(
   context: ShellAnalysisContext,
   localContext: ShellAnalysisContext,
   nestedEffects: readonly ShellEffect[],
+  semantics: ShellCommandSemantics,
 ): ShellAnalysisContext {
-  if (command.executableName === "cd") {
-    const target = command.arguments[0]
-      ? resolveShellWord(command.arguments[0], localContext)
-      : undefined;
-    return changeDirectory(context, target);
-  }
+  if (semantics.directoryChange) return changeDirectory(context, semantics.directoryChange.target);
+  if (context.shellFunctions.has(command.executable?.staticValue ?? ""))
+    return changeDirectory(context, undefined);
+  if (!isShellBuiltinCommand(command, context.shellFunctions)) return context;
   if (command.executableName === "export") {
     return command.arguments.reduce((current, word) => {
       const assignment = assignmentFromWord(word);
@@ -112,7 +111,7 @@ export function commandFact(
   const executableToken = command.executable?.staticValue ?? command.executable?.value ?? "";
   const shellOwned =
     !executableToken.includes("/") &&
-    (SHELL_BUILTINS.has(command.executableName) ||
+    (isShellBuiltinCommand(command, context.shellFunctions) ||
       isGrammarWord(command, executableToken, wrapperChain));
   return {
     executableName: command.executableName,
@@ -127,6 +126,7 @@ export function commandFact(
       : "dynamic",
     wrapperChain,
     effects: semantics.effects,
+    pathAccess: semantics.pathAccess,
   };
 }
 

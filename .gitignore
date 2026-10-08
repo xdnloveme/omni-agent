@@ -109,6 +109,7 @@ Thumbs.db
 dist
 artifacts/
 /sandbox/target/
+/apps/omni-game/.godot/
 
 # Gatsby files
 .cache/
@@ -130,3 +131,13 @@ artifacts/
 
 # TernJS port file
 .tern-port
+
+# Benchmark local environments and generated results
+# Keep per-run Trace, payloads, process diagnostics and verifier output local.
+/benchmark/.venv/
+/benchmark/jobs/
+/benchmark/artifacts/
+__pycache__/
+
+# User-selected benchmark model configuration (never store credentials here).
+/benchmark/configs/*.local.json

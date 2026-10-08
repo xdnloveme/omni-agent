@@ -1,3 +1,4 @@
+import { configuredToolConstraintCapability } from "../../runtime/tool-constraints";
 import { createProvider, envApiKeyAuth } from "@earendil-works/pi-ai";
 import type { ModelCacheCapability } from "@omni-agent/core";
 import { createProviderContribution } from "../../vendors/provider-contribution";
@@ -15,6 +16,7 @@ export interface TransportConnectionConfig {
   readonly credentialAliases?: readonly string[];
   readonly models: readonly CompatibleModelDefinition[];
   readonly transport: ModelTransport;
+  readonly supportsStrictMode?: boolean;
   readonly cacheCapability?: ModelCacheCapability;
 }
 
@@ -43,6 +45,8 @@ export const transportProviderFactory: ConnectionProviderFactory<TransportConnec
         }),
         config.credentialAliases,
         config.cacheCapability,
+        (model) =>
+          configuredToolConstraintCapability(model, config.models, config.supportsStrictMode),
       ),
     ];
   },

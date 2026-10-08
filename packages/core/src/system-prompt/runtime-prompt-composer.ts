@@ -1,6 +1,6 @@
 export interface RuntimePromptSection {
   id: string;
-  owner: "loop_protection";
+  owner: "loop_protection" | "project_instructions";
   priority: number;
   lifetime: "run" | "next_model_request";
   content: string;
@@ -21,9 +21,6 @@ export class RuntimePromptComposer {
   private nextLeaseId = 1;
 
   enqueue(section: RuntimePromptSection): void {
-    if (section.lifetime !== "next_model_request") {
-      throw new Error("Only next-model-request sections can be enqueued");
-    }
     this.pending.set(section.id, section);
   }
 
@@ -42,7 +39,11 @@ export class RuntimePromptComposer {
     if (!leaseId) return;
     const lease = this.leases.get(leaseId);
     if (!lease) return;
-    for (const sectionId of lease.sectionIds) this.pending.delete(sectionId);
+    for (const sectionId of lease.sectionIds) {
+      if (this.pending.get(sectionId)?.lifetime === "next_model_request") {
+        this.pending.delete(sectionId);
+      }
+    }
     this.leases.delete(leaseId);
   }
 }

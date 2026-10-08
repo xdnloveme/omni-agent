@@ -23,6 +23,7 @@ export interface LoopProtection {
   completeToolBatch(): LoopBatchDecision;
   leaseSystemPrompt(basePrompt: string, hasTools: boolean): RuntimePromptLease;
   markPromptDispatched(leaseId: string | undefined): void;
+  enqueueRuntimePrompt(section: import("../system-prompt").RuntimePromptSection): void;
 }
 
 export function createLoopProtection(): LoopProtection {
@@ -43,6 +44,10 @@ class DefaultLoopProtection implements LoopProtection {
   observeToolResult(input: ToolResultObservation): void {
     const batch = this.activeBatch;
     if (!batch) return;
+
+    // Normal runtime deferrals are not failed attempts. Keep their calls in the batch so
+    // incomplete batches cannot manufacture cycle fingerprints from unexecuted results.
+    if (input.disposition !== "result") return;
 
     const signature = buildToolResultSignature(input.call, input.toolIdentity, input.result);
     if (signature) {
@@ -108,6 +113,10 @@ class DefaultLoopProtection implements LoopProtection {
 
   markPromptDispatched(leaseId: string | undefined): void {
     this.promptComposer.markDispatched(leaseId);
+  }
+
+  enqueueRuntimePrompt(section: import("../system-prompt").RuntimePromptSection): void {
+    this.promptComposer.enqueue(section);
   }
 }
 

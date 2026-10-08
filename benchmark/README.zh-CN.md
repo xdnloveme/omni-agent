@@ -1,0 +1,346 @@
+# Benchmark
+
+[English](README.md) | 简体中文
+
+基于 Harbor 0.23.0 的 Agent 评测环境。公共机制不绑定待测框架；Omni 是第一个适配器，SWE 是第一个任务包。当前支持 Linux Debian/Ubuntu amd64 容器。
+
+## 职责
+
+- `run.py`：配置检查、提前登记运行、证据索引和报告。
+- `adapters/omni/`：组合镜像中的 Omni 安装、启动、输入投影和原生 Trace。
+- `environments/runtime.py`：任务运行时声明、探针和环境准备。
+- `environments/handoff.py`：普通用户进程收尾、产物封存和统一交接校验。
+- `taskpacks/swe/`：上游任务准备、唯一 Git 补丁收集器、独立官方评分及其网络策略。
+
+复用 Harbor BaseInstalledAgent/BaseAgent、task.toml、AgentContext、collect 和 artifacts。benchmark 不新增调度器或 Provider 客户端，也不接管 Agent 的解题策略；Omni 适配器复用正式模型服务。
+
+## 前置检查
+
+使用仓库要求的 Node/pnpm，以及 Python 3.12；依赖固定在 `pyproject.toml`/`uv.lock`。先确认 `docker version`、`docker compose version`、`docker buildx version` 能访问选定的 Docker daemon。Docker context、CLI 插件目录属于本机工具配置，不写进任务或产品代码。作业目录必须被 Docker daemon 共享；入口用只读临时容器校验实际文件可见性，失败则不启动 Agent。远程 daemon 或 Colima 的受限共享配置需显式传入 `--jobs-dir`，不能仅凭宿主目录存在判断可用。
+
+```bash
+uv sync --project benchmark --frozen
+export PYTHONPATH="$PWD"
+```
+
+## 统一命令
+
+在仓库根目录执行；所有选择、配置和执行逻辑位于 `benchmark/`，根 `package.json` 只映射命令。
+
+```bash
+# 免费预览：只读清单，不判断自动准备缓存是否可用
+pnpm run benchmark list --all
+pnpm run benchmark list --task sphinx-doc__sphinx-11510
+
+# 免费准备：不需要模型凭据，但会构建并验证容器环境
+pnpm run benchmark prepare --first 3
+
+# 免费静态检查：验证运行参数结构，不验证凭据值或环境就绪
+pnpm run benchmark check --profile benchmark/configs/omni.local.json --first 3
+
+# 下列 run 命令自动准备环境后调用真实模型；先按下文创建用户 profile 并配置凭据
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --all --concurrency 5
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --task sphinx-doc__sphinx-11510
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --first 3
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --first 10 --concurrency 5
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --sample 5 --seed 42 --concurrency 5
+
+# 显式指定准备缓存、Agent 时间和 Docker 共享的日志目录
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --first 3 --task-root benchmark/artifacts/my-prepared-suite \
+  --timeout 1800 --jobs-dir benchmark/jobs
+
+# 原生 Harbor 配置（也走同一个 tracked_run；先准备下文夹具），以及结果报告
+pnpm run benchmark check --config benchmark/configs/harbor/smoke.yaml
+pnpm run benchmark run --config benchmark/configs/harbor/smoke.yaml --kind fixture
+pnpm run benchmark report benchmark/jobs/JOB_ID
+```
+
+默认配置为 `configs/default.json`，可用 `--profile PATH` 替换。配置中的 `manifest`、`task_root` 相对于配置文件目录解析；命令行路径相对于当前工作目录解析。`execution` 是已有 Harbor 作业配置，适配器及其 Provider 配置仍由适配器负责，公共选题层不读取模型凭据。默认 profile 不绑定 Provider 凭据，可直接用于免费环境准备。真实运行时，将它复制为同目录的 `configs/omni.local.json`（已忽略），在 `execution.agents[0]` 添加以下 `kwargs`，然后通过 `--profile benchmark/configs/omni.local.json` 选择它：
+
+```json
+{
+  "credential_env": "MY_MODEL_API_KEY"
+}
+```
+
+这是 `kwargs` 的内容，不是完整 profile。默认复用当前代码仓库与 `~/.omni-agent` 的正式配置层：项目 Agent 覆盖、全局 Agent 覆盖、项目共享模型、全局共享模型。优先级由 ConfigService 负责，Provider 合并由 ProviderRepository 负责。可用 `configuration_cwd` 和 `global_directory` 显式选择配置来源，覆盖时使用绝对路径。做题工作区仅负责执行，不能覆盖已捕获的启动配置。交互式 coding 在缺配置时可能进入 onboarding；benchmark 无法交互，会返回正式模型/配置校验的失败原因并停止。
+
+可选的 `config_file`、`providers_file` 只覆盖项目层输入文件，不取消全局层；覆盖时使用绝对路径。`preparation.adapter.options.source` 选择打包源码，不决定模型配置来源。免费 smoke 夹具显式使用测试配置及空全局层，不继承开发者的全局 Agent 覆盖。
+
+`credential_env` 指定唯一允许进入隔离模型服务的鉴权变量名，必须匹配所选 Provider。变量值复用 Models 的正式查找顺序：进程环境、工作区 `.env`、全局 `.env`。仅传递所选值，不复制 `.env` 文件或无关变量。密钥不能写入 profile。当前隔离部署不支持宿主 Keychain 或 OAuth 状态。
+
+`prepare` 不需要模型配置或凭据；`check` 只校验适配器参数结构，不解析模型、验证凭据或调用模型。真实 `run` 在容量检查及准备前，通过 Harbor preflight 调用正式 App/Models 校验；Agent 安装阶段再次捕获并校验。自动准备和原生 `--config` 运行共用这条适配器链路。以上检查均不发起模型请求。
+
+写入任何快照前，会复用现有敏感字段策略检查所有配置层，包括被覆盖的层和 MCP 字段。含敏感字段或无法解析的内容会被拒绝，错误不回显原文；运行时模型优先级保持不变。
+
+每个 trial 在 `agent/configuration/` 保存公开的分层配置及合并后的 Provider 定义，`snapshot.json` 记录来源路径和文件摘要。同一快照供作答配置和模型服务使用；Provider 定义与凭据仅进入模型服务，作答容器只接收 Agent 配置层。凭据通过权限受限的临时文件交付，模型服务读取后删除，不进入公开快照。模型配置不参与镜像缓存身份，仅切换模型不会重建镜像。
+
+- 必须显式选择 `--all` / `--task` / `--first` / `--sample` 之一，互斥；`--task` 可重复，错误或重复 ID 会拒绝执行。
+- `--first N` 使用清单顺序。`--sample N --seed S` 不放回抽样，最终仍按清单顺序执行；运行记录保留确切 ID，不依赖将来重新抽样。
+- `--concurrency N` 必须为正整数，覆盖配置值；默认 1。5 表示 Harbor 同时最多执行 5 道，一道结束即补下一道，不是每 5 道等待全部完成。每题仍只尝试一次，禁止自动重试。
+- `--timeout` 覆盖每题 Agent 执行时间（1–1800 秒），不包含镜像准备和 Agent setup；现有收尾宽限保持不变。
+- 每次 `run` 冻结有效配置、选题 ID、seed、清单/profile SHA-256，复用每题 Trace、产物和报告索引。日志及准备产物继续由 `.gitignore` 排除。
+- `--config` 是完整原生配置输入，与 suite 参数互斥；两种输入在执行前收敛到同一个校验和运行入口。`run` 默认标记 `paid`；`--kind fixture` 仅声明证据类型，**不会将真实 Provider 变成免费模型**。
+
+**准备边界：** 默认 profile 声明自动准备插件，`run` 按选题准备并验证环境，再进入 Harbor；`prepare` 执行同样的准备与预检，但不调用模型。缓存由内容身份区分，`--task-root` 指定其根目录。未声明准备插件的 profile 和原生 `--config` 引用已准备任务，继续走同一个运行入口；`prepare` 要求显式的准备插件。`list` 和 `check` 不判断镜像是否可启动。环境健康检查复用 Harbor 的启动、探针和清理机制，依次启动作答环境与独立评分环境，任一失败即停止进入作答；原生配置也使用同一检查。检查不调用模型、不执行评分、不降低题目资源要求，每阶段结束都清理容器。它验证当时单个环境能否启动，不保证后续资源始终可用或并发容量。验收范围及尚未完成的验证见下方“验收”章节。
+
+## 免费完整链路
+
+生成任务包，再由 Omni 适配器准备组合镜像。每次输出目录必须是新的，不覆盖旧证据。
+
+```bash
+benchmark/.venv/bin/python benchmark/tasks/execution-contract/prepare.py \
+  --output benchmark/artifacts/contract-source
+
+benchmark/.venv/bin/python -m benchmark.adapters.omni.prepare \
+  --task benchmark/artifacts/contract-source/files \
+  --output benchmark/artifacts/contract-omni/files
+
+benchmark/.venv/bin/python -m benchmark.adapters.omni.prepare \
+  --task benchmark/artifacts/contract-source/patch \
+  --output benchmark/artifacts/contract-omni/patch
+
+export OMNI_SMOKE_API_KEY=fixture
+benchmark/.venv/bin/python -m benchmark.run check \
+  --config benchmark/configs/harbor/smoke.yaml
+benchmark/.venv/bin/python -m benchmark.run run \
+  --config benchmark/configs/harbor/smoke.yaml --kind fixture
+```
+
+`smoke.yaml` 使用真实 Omni 和确定性本地 HTTP 模型，不调用付费 API；同一任务还由 Harbor Oracle 执行参考对照。Oracle 不代表第二个真实 Agent 框架已完成接入。
+
+镜像准备允许下载依赖；作答阶段 setup 只注入配置。镜像 ID、源码归档摘要、依赖锁摘要和任务配置摘要写入 `preparation.json`。模型配置在每个 trial 的 Agent 安装阶段捕获，自动准备和原生运行使用同一路径。不将个人配置、`.env` 或运行产物装入源码归档。
+
+免费模型服务仅保留在 `tasks/execution-contract/model-server.py`；Omni 夹具配置归 `adapters/omni/fixtures/`。旧 smoke、isolation-probe 任务已移除，不提供旧协议执行入口。
+
+## SWE 任务
+
+准备器支持固定上游 revision 下的 `swebench-verified` 和 `swebench_multilingual`。镜像必须提供 SHA-256 引用；作答断网，SWE 独立评分使用 Harbor public 网络策略，模型连接由适配器隔离承载。
+
+```bash
+benchmark/.venv/bin/python -m benchmark.taskpacks.swe.prepare \
+  --output-dir benchmark/artifacts/tasks/example \
+  --dataset swebench-verified --task-name TASK_ID \
+  --image IMAGE_AT_SHA256 \
+  --runtime-manifest benchmark/environments/profiles/swe-python.json
+```
+
+任务名、数据集和镜像均为必填项，准备器不默认选择某一道题。
+
+随后使用 Omni `prepare` 准备组合镜像，并在原生配置中引用新的任务目录。其他 Agent 通过 Harbor 原生接口接入，任务评分和产物收集不随适配器改变。
+
+当前协议为 `isolated-swe-v3`。不符合当前交接契约的派生任务必须重新准备，检查入口不自动回退。默认 profile 使用[固定 50 题清单](suites/swe-verified-mini-hal-50-v1/README.zh-CN.md)，通过 `--task`、`--first`、`--sample` 或 `--all` 选择任务并自动准备。
+
+## 环境声明与时限
+
+`environment.workdir` 和 `environment.env` 是唯一来源。`environment/runtime.json` 使用版本 2：
+
+```json
+{
+  "version": 2,
+  "tools": [
+    {
+      "name": "project-wrapper",
+      "argv_prefix": ["./project-wrapper"],
+      "probe_args": ["--version"],
+      "description": "Repository-provided toolchain entry"
+    }
+  ]
+}
+```
+
+没有声明时记录未验证。健康检查使用作答用户，不依赖 Agent setup；每项 30 秒，总期限为 30×工具数+10 秒；探针程序本身不重试，外层健康检查显式设置 `retries: 1`，由 Harbor 解释。不同语言、wrapper 和多工具组合通过声明表达，不按语言名选择代码。
+
+运行配置唯一声明 `benchmark.agent_timeout_sec`，默认 1800。入口生成 Harbor 外层期限（+30 秒）和原生 Agent env `BENCHMARK_AGENT_TIMEOUT_SEC`，禁止重复覆盖。当前作答镜像构建和 Agent setup 为 1800 秒，SWE 评分及其镜像构建也为 1800 秒；其他任务包的评分期限由任务声明负责。交接 120 秒，其中收集命令 60 秒。故障配置可缩短作答预算。外部取消由启动器向独立会话内的 Harbor 转发一次，再等待最多 150 秒完成原生恢复；超出期限明确标记清理未确认。适配器复用公共进程停止能力后下载取消证据。
+
+## 运行网络边界
+
+镜像准备阶段允许联网获取依赖。作答容器使用 `network_mode: none`，从启动、工具执行到提交收集和清理均无外网接口。提交冻结后，SWE 独立评分容器使用 Harbor `public` 策略访问官方测试资源；这不是逐域名白名单。网络策略由任务包声明，其他任务包仍可采用断网评分。模型在独立容器中复用现有 Provider，只有该容器接收 Provider 配置和模型凭据。
+
+Agent 启动前建立一次性 Unix socket 会话；服务端删除监听入口后才允许 Agent 开始工作。工具子进程不继承连接，不能重新连接模型入口。取消或断连会终止 Provider 工作，没有直连回退。该边界覆盖所有工具的网络，不依赖工具名或命令黑名单；进程内扩展仍是受信任代码。
+
+旧缓存会由已有实现摘要失效并重建；不要把历史题目就绪证明视为新通道的验收。
+
+## 交接与错误语义
+
+普通执行用户为 `benchmark-runner`/UID 10001，无 sudo 或 Docker socket。Agent 阶段结束后，公共交接程序确认该 UID 的进程退出，再以该用户执行收集器并清理收集子进程。产物最终放入管理身份拥有的 `/submission`，完成后最后写 `handoff.json`。
+
+Harbor collect 失败不会自动阻止评分。评分入口必须调用公共 `validate_submission`，校验必要产物、大小和摘要；失败不生成 reward。评分器只对有效提交判题目对错。超时可以保留已有提交并评分，但不能改写为自然完成。
+
+评分容器独立运行，按任务包声明的网络策略执行，不共享作答进程、可写工作区或模型凭据。该隔离用于非对抗性个人评测，不承诺通用恶意防作弊。
+
+## 每次运行的证据
+
+```text
+benchmark/jobs/<job>/
+├── invocation.json                 运行前登记及启动器退出状态
+├── launch-config.yaml              实际 Harbor 配置快照
+├── launcher.log
+├── analysis-index.json             可重建索引 v2
+└── <trial>/
+    ├── result.json                 Harbor 原始结果
+    ├── agent/                      原生日志及适配器证据
+    ├── artifacts/
+    │   ├── benchmark-audit/        探针、收集命令与交接审计
+    │   └── submission/             封存产物及完成凭据
+    └── verifier/                   评分输出或明确异常
+```
+
+适配器通过 `AgentContext.metadata.benchmark_evidence` 发布 version=1 的引用，每项包含 kind、trial 内相对 path、media_type、producer。公共索引检查文件边界、存在性、大小和摘要；Omni 自行解析 Trace，不在公共入口硬编码其目录。
+
+`analysis-index.json` 的 `verifier_artifacts` 完整索引评分目录中的文件，保留路径、存在性、大小和 SHA-256，不解析具体任务包格式。SWE 的 `error.json` 由评分器记录 version、stage、原始异常及可获得的命令/退出码；阶段包括资产校验、工作区校验、补丁应用、执行、报告解析和结果发布。阶段表示失败位置，不表示责任归属，官方分数与 Harbor 异常均保留原样。
+
+索引的 `completion` 按冻结选题和配置快照中的“题目 × Agent 配置”与 Harbor 原生结果核对，分别标记漏题、重复、执行异常、未评分和已评分；有效零分属于已评分。无法取得选题依据时明确为 unknown，准备任务为 not_applicable。`runs` 列出每个组合的任务 ID、Agent 配置摘要和状态；同题不同 Agent 或模型属于不同执行项。启动器退出 0 不代表任务全部完成，应检查 `completion` 及原始结果。原生结果无效时不发布其中的分数、费用等事实；附加证据声明无效只影响证据状态，保留有效原生评分。
+
+文件存在不代表 Trace 完整，Trace 完整不代表解题成功。缺失、无效、未提供和不完整分别呈现；费用未知不记为零，不用末轮估算 Token 充当整题账单。失败和超时仍保留原始产物，无法取回时明确缺失。
+
+```bash
+benchmark/.venv/bin/python -m benchmark.run index benchmark/jobs/JOB
+benchmark/.venv/bin/python -m benchmark.run report benchmark/jobs/JOB
+```
+
+`benchmark/jobs/`、`benchmark/artifacts/` 已 Git-ignore；不要将完整 Trace、凭据或原始模型请求粘贴到受版本管理的报告中。
+
+## 验收
+
+```bash
+benchmark/.venv/bin/python -m unittest discover -s benchmark/tests -v
+BENCHMARK_TEST_IMAGE=PREPARED_IMAGE_ID \
+  benchmark/.venv/bin/python -m unittest benchmark.tests.test_collection -v
+```
+
+真实容器测试覆盖残留进程、收集失败、提交校验、网络及文件边界；未提供镜像时明确跳过，不冒充容器验证。SWE 官方评分测试使用 `OMNI_TEST_VERIFIER_IMAGE` 指定预先准备的评分镜像。
+
+固定 50 题已完成镜像构建及官方空补丁 0 / 参考补丁 1 对照（2026-10-04），这不是 Agent 50 题通过率。免费夹具覆盖并发、取消和隔离生命周期。两阶段启动预检已通过免费夹具的真实容器验收，包含首次构建及缓存复用；隔离模型通道的单题闭环及凭据变量与进程环境同名的场景也已验证（2026-10-08）。这些结果不代表最新版本已重新验证全部 50 题；真实 Provider 五并发和长期稳定性仍未完成。现阶段适合内部验证，不声明排行榜等价、多语言全覆盖或对抗性多租户安全。
+
+运行证据按 job 保存在忽略目录；实施计划、逐次诊断和机器运维记录不属于运行配置或正式契约。环境证明绑定其源码和镜像版本，不能代替新版本验收。
+
+`test_public_verifier_starts_after_sealed_solver_stops` 复用上述容器验收配置，验证作答封存写入拒绝、Docker 停止/启动顺序、交接摘要和评分公网请求。该用例需要评分容器能够访问 example.com；不调用付费 Provider。
+
+旧 allowlist 探针已随该运行方案移除，历史脚本和结果保留在忽略目录。当前网络验收由真实工具探针 `tasks/execution-contract/probe-network.py` 与生命周期测试共同完成。
+
+### Agent 截止时间与进程收尾
+
+Omni 适配器传入通用 headless 参数 `--deadline-at-ms`，在进程启动时按容器时钟和作答预算计算，覆盖 Agent 启动及执行，不随模型请求或恢复重新计算。适配器选项 `cleanup_grace_sec` 默认 10 秒，为外层进程 watchdog 触发前的退出预留时间，不增加 Run 作答预算。TERM/KILL 是最后的收尾手段。即使 Harbor 报告进程非零退出，协作取消的 headless Run 仍保留结果和 Trace。适配器不决定 Agent 是否完成，也不恢复模型响应。
+
+### 原生输出证据
+
+Omni 原生状态归档包含 Session 输出清单及脱敏正文。适配器在收集后写入 `output-summary.json`，校验正文大小、摘要与对话记录引用的完整关联。捕获完整性与归档完整性独立：被中断的捕获仍可完整归档；正文缺失会使归档不完整，但不改写评分器分数。本地验证证据保留在忽略的 `benchmark/artifacts/` 目录。
+
+### 自动准备与缓存
+
+默认 suite profile 现在声明 `preparation.taskpack` 和 `preparation.adapter`。
+选题、准备、校验和执行仍由一个 `tracked_run` 生命周期管理：
+
+```bash
+# 免费：准备当前 Agent 与任务镜像、校验声明的环境，不调用模型
+pnpm run benchmark prepare --first 3 --jobs-dir /path/shared-with-docker/jobs
+# 付费：相同准备流程后进入原来的 Harbor 调度
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --first 3 --concurrency 3 --jobs-dir /path/shared-with-docker/jobs
+```
+
+运行前配置正确的 Docker context，导出适配器要求的凭据环境变量。公共入口不读取
+宿主机的 `.env`、猜测 Docker socket 或自动启动 Docker；Omni 适配器将指定凭据解析交给 Models。
+`prepare` 不要求模型配置或凭据；真实 `run` 在准备前校验配置，凭据不传给构建或健康检查容器。
+`check` 只验证配置与插件声明，不构建镜像，也不证明环境就绪。
+
+准备插件是受信任的本地 Python 代码，由 profile 的 `entrypoint=module:Class`
+显式声明，没有按题目、语言或 Agent 名称分派的公共分支：
+
+- Taskpack 接收 options/profile 目录/manifest。`resolve(task, requirements)` 返回
+  固定准备输入，`prepare(task, output, resolved)` 复用任务自己的准备器。
+- Adapter 接收 options/profile 目录/execution 配置。`snapshot(work)` 捕获构建输入，
+  返回 identity、requirements 及私有构建信息；`prepare(task, output, snapshot)`
+  复用 Agent 打包实现，输出原有 Harbor task 契约。Omni 的运行配置在 trial 安装时单独捕获，公共准备层不解释模型配置或凭据。
+- 插件入口源码和本仓库准备实现会参与缓存身份；外部插件的额外依赖、模板、
+  文件与版本须进入其 resolve / snapshot.identity，不能依赖未声明的可变输入。
+- 环境依赖仍由 taskpack、上游 Dockerfile 和 runtime 声明负责。健康检查复用
+  任务声明；它只验证所声明的探针，不能保证未声明的软件或任意业务测试通过。
+
+缓存位于 profile 的 `task_root/<task-id>/<input-digest>/<task-id>`。键包含固定任务
+输入、Agent 内容快照、准备实现和依赖锁。Omni 源码归档使用确定性的文件元数据，
+不因单纯 mtime 变化误失效。相同缓存键使用文件锁串行发布；只在构建、健康检查和
+文件哈希校验完成后发布完整目录。失败构建保留在 job/preparation，不作为缓存。
+缓存正文损坏明确拒绝；本机 Docker 镜像被删除则重新构建，旧记录移入当前 job。
+已有缓存也要重新验证镜像存在与健康检查。
+
+`invocation.json` 从配置/准备阶段开始记录；`preparation/preflight.log` 和每题的
+`prepare.log` 保存构建日志；`readiness/environment.log` 与 `readiness/artifacts/` 保存
+Harbor 健康检查及任务声明的探针产物。准备失败不会进入 Agent 执行，不会发起模型请求。
+任务准备按选择顺序进行，`--concurrency` 仍只控制 Harbor 作答并发，不额外引入
+第二套作答调度器。变更实现或源码会准备新镜像，不会覆盖旧 job 或旧缓存证据。
+
+不含 preparation 的 profile 和 `--config` 表示调用者已经提供了准备好的任务，
+继续进入同一校验与执行入口；这不是自动准备的隐式回退。
+
+## SWE 构建依赖与评分对照
+
+上游提供每题对应仓库版本、镜像和测试。我们自动生成隔离容器并复用镜像层，
+不为每道题维护手写环境或依赖名单。
+
+SWE 任务包的 `build_dependencies_manifest` 可声明 Python 项目的容器解释器和
+项目路径，默认 Verified profile 共用 `taskpacks/swe/profiles/python-build.json`。
+构建阶段从项目 `pyproject.toml` 的 `build-system.requires` 读取依赖，使用声明的
+解释器下载相容 wheel，并保存项目元数据、依赖声明和 wheel SHA-256。
+这项准备位于 SWE 评分器，公共准备层和 Agent 不解析 Python 依赖。
+
+联网预热仍使用官方评分命令；随后通过本地 wheel 目录和 `PIP_NO_INDEX=1` 保留
+pip 构建隔离。镜像发布前允许测试访问公网，复用同一个评分入口
+执行空补丁和官方参考补丁，分别要求 0 与 1，完成后恢复原始仓库基线。
+`/tests/control-validation.json` 留存对照结果。任一控制失败即停止构建，不能进入付费作答。
+
+该评分对照覆盖 SWE 任务包所有语言；Python wheel 准备只覆盖项目显式声明的
+构建要求，不声称自动推导所有生态的任意依赖。没有可用 wheel、动态构建要求或
+其他生态依赖未准备时必须明确失败，由任务包补齐其真实准备能力，不能通过跳过测试或隐藏失败宣称就绪。
+对于新增或未验证的题，仍需完成自己的首次准备；共同流程和缓存并不意味着所有题已经可运行。
+
+手动使用 SWE 准备器时，可传入：
+
+```bash
+--build-dependencies-manifest benchmark/taskpacks/swe/profiles/python-build.json
+```
+
+缓存包含准备实现和固定构建输入摘要；这些输入变化会生成新缓存，单纯切换模型配置不会。历史 job、补丁和分数不覆盖。
+
+## 内部运行与运维边界
+
+当前定位为内部评测工具。环境通过、Agent 完成和题目通过是不同事实：
+`invocation.json` 记录启动器生命周期，`analysis-index.json` 汇总各 trial；
+最终成绩必须结合 trial 的 `exception_info` 与 `verifier_result` 判定。
+Harbor 命令退出 0 不表示每道题成功；评分异常不能当作有效的解题 0 分。
+
+批量执行前同时检查宿主磁盘与 Docker daemon 所在磁盘，远程 daemon / Colima
+的可用空间可能远小于宿主空间。`docker system df` 显示用量，不显示 daemon
+文件系统剩余容量。并发数只表示调度上限，不是 CPU、内存或磁盘容量保证。
+`prepare` 按顺序准备，任一题失败会终止本次准备；其余未准备题不能记为失败成绩。
+需要完整盘点时逐题调用同一 `prepare --task` 入口，保留每次 job，不新增作答调度路径。
+
+日志与缓存目前不自动过期，也不自动删除。运行者负责：
+
+- 为每个 job 保留配置快照、原始 Trace、输出、提交和评分，分析报告链接到原始证据。
+- 在删除前确认进程已结束、容器已清理，所需证据已归档；保留期限由项目自行决定。
+- 缓存目录、Docker 镜像和 job 是不同资产。只对明确识别且无正在运行任务引用的资产执行清理；
+  不把全局 `docker system prune` 作为日常 benchmark 命令或自动恢复手段。
+- 构建失败保留失败目录；镜像缺失由既有准备流程重新构建，不手工伪造 receipt。
+- 中断后检查 invocation、trial 异常、Trace 完整性和实际容器状态，再决定是否显式重跑。
+  重跑是新的 job，不能覆盖旧结果；没有自动付费重试，也没有承诺原进度续跑。
+
+真实容器的免费生命周期测试位于 `tests/test_lifecycle_containers.py`。
+先设置 `BENCHMARK_PREPARATION_TEST_ROOT` 为全新且被 Docker 共享的目录，
+运行 `benchmark/.venv/bin/python -m unittest benchmark.tests.test_preparation.ContainerPreparationTest -v`，准备 execution-contract 的 files 夹具，
+再设置 `BENCHMARK_LIFECYCLE_TASK` 为准备后的任务路径，
+`BENCHMARK_LIFECYCLE_ROOT` 为全新且被 Docker 共享的证据目录，运行：
+
+```bash
+benchmark/.venv/bin/python -m unittest benchmark.tests.test_lifecycle_containers -v
+```
+
+该测试调用容器内确定性模型服务，覆盖并发 5、HTTP 错误、连接断开、超时、外部取消和容器停止。
+故障注入仅存在于测试服务；不会读取真实 Provider key，也不证明真实 Provider 吞吐量、
+限流行为、恶意多租户隔离或模型解题能力。测试期间会停止它自己创建的故障场景容器。
+
+## 容量预检
+
+正式 prepare/run 自动在准备前及准备完成/执行前采集容量，写入 invocation.json.capacity 并打印摘要。记录宿主 jobs/task_cache 文件系统、已有所选任务镜像看到的 Docker 根文件系统、题数和并发。共享文件系统不得相加，容器根文件系统不代表所有挂载卷容量。
+
+需求与是否足够明确为未知，不按题数猜测空间，不自动拦截、调整并发或删除资产。完全冷启动没有本地任务镜像时 Docker 空间为 unknown；不额外拉取探测镜像，准备后再次采集。

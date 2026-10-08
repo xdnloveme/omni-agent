@@ -3,11 +3,32 @@ import type { AssistantTranscriptMessage, ModelContextMessage } from "../message
 import type { ModelCacheIntent, ModelCacheReport } from "./cache";
 import type { ModelCallIdentity } from "./call";
 
+/** Provider-side generation intent; never replaces local tool validation. */
+export type ToolInputConstraint = "off" | "prefer" | "require";
+export interface ToolConstraintCapability {
+  readonly state: "supported" | "unsupported" | "unknown";
+  readonly source: "model" | "connection" | "catalog" | "unknown";
+}
+export interface ToolConstraintDecision {
+  readonly toolName: string;
+  readonly intent: ToolInputConstraint | "unspecified";
+  readonly capability: ToolConstraintCapability;
+  readonly schema: "compatible" | "incompatible" | "unknown" | "not_checked";
+  readonly outcome: "enabled" | "disabled" | "rejected";
+  readonly reason: string;
+  readonly schemaPath?: string;
+}
+export interface ToolConstraintReport {
+  readonly decisions: readonly ToolConstraintDecision[];
+  /** Planned request settings, not proof of server-side enforcement. */
+  readonly failure?: import("../types").AgentFailure;
+}
+
 export interface ModelToolSpec {
   readonly name: string;
   readonly description: string;
   readonly schema: DeepReadonly<Record<string, unknown>>;
-  readonly strict?: boolean;
+  readonly inputConstraint?: ToolInputConstraint;
 }
 
 export interface RuntimeModelSelection {
@@ -21,7 +42,8 @@ export interface RuntimeModelSelection {
   contextWindow: number;
   /** Maximum output capacity advertised by the selected model. */
   modelMaxOutputTokens: number;
-  /** Output tokens reserved and requested for ordinary primary calls. */
+  /** Provider-derived request ceiling, narrowed only by an explicit user override.
+   * Context preparation computes the actual per-call output budget. */
   requestedOutputTokens: number;
   requestHeaders?: Record<string, string | null>;
   thinkingHistoryPolicy?: ThinkingHistoryPolicy;
@@ -41,11 +63,12 @@ export interface ModelRequestOptions {
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   readonly maxRetries?: number;
-  readonly maxOutputTokens?: number;
+  readonly maxOutputTokens: number;
   readonly credential?: { readonly type: "api_key"; readonly key: string };
 }
 
 export type ModelEvent =
+  | { type: "tool_constraint_report"; report: ToolConstraintReport }
   | { type: "text_delta"; delta: string }
   | { type: "thinking_start"; contentIndex: number }
   | { type: "thinking_delta"; contentIndex: number; delta: string }

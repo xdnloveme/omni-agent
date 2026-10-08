@@ -76,7 +76,7 @@ composition:
             target: "ES2022",
             module: "ESNext",
             moduleResolution: "Bundler",
-            strict: true,
+            inputConstraint: "prefer",
             declaration: true,
             declarationMap: true,
             sourceMap: true,

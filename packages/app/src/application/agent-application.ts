@@ -1,5 +1,12 @@
+import type { SessionArtifactStore } from "../persistence/session-artifact-store";
+import type { SessionOutputPort } from "@omni-agent/core";
 import {
   AgentRunner,
+  OperationDeadlineSupervisor,
+  RunDeadline,
+  RunDeadlineExceededError,
+  assertRunDeadline,
+  throwIfAborted,
   EnvironmentContextError,
   createUserMessage,
   createStreamSession,
@@ -11,6 +18,7 @@ import {
   type ContextMiddlewarePort,
   type ExecutionMode,
   type FilesystemCapabilityScope,
+  type NetworkTarget,
   type EnvironmentContextControllerPort,
   type SessionSnapshot,
 } from "@omni-agent/core";
@@ -18,7 +26,7 @@ import type { RuntimeRunObservation } from "@omni-agent/core/host";
 import type { AgentSessionRepository } from "@omni-agent/core";
 import { ConfigService } from "../config/config-service";
 import { ExtensionManager } from "../extensions/extension-manager";
-import { ModelService, type ModelSelection } from "../models/model-service";
+import { AgentModelService, type ModelSelection } from "../models/model-service";
 import type { ExecutionSettingsService } from "../execution-settings/execution-settings-service";
 import type { ModelCacheLeaseController } from "../models/cache/model-cache-lease-controller";
 import { NOOP_AGENT_RUN_OBSERVATION, type AgentRunObservationPort } from "./agent-run-observation";
@@ -40,7 +48,7 @@ export class AgentApplicationLifecycleError extends Error {
 }
 
 export interface AgentResourceDisposalFailure {
-  readonly resource: "extensions" | "agent_module" | "run_observation";
+  readonly resource: "mcp" | "extensions" | "agent_module" | "run_observation";
   readonly error: unknown;
 }
 
@@ -57,13 +65,17 @@ export class AgentApplicationDisposalError extends AggregateError {
 }
 
 export class AgentApplication {
+  private readonly outputStore?: SessionArtifactStore;
+  private readonly mcp?: import("../mcp/agent-mcp-controller").AgentMcpController;
+  private readonly baseTools: AgentConfig["tools"];
+  private readonly assemblyEvidence?: AgentAssemblyEvidence;
   readonly runner: AgentRunner;
   readonly extensions: ExtensionManager;
   readonly sessions: AgentSessionRepository;
   readonly agentConfig: AgentConfig;
   readonly agentId: string;
   readonly cwd: string;
-  readonly modelService: ModelService;
+  readonly modelService: AgentModelService;
   readonly executionSettings: ExecutionSettingsService;
   readonly workspaceId: string;
   private readonly configuration: AgentConfigurationController;
@@ -78,6 +90,10 @@ export class AgentApplication {
   private disposePromise: Promise<void> | undefined;
 
   constructor(dependencies: AgentApplicationDependencies) {
+    this.outputStore = dependencies.outputStore;
+    this.mcp = dependencies.mcp;
+    this.baseTools = [...dependencies.agentConfig.tools];
+    this.assemblyEvidence = dependencies.assemblyEvidence;
     this.extensions = dependencies.extensions;
     this.sessions = dependencies.sessions;
     this.agentConfig = dependencies.agentConfig;
@@ -98,6 +114,7 @@ export class AgentApplication {
       configService: dependencies.configService,
       modelService: dependencies.modelService,
       assemblyEvidence: dependencies.assemblyEvidence,
+      additionalInstructions: () => this.mcp?.prompt() ?? "",
     });
     this.executionSettings = dependencies.executionSettings;
     this.workspaceId = dependencies.workspaceId;
@@ -113,15 +130,53 @@ export class AgentApplication {
     );
   }
 
-  async run(input: string, callbacks: StreamCallbacks, signal?: AbortSignal): Promise<void> {
+  async run(
+    input: string,
+    callbacks: StreamCallbacks,
+    signal?: AbortSignal,
+    options: { readonly deadlineAtMs?: number } = {},
+  ): Promise<void> {
+    assertRunDeadline(options.deadlineAtMs);
     this.assertIdle();
     this.activeRunCount += 1;
     try {
       const sessionId = this.requireSessionId();
+      const deadline =
+        options.deadlineAtMs === undefined ? undefined : new RunDeadline(options.deadlineAtMs);
       await this.runObservation.observe(
         { sessionId, input, callbacks, signal },
-        (observation, observedCallbacks) =>
-          this.executeRun(input, observedCallbacks, sessionId, observation, signal),
+        async (observation, observedCallbacks) => {
+          let settlement: Promise<void> | undefined;
+          try {
+            await new OperationDeadlineSupervisor().run({
+              operationName: "agent_run",
+              externalSignal: signal,
+              timeoutMs: deadline?.snapshot().remainingMs,
+              createTimeoutError: () => new RunDeadlineExceededError(),
+              execute: (linkedSignal) => {
+                if (deadline && deadline.snapshot().remainingMs <= 0)
+                  throw new RunDeadlineExceededError();
+                const execute = (outputs?: SessionOutputPort) =>
+                  this.executeRun(
+                    input,
+                    observedCallbacks,
+                    sessionId,
+                    observation,
+                    linkedSignal,
+                    deadline,
+                    outputs,
+                  );
+                settlement = this.outputStore
+                  ? this.outputStore.withSession(sessionId, execute)
+                  : execute();
+                return settlement;
+              },
+            });
+          } finally {
+            // Do not release Session ownership while late work can still write its state.
+            await settlement?.catch(() => undefined);
+          }
+        },
       );
     } finally {
       this.activeRunCount -= 1;
@@ -134,9 +189,18 @@ export class AgentApplication {
     sessionId: string,
     observation: RuntimeRunObservation,
     signal?: AbortSignal,
+    deadline?: RunDeadline,
+    outputs?: SessionOutputPort,
   ): Promise<void> {
+    throwIfAborted(signal);
     await this.cacheLeases.hydrate(sessionId);
-    const streamSession = createStreamSession(callbacks);
+    let completed: { usage?: import("@omni-agent/core").TokenUsage } | undefined;
+    const streamSession = createStreamSession({
+      ...callbacks,
+      onDone: (usage) => {
+        completed = { usage };
+      },
+    });
     const captureObservation = observation.startOperation({ kind: "environment_capture" });
     let capture;
     try {
@@ -158,6 +222,7 @@ export class AgentApplication {
       });
       return;
     }
+    throwIfAborted(signal);
     const appendInput = () =>
       this.sessions.append(sessionId, [
         ...(capture.changed ? [{ kind: "environment" as const, context: capture.context }] : []),
@@ -175,12 +240,15 @@ export class AgentApplication {
       this.agentConfig,
       this.sessions.snapshot(),
       signal,
-      { session: streamSession },
+      { session: streamSession, deadline, outputs },
       observation,
     );
     for await (const event of events) {
       await this.persistProduced(sessionId, event, observation);
     }
+    // Completion includes durable output; cancellation during persistence cannot report success.
+    throwIfAborted(signal);
+    if (completed) callbacks.onDone?.(completed.usage);
   }
 
   async newSession(): Promise<string> {
@@ -206,14 +274,55 @@ export class AgentApplication {
   async clearSession(): Promise<void> {
     await this.mutateSession(async () => {
       const sessionId = this.requireSessionId();
-      await this.sessions.clear(sessionId);
-      await this.contextStorage.clear(sessionId);
+      const clear = async () => {
+        await this.sessions.clear(sessionId);
+        await this.contextStorage.clear(sessionId);
+      };
+      if (this.outputStore) await this.outputStore.clear(sessionId, clear);
+      else await clear();
       this.cacheLeases.forget(sessionId);
     });
   }
 
   async refreshInstructions(): Promise<void> {
     await this.configuration.refreshInstructions();
+  }
+
+  listMcpServers() {
+    return this.mcp?.list() ?? [];
+  }
+
+  async initializeMcp(): Promise<void> {
+    await this.mutateSession(async () => {
+      await this.mcp?.initialize();
+      await this.refreshMcpComposition();
+    });
+  }
+
+  async setMcpEnabled(id: string, enabled: boolean): Promise<void> {
+    await this.mutateSession(async () => {
+      if (!this.mcp) throw new Error("MCP management unavailable");
+      try {
+        await this.mcp.setEnabled(id, enabled);
+      } finally {
+        // Catalog removal is already committed even when transport cleanup fails.
+        await this.refreshMcpComposition();
+      }
+    });
+  }
+
+  async retryMcp(id: string): Promise<void> {
+    await this.mutateSession(async () => {
+      if (!this.mcp) throw new Error("MCP management unavailable");
+      await this.mcp.retry(id);
+      await this.refreshMcpComposition();
+    });
+  }
+
+  private async refreshMcpComposition(): Promise<void> {
+    this.agentConfig.tools = [...this.baseTools, ...(this.mcp?.tools() ?? [])];
+    this.assemblyEvidence?.updateTools(this.agentConfig.tools.map((tool) => tool.name));
+    this.configuration.refreshAdditionalInstructions();
   }
 
   async setAgentModel(selection: ModelSelection): Promise<void> {
@@ -241,12 +350,24 @@ export class AgentApplication {
     await this.refreshInstructions();
   }
 
-  setControlledNetworkEnabled(enabled: boolean): Promise<void> {
-    return this.executionSettings.setControlledNetworkEnabled(
+  addApprovedNetworkTargets(targets: readonly NetworkTarget[]): Promise<void> {
+    return this.executionSettings.addApprovedNetworkTargets(
       this.workspaceId,
       this.agentId,
-      enabled,
+      targets,
     );
+  }
+
+  revokeApprovedNetworkTarget(target: NetworkTarget): Promise<void> {
+    return this.executionSettings.revokeApprovedNetworkTarget(
+      this.workspaceId,
+      this.agentId,
+      target,
+    );
+  }
+
+  clearApprovedNetworkTargets(): Promise<void> {
+    return this.executionSettings.clearApprovedNetworkTargets(this.workspaceId, this.agentId);
   }
 
   revokeApprovedFilesystemRoot(root: FilesystemCapabilityScope) {
@@ -278,6 +399,7 @@ export class AgentApplication {
       readonly resource: AgentResourceDisposalFailure["resource"];
       readonly dispose: () => void | Promise<void> | undefined;
     }[] = [
+      { resource: "mcp", dispose: () => this.mcp?.close() },
       { resource: "extensions", dispose: () => this.extensions.dispose() },
       { resource: "agent_module", dispose: () => this.agentModule?.dispose?.() },
       { resource: "run_observation", dispose: () => this.runObservation.dispose() },
@@ -342,13 +464,15 @@ export class AgentApplication {
 }
 
 export interface AgentApplicationDependencies {
+  readonly outputStore?: SessionArtifactStore;
+  readonly mcp?: import("../mcp/agent-mcp-controller").AgentMcpController;
   readonly extensions: ExtensionManager;
   readonly agentModule?: AgentModule;
   readonly sessions: AgentSessionRepository;
   readonly agentConfig: AgentConfig;
   readonly agentId: string;
   readonly cwd: string;
-  readonly modelService: ModelService;
+  readonly modelService: AgentModelService;
   readonly modelSelection: ModelSelection;
   readonly configService: ConfigService;
   readonly executionSettings: ExecutionSettingsService;

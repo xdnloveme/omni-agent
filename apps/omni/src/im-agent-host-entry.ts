@@ -1,23 +1,31 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { startAgentHost, type AgentHostServer } from "@omni-agent/agent-host";
+import {
+  AGENT_HOST_PROTOCOL_VERSION,
+  startAgentHost,
+  type AgentHostServer,
+} from "@omni-agent/agent-host";
 import { type ExtensionSourceLoader } from "@omni-agent/app";
-import type { AgentHostComposition } from "./agent-host-composition";
-import { createAgentHostComposition } from "./agent-host-composition";
+import type { AgentServiceComposition } from "./agent-service-composition";
+import { createAgentServiceComposition } from "./agent-service-composition";
 import { prepareImAgentHostSecurityProfile } from "./im-agent-host-security";
 import { ProcessTerminationController, registerProcessSignals } from "./process-signals";
 
 const termination = new ProcessTerminationController();
 const signals = registerProcessSignals((result) => termination.terminate(result));
 let host: AgentHostServer | undefined;
-let composition: AgentHostComposition | undefined;
+let composition: AgentServiceComposition | undefined;
 let ready = false;
 
 void run()
   .catch((error) => {
     if (!ready) {
       process.stdout.write(
-        `${JSON.stringify({ type: "agent_host_failed", version: 1, code: "host_start_failed" })}\n`,
+        `${JSON.stringify({
+          type: "agent_host_failed",
+          version: AGENT_HOST_PROTOCOL_VERSION,
+          code: "host_start_failed",
+        })}\n`,
       );
     }
     process.stderr.write(
@@ -38,13 +46,14 @@ async function run(): Promise<void> {
       agentId,
     });
 
-  composition = await createAgentHostComposition({
+  composition = await createAgentServiceComposition({
     cwd: projectDirectory,
-    configurationCwd,
+    configurationDirectory: configurationCwd,
     globalDirectory: stateDirectory,
     resolutionBase: process.argv[1] ?? import.meta.filename,
     agentPackagesDirectory: join(stateDirectory, "agents"),
     extensionSourceLoader: noLocalExtensions,
+    interactivePermissions: false,
     hostRuntime: {
       platform: process.platform,
       path: process.env.PATH ?? "",
@@ -59,7 +68,7 @@ async function run(): Promise<void> {
     process.stdout.write(
       `${JSON.stringify({
         type: "agent_host_ready",
-        version: 1,
+        version: AGENT_HOST_PROTOCOL_VERSION,
         host: host.address.host,
         port: host.address.port,
       })}\n`,

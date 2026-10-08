@@ -43,10 +43,10 @@ describe("prepareImAgentHostSecurityProfile", () => {
     const workspace = await resolveWorkspaceContext(projectDirectory);
     const settings = new ExecutionSettingsService(new ExecutionSettingsRepository(stateDirectory));
     await settings.setMode(workspace.id, "coding", "unrestricted");
-    await settings.setControlledNetworkEnabled(workspace.id, "coding", true);
-    await settings.addApprovedFilesystemRoots(workspace.id, "coding", [
-      { path: root, scope: "subtree", access: "read_write" },
-    ]);
+    await settings.addApprovedAccess(workspace.id, "coding", {
+      targets: [{ scheme: "https", host: "example.com", port: 443 }],
+      scopes: [{ path: root, scope: "subtree", access: "read_write" }],
+    });
 
     await prepareImAgentHostSecurityProfile({
       projectDirectory,
@@ -56,7 +56,7 @@ describe("prepareImAgentHostSecurityProfile", () => {
 
     await expect(settings.getSettings(workspace.id, "coding")).resolves.toEqual({
       mode: "controlled",
-      controlledNetworkEnabled: false,
+      approvedNetworkTargets: [],
       approvedFilesystemRoots: [],
     });
   });

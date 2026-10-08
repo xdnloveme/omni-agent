@@ -114,15 +114,20 @@ omni --help, -h         # usage
 omni --version, -v      # CLI version
 ```
 
-The distribution also includes `omni-host`, a loopback-only WebSocket companion process for a
-future Godot client. Its parent process owns the ephemeral authentication Token and child-process
-lifecycle; developers can run `pnpm verify:host` without creating or copying a Token. Model
-configuration must already exist for actual Runs. See [`docs/agent-host.md`](docs/agent-host.md) for
-the machine-readable startup and Protocol v1 contract.
+The distribution also includes `omni-host`, a loopback-only WebSocket companion process. The Godot
+4.7.2 graybox client connects to it directly during development. Its parent process owns the
+ephemeral authentication Token and child-process lifecycle; developers can run `pnpm verify:host`
+without creating or copying a Token. Model configuration must already exist for actual Runs. See
+[`docs/agent-host.md`](docs/agent-host.md) for the machine-readable startup and Protocol v2 contract.
+
+With Godot 4.7.2 installed, run `pnpm game` to start both the Host and game without handling a Token.
+Run `pnpm run verify:game` for the headless protocol, Client lifecycle, and real Session harnesses. See
+[`docs/godot-agent-host-client.md`](docs/godot-agent-host-client.md) for setup, ownership, and the
+manual streaming Smoke test.
 
 An optional same-machine Feishu/Lark gateway is available through `pnpm dev:im`. It keeps IM
 credentials outside Agent processes, binds each bot to one workspace and Agent, and communicates
-with an IM-specific Host through Protocol v1. See [`docs/im-gateway.md`](docs/im-gateway.md).
+with an IM-specific Host through Protocol v2. See [`docs/im-gateway.md`](docs/im-gateway.md).
 
 `omni doctor` never mutates state. It reports eight checks: Node.js version, resolved workspace
 root and ID, global directory accessibility, configuration validity, coding Agent package
@@ -133,15 +138,15 @@ modules.
 
 Typed at the prompt during a session:
 
-| Command        | Effect                                                        |
-| -------------- | ------------------------------------------------------------- |
-| `/config`      | Reconfigure vendor, connection, and model                     |
-| `/permissions` | Manage execution mode, controlled network, and approved roots |
-| `/new`         | Start a new conversation session                              |
-| `/clear`       | Clear the current session history                             |
-| `/help`        | List available commands                                       |
-| `/skills`      | List and manage available skills — see note below             |
-| `/trace`       | Control local Trace capture for the current Agent             |
+| Command        | Effect                                                           |
+| -------------- | ---------------------------------------------------------------- |
+| `/config`      | Reconfigure vendor, connection, and model                        |
+| `/permissions` | Manage execution mode, exact network targets, and approved roots |
+| `/new`         | Start a new conversation session                                 |
+| `/clear`       | Clear the current session history                                |
+| `/help`        | List available commands                                          |
+| `/skills`      | List and manage available skills — see note below                |
+| `/trace`       | Control local Trace capture for the current Agent                |
 
 `/skills` is registered conditionally: the CLI only builds the skill controller when the started
 agent exposes a `skills` capability. Agents without it never see the command. User-invocable
@@ -199,7 +204,10 @@ Bash accepts a caller-supplied timeout (`timeout_ms`).
 ### Execution modes
 
 `controlled` is the default: Process Tools run under Seatbelt, access stays in the workspace or
-user-approved filesystem roots, and network access requires one workspace-level enable decision.
+user-approved filesystem roots, and each unconfigured exact network target requires approval.
+Configure public, private, or local services once with
+`/permissions network add http://localhost:3000 https://example.com`; approvals are saved per
+workspace and Agent and reused without prompts.
 Approved roots distinguish read from read/write and can be revoked with `/permissions`.
 `autonomous` keeps Seatbelt but lets the Agent declare bounded per-call path and network scope.
 `unrestricted` requires explicit mode confirmation and runs Process Tools directly on the host
@@ -213,17 +221,17 @@ to global.
 
 The "Written by" column describes current behavior, not a guaranteed invariant.
 
-| File                                    | Scope   | Purpose                                  | Written by |
-| --------------------------------------- | ------- | ---------------------------------------- | ---------- |
-| `omni.config.json`                      | project | Shared model + per-agent model overrides | you        |
-| `omni.providers.json`                   | project | Custom vendor and connection definitions | you        |
-| `omni.extensions.mjs`                   | project | Local ESM extensions                     | you        |
-| `.env`                                  | project | Fallback environment credentials         | you        |
-| `~/.omni-agent/config.json`             | global  | CLI-selected model                       | the CLI    |
-| `~/.omni-agent/providers.json`          | global  | Interactively defined custom providers   | the CLI    |
-| `~/.omni-agent/extensions.mjs`          | global  | Global local extensions                  | you        |
-| `~/.omni-agent/execution-settings.json` | global  | Workspace mode, network, approved roots  | the CLI    |
-| `~/.omni-agent/.env`                    | global  | Global fallback environment credentials  | you        |
+| File                                    | Scope   | Purpose                                     | Written by |
+| --------------------------------------- | ------- | ------------------------------------------- | ---------- |
+| `omni.config.json`                      | project | Shared model + per-agent model overrides    | you        |
+| `omni.providers.json`                   | project | Custom vendor and connection definitions    | you        |
+| `omni.extensions.mjs`                   | project | Local ESM extensions                        | you        |
+| `.env`                                  | project | Fallback environment credentials            | you        |
+| `~/.omni-agent/config.json`             | global  | CLI-selected model                          | the CLI    |
+| `~/.omni-agent/providers.json`          | global  | Interactively defined custom providers      | the CLI    |
+| `~/.omni-agent/extensions.mjs`          | global  | Global local extensions                     | you        |
+| `~/.omni-agent/execution-settings.json` | global  | Mode, exact network targets, approved roots | the CLI    |
+| `~/.omni-agent/.env`                    | global  | Global fallback environment credentials     | you        |
 
 Today the CLI only writes the three global files marked above; it reads the project files and
 `.env` files without modifying them.
@@ -572,7 +580,8 @@ graph TD
     CLI["packages/cli<br/>commands, Agent orchestration"]
     AGENTS["agents/*<br/>coding, financial-analysis"]
     APP["packages/app<br/>Catalog, Service, lifecycle, sessions"]
-    AGENT_HOST["packages/agent-host<br/>WebSocket Protocol v1 adapter"]
+    AGENT_HOST["packages/agent-host<br/>WebSocket Protocol v2 adapter"]
+    GAME["apps/omni-game<br/>Godot character + task UI"]
     MODELS["packages/models<br/>runtime, vendor plugins, credentials"]
     TOOLS["packages/tools<br/>fs, shell, search, web"]
     UI["packages/ui<br/>browser + terminal presentation"]
@@ -583,6 +592,7 @@ graph TD
     HOST --> APP
     HOST --> AGENT_HOST
     AGENT_HOST --> APP
+    GAME -. "WebSocket v1" .-> AGENT_HOST
     CLI --> AGENTS
     CLI --> APP
     CLI --> TOOLS
@@ -603,11 +613,12 @@ graph TD
 | `packages/core`       | Agent execution kernel: loop, tool coordination, access planning, context, events, ports   |
 | `packages/models`     | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence       |
 | `packages/app`        | Package Catalog, Agent Service, application lifecycle, extensions, sessions, configuration |
-| `packages/agent-host` | Loopback WebSocket Protocol v1, authentication, streaming, and transport cancellation      |
+| `packages/agent-host` | Loopback WebSocket Protocol v2, authentication, streaming, and transport cancellation      |
 | `packages/tools`      | Domain-neutral filesystem, shell, search, and web tools                                    |
 | `packages/ui`         | Browser and terminal interaction, presentation, adapters, formatting, and delivery         |
 | `packages/cli`        | Commands, Agent creation/use-case orchestration, sessions, and onboarding workflow         |
 | `apps/omni`           | Binary entry, CLI/UI composition, signals, Trace preview lifecycle, and process exit       |
+| `apps/omni-game`      | Godot character selection, Session transitions, task interaction, and presentation         |
 | `agents/*`            | Independently packaged business agents                                                     |
 
 ### Dependency direction
@@ -621,6 +632,7 @@ ui     -> app, core
 cli    -> app, core, tools, agents/*
 agent-host -> app
 apps/omni -> agent-host, app, core, tools, cli, ui
+apps/omni-game -> WebSocket Protocol v2 only
 ```
 
 Reverse dependencies are not allowed. CLI and UI do not import each other; `apps/omni` is their
@@ -670,12 +682,13 @@ omni-agent/
 │   ├── core/     Agent loop, tool coordination, access, execution, context engine, ports
 │   ├── models/   Model runtime, vendor plugins, catalogs, credentials, cache
 │   ├── app/      Package Catalog, Agent Service, lifecycle, sessions, config, workspaces
-│   ├── agent-host/ WebSocket Protocol v1 adapter for AgentServicePort
+│   ├── agent-host/ WebSocket Protocol v2 adapter for AgentServicePort
 │   ├── tools/    Filesystem, shell, search, web, and user-input tools
 │   ├── ui/       Browser and terminal presentation, interaction adapters, delivery
 │   └── cli/      Arg parsing, commands, Agent run and onboarding orchestration
 ├── apps/
-│   └── omni/     `omni`/`omni-host` entries, composition, signals, process lifecycle
+│   ├── omni/     `omni`/`omni-host`/game entries, composition, signals, process lifecycle
+│   └── omni-game/ Godot character, Session, and task graybox UI
 ├── agents/
 │   ├── coding/              Default coding agent (skills, fs, shell, search, web)
 │   └── financial-analysis/  Read-only deterministic indicator agent
@@ -688,12 +701,15 @@ omni-agent/
 
 ## Documentation
 
+[Benchmark integration](benchmark/README.md) evaluates the production Agent with an offline solver, an isolated model execution service, and per-run Trace evidence. After submission is frozen and the solver stops, independent verification uses the taskpack network policy. The benchmark README records verified scope and remaining limits.
+
 | Document                                                                                           | Contents                                                               |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
 | [`docs/architecture.md`](docs/architecture.md)                                                     | Layers, dependency rules, contracts, composition, and subsystem design |
 | [`docs/agent-package.md`](docs/agent-package.md)                                                   | Manifest v2, Blueprint, composition, package loading, and ownership    |
 | [`docs/agent-service.md`](docs/agent-service.md)                                                   | Host-neutral discovery, Session/Run lifecycle, failures, and adapters  |
 | [`docs/agent-host.md`](docs/agent-host.md)                                                         | WebSocket v1, authentication, cancellation, and companion process      |
+| [`docs/godot-agent-host-client.md`](docs/godot-agent-host-client.md)                               | Godot setup, concrete Client, Session interaction, and verification    |
 | [`docs/build-an-agent-in-five-minutes.md`](docs/build-an-agent-in-five-minutes.md)                 | Executable minimal Agent tutorial and dynamic YAML assembly            |
 | [`docs/tracing.md`](docs/tracing.md)                                                               | Runtime Observation, Assembly Evidence, local Trace, and replay        |
 | [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | Authoritative Tool access, execution, cancellation, sandbox            |
@@ -713,6 +729,8 @@ pnpm dev                           # coding agent (default)
 pnpm run dev:coding                # coding agent, explicitly
 pnpm run dev:financial-analysis    # read-only financial analysis agent
 pnpm run verify:host               # verify the local WebSocket companion; no manual Token
+pnpm game                          # start omni-host and the Godot 4.7.2 graybox client
+pnpm run verify:game               # protocol, Run/Cancel/shutdown, and real Session harnesses
 pnpm run dev -- run <agent-id>     # any installed agent package
 pnpm run dev -- agent describe coding
 pnpm run dev -- agent validate coding
@@ -727,6 +745,7 @@ pnpm run format:check   # verify formatting
 pnpm run typecheck      # project-wide type checking
 pnpm run test           # run the test suite (Vitest)
 pnpm run test:watch     # watch mode
+pnpm run verify:sandbox # macOS: build and exercise the real Seatbelt workspace boundary
 pnpm run build          # build all packages
 pnpm run build:cli      # build the standalone CLI distribution directory
 pnpm run pack:cli       # produce an installable npm tarball
@@ -746,6 +765,13 @@ pnpm run build:sandbox
 
 The sandbox is macOS-only and does not provide rollback or fake deletion. See
 `sandbox/README.md` for its protocol and security boundaries.
+
+The default test suite checks workspace authorization and rejects unsupported sandbox platforms.
+`verify:sandbox` additionally executes real processes, checks OS denial of an external read,
+and verifies stdout/stderr and exit-code projection. It requires macOS; missing or broken
+sandbox support fails the check rather than falling back to host execution. Linux benchmark
+container isolation is verified separately through the free execution-contract fixture in
+`benchmark/README.md`.
 
 A husky pre-commit hook runs `format:check`, `typecheck`, and `test`.
 
@@ -793,3 +819,19 @@ minimal issue asking for a private contact rather than posting details.
 Licensed under the [Apache License 2.0](LICENSE).
 
 Copyright 2026 [xdnloveme](https://github.com/xdnloveme/omni-agent).
+
+### Tool generation constraint migration
+
+Tool extensions use `inputConstraint: "off" | "prefer" | "require"`; the previous `strict`
+field is rejected. Migrate old `true` to `prefer`, old `false` to `off`, and leave undeclared
+tools unchanged. Configured providers can explicitly declare `compat.supportsStrictMode`
+(connection) or `supportsStrictMode` (model). Do not set support based only on API compatibility.
+Unknown support with `prefer` keeps ordinary calls working and records the reason in Trace;
+`require` fails before sending. See [the tool runtime contract](docs/tool-call-runtime.md).
+
+### Benchmark command
+
+Use `pnpm run benchmark list --all` to preview the fixed suite and
+`pnpm run benchmark run --profile benchmark/configs/omni.local.json --all --concurrency 5` to run prepared tasks with up to five
+concurrent trials. See [benchmark setup and command options](benchmark/README.md)
+for environment preparation, credentials, selection, and trace reports.

@@ -26,7 +26,7 @@ Host composition root
   resources, transport validation, and shutdown order.
 
 `packages/app` does not import the CLI, UI, transport, or a concrete Agent.
-`packages/agent-host` is the concrete WebSocket Protocol v1 adapter and calls only
+`packages/agent-host` is the concrete WebSocket Protocol v2 adapter and calls only
 `AgentServicePort`; it does not add another package loader, Factory, Runner, Tool, or Session path.
 
 ## Availability and loading
@@ -117,3 +117,21 @@ The Service itself does not include a transport, Godot integration, IM integrati
 registration, package scanning, hot reload, instance LRU, multi-process Session ownership, or CLI
 migration. WebSocket v1 lives in `packages/agent-host`; those exclusions can extend the Host or
 Catalog boundary without changing the current Agent, Tool, Session, or execution chains.
+
+### Model output truncation
+
+A Provider output-limit stop is not a completed Run. Core may recover up to three consecutive
+truncations within the same Run and cancellation scope. Exhaustion is projected through the
+existing failed outcome (`model_output_recovery_exhausted`); unsafe signed recovery and
+unsupported stop reasons also fail explicitly. Hosts do not infer success from process exit
+or Trace completeness, and do not add their own truncation retries.
+
+## Explicit Run deadlines
+
+`AgentServiceRunRequest.deadlineAtMs` is an optional safe-integer UTC millisecond timestamp. Omission adds no default Run limit. Invalid values return `invalid_run_deadline`; expired queued requests are cancelled before activation and do not create a runtime Trace. Queue waiting counts toward the absolute deadline; cancellation of an expired queued request is observed when the queue reaches it, not by a second queue timer.
+
+AgentApplication owns Run supervision for Service and direct callers. It converts the deadline once into monotonic elapsed time and reuses OperationDeadlineSupervisor for cancellation. Context preparation, model calls, tools and output recovery share the original signal and deadline. Deadline exhaustion is cancelled; runtime Trace records `run_deadline_exceeded`. Output persistence finishes before completion is published.
+
+The application retains active ownership until its execution promise settles, including after the supervisor's cleanup grace. This protects Session writes and late model results; a non-cooperative runtime may therefore keep the Session busy. An external process owner may force termination. This does not strengthen trusted in-process tools into OS isolation or guarantee that arbitrary plugin side effects stop; existing ToolInvocationRunner cleanup and late-settlement boundaries still apply.
+
+The headless entry accepts `--deadline-at-ms`. It returns exit 130 for cancellation, preserving the existing outcome mapping. The existing WebSocket protocol does not yet expose this optional request field. No Session storage migration is required.

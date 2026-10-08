@@ -25,6 +25,7 @@ composition:
       - bundle: research.web
       - tool: interaction.request-user-input
       - tool: skills.read
+      - tool: runtime.output-read
   capabilities:
     skills: skills.local
     context:

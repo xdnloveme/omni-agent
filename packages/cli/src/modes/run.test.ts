@@ -79,6 +79,10 @@ describe("Agent mode conversation lifecycle", () => {
   });
 
   it("reuses one Agent application and Session across consecutive submitted turns", async () => {
+    let resolveHandlers!: () => void;
+    const handlersReady = new Promise<void>((resolve) => {
+      resolveHandlers = resolve;
+    });
     let handlers:
       | {
           onSubmit(input: string): void | Promise<void>;
@@ -93,8 +97,10 @@ describe("Agent mode conversation lifecycle", () => {
     const consoleView = createConsole({
       bindHandlers(value) {
         handlers = value;
+        resolveHandlers();
       },
       async start() {
+        await handlersReady;
         await handlers?.onSubmit("first turn");
         await handlers?.onSubmit("second turn");
         return { kind: "completed" as const };
@@ -234,6 +240,7 @@ function createHost(consoleView: AgentConsolePort): {
       processRouter: { run: vi.fn() },
       processPlanner: { prepare: vi.fn() },
       hostRuntime: { platform: "linux", home: "/home/test" },
+      networkRuntime: { open: vi.fn() },
       createAgentConsole,
       createOnboardingInteraction: vi.fn(),
       runTracePreview: vi.fn(),

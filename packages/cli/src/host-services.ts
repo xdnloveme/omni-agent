@@ -8,6 +8,7 @@ import type {
   SkillSource,
   StreamCallbacks,
   TranscriptMessage,
+  NetworkRuntimePort,
 } from "@omni-agent/core";
 import type { ModelAuthInteraction } from "@omni-agent/app";
 
@@ -110,6 +111,8 @@ export interface CliHostServices {
   readonly processRouter: ProcessExecutionRouterPort;
   readonly processPlanner: ProcessExecutionPlannerPort;
   readonly hostRuntime: HostRuntimeContext;
+  readonly networkRuntime: NetworkRuntimePort;
+  readonly mcpEnvironment?: Readonly<Record<string, string | undefined>>;
   createAgentConsole(options: { workspaceRoot: string }): AgentConsolePort;
   createOnboardingInteraction(): OnboardingInteractionPort;
   runTracePreview(agentId: string): Promise<void>;

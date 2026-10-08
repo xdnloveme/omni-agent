@@ -1,14 +1,19 @@
 import { isAbsolute } from "node:path";
-import type { ExecutionMode, FilesystemCapabilityScope } from "@omni-agent/core";
+import {
+  normalizeNetworkTarget,
+  type ExecutionMode,
+  type FilesystemCapabilityScope,
+  type NetworkTarget,
+} from "@omni-agent/core";
 
 export interface PersistedAgentExecutionSettings {
   readonly mode: ExecutionMode;
-  readonly controlledNetworkEnabled: boolean;
+  readonly approvedNetworkTargets: readonly NetworkTarget[];
   readonly approvedFilesystemRoots: readonly FilesystemCapabilityScope[];
 }
 
 export interface PersistedExecutionSettings {
-  readonly version: 5;
+  readonly version: 6;
   readonly workspaces: Record<
     string,
     { readonly agents: Record<string, PersistedAgentExecutionSettings> }
@@ -28,12 +33,35 @@ export interface PersistedExecutionSettingsV4 {
   >;
 }
 
+export interface PersistedExecutionSettingsV5 {
+  readonly version: 5;
+  readonly workspaces: Record<
+    string,
+    {
+      readonly agents: Record<
+        string,
+        {
+          readonly mode: ExecutionMode;
+          readonly controlledNetworkEnabled: boolean;
+          readonly approvedFilesystemRoots: readonly FilesystemCapabilityScope[];
+        }
+      >;
+    }
+  >;
+}
+
 export const EMPTY_EXECUTION_SETTINGS: PersistedExecutionSettings = {
-  version: 5,
+  version: 6,
   workspaces: {},
 };
 
 export function isPersistedExecutionSettings(value: unknown): value is PersistedExecutionSettings {
+  return isExecutionSettings(value, 6, isAgentSettingsV6);
+}
+
+export function isPersistedExecutionSettingsV5(
+  value: unknown,
+): value is PersistedExecutionSettingsV5 {
   return isExecutionSettings(value, 5, isAgentSettingsV5);
 }
 
@@ -45,7 +73,7 @@ export function isPersistedExecutionSettingsV4(
 
 function isExecutionSettings(
   value: unknown,
-  version: 4 | 5,
+  version: 4 | 5 | 6,
   isAgentSettings: (value: unknown) => boolean,
 ): boolean {
   if (!isRecord(value) || value.version !== version || !isRecord(value.workspaces)) return false;
@@ -69,6 +97,19 @@ function isAgentSettingsV5(value: unknown): boolean {
   );
 }
 
+function isAgentSettingsV6(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    (value.mode === "controlled" || value.mode === "autonomous" || value.mode === "unrestricted") &&
+    Array.isArray(value.approvedFilesystemRoots) &&
+    value.approvedFilesystemRoots.length <= 64 &&
+    value.approvedFilesystemRoots.every(isFilesystemCapability) &&
+    Array.isArray(value.approvedNetworkTargets) &&
+    value.approvedNetworkTargets.length <= 64 &&
+    value.approvedNetworkTargets.every(isNetworkTarget)
+  );
+}
+
 function isAgentSettingsV4(value: unknown): boolean {
   return (
     isRecord(value) &&
@@ -87,6 +128,30 @@ function isFilesystemCapability(value: unknown): boolean {
     (value.scope === "exact" || value.scope === "subtree") &&
     (value.access === "read" || value.access === "read_write")
   );
+}
+
+function isNetworkTarget(value: unknown): boolean {
+  if (!(
+    isRecord(value) &&
+    (value.scheme === "http" || value.scheme === "https") &&
+    typeof value.host === "string" &&
+    value.host.length > 0 &&
+    value.host.length <= 253 &&
+    Number.isInteger(value.port) &&
+    (value.port as number) >= 1 &&
+    (value.port as number) <= 65535
+  ))
+    return false;
+  try {
+    const normalized = normalizeNetworkTarget(value as unknown as NetworkTarget);
+    return (
+      normalized.scheme === value.scheme &&
+      normalized.host === value.host &&
+      normalized.port === value.port
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function isRecord(value: unknown): value is Record<string, unknown> {

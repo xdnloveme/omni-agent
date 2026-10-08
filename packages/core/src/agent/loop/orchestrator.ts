@@ -1,6 +1,7 @@
 import type { ContextEnginePort, ContextMiddlewarePort } from "../../context";
 import type { EnvironmentContextControllerPort } from "../../environment";
-import { isAbortError } from "../../execution";
+import type { OutputRecovery } from "./output-recovery";
+import { isAbortError, throwIfAborted } from "../../execution";
 import type { LoopProtection } from "../../loop-protection";
 import type { AssistantTranscriptMessage } from "../../messages";
 import type { ModelRuntimePort } from "../../models/runtime";
@@ -30,9 +31,12 @@ export interface LoopIterationInput {
   readonly modelRuntime: ModelRuntimePort;
   readonly toolCallCoordinator: ToolCallCoordinator;
   readonly loopProtection: LoopProtection;
+  readonly outputRecovery: OutputRecovery;
   readonly runObservation: RuntimeRunObservation;
   readonly session?: StreamSession;
   readonly signal?: AbortSignal;
+  readonly outputs?: import("../../execution/output").SessionOutputPort;
+  readonly deadline?: import("../../execution/run-deadline").RunDeadline;
 }
 
 export async function* runLoopIteration(
@@ -65,15 +69,25 @@ export async function* runLoopIteration(
     const prepared = yield* prepareContextPhase({
       turn: input.turn,
       agentId: input.agentId,
-      config: input.config,
+      config: {
+        ...input.config,
+        systemPrompt: input.config.systemPrompt + input.outputRecovery.instruction,
+      },
       conversation: input.conversation,
       contextEngine: input.contextEngine,
       contextMiddleware: input.contextMiddleware,
       loopProtection: input.loopProtection,
       observation: turnObservation,
       publish,
+      deadline: input.deadline,
       signal: input.signal,
     });
+
+    const checkpointId = prepared.context.manifest.checkpoint?.checkpointId;
+    if (checkpointId) {
+      for (const policy of input.config.toolBatchPreparationPolicies ?? [])
+        await policy.onContextCheckpoint?.(checkpointId);
+    }
 
     const model = yield* streamModelPhase({
       turn: input.turn,
@@ -81,6 +95,7 @@ export async function* runLoopIteration(
       sessionId: prepared.sessionId,
       config: input.config,
       preparedContext: prepared.context,
+      recovery: input.outputRecovery.context,
       promptLeaseId: prepared.promptLeaseId,
       conversation: input.conversation,
       modelRuntime: input.modelRuntime,
@@ -95,7 +110,35 @@ export async function* runLoopIteration(
       return { kind: "failed", usage: input.lastUsage };
     }
 
-    if (model.response.stopReason !== "toolUse") {
+    if (model.response.stopReason === "length") {
+      throwIfAborted(input.signal);
+      const failure = input.outputRecovery.recover(model.response, model.modelCallId);
+      if (failure) {
+        turnObservation.fail({ turn: input.turn, failure });
+        yield publish(
+          { type: "error", failure, produced: input.conversation.produced(), usage: model.usage },
+          { type: "error", failure },
+        );
+        return { kind: "failed", usage: model.usage };
+      }
+      turnObservation.complete({ turn: input.turn, usage: model.usage });
+      return { kind: "continue", usage: model.usage };
+    }
+    if (model.response.stopReason !== "stop" && model.response.stopReason !== "toolUse") {
+      const failure = {
+        code: "model_stop_reason_unsupported",
+        message: `Model ended with ${model.response.stopReason}.`,
+        retryable: false,
+      };
+      turnObservation.fail({ turn: input.turn, failure });
+      yield publish(
+        { type: "error", failure, produced: input.conversation.produced(), usage: model.usage },
+        { type: "error", failure },
+      );
+      return { kind: "failed", usage: model.usage };
+    }
+    input.outputRecovery.reset();
+    if (model.response.stopReason === "stop") {
       if (isFinalTextResponse(model.response)) {
         const finalResponseEvent: AgentEvent = {
           type: "final_response",
@@ -116,6 +159,7 @@ export async function* runLoopIteration(
       workspaceRoot: input.workspaceRoot,
       config: input.config,
       response: model.response,
+      outputs: input.outputs,
       modelCallId: model.modelCallId,
       environment: prepared.environment,
       coordinator: input.toolCallCoordinator,

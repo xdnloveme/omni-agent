@@ -8,6 +8,8 @@ export interface CompatibleModelDefinition {
   readonly contextWindow: number;
   readonly maxTokens: number;
   readonly reasoning?: boolean;
+  /** Explicit deployment capability; absence means unknown. */
+  readonly supportsStrictMode?: boolean;
 }
 
 export interface ModelCatalogRefreshContext {
@@ -26,6 +28,7 @@ export type CompatibleProtocol =
 
 /** Validated pi-ai compatibility overrides supported by configured providers. */
 export interface CompatibleProviderCompat {
+  readonly supportsStrictMode?: boolean;
   readonly supportsUsageInStreaming?: boolean;
   readonly sendSessionAffinityHeaders?: boolean;
   readonly sessionAffinityFormat?: "openai" | "openai-nosession" | "openrouter";
@@ -48,6 +51,8 @@ export interface ModelTransportRequest {
     readonly name: string;
     readonly description: string;
     readonly schema: Readonly<Record<string, unknown>>;
+    /** Already resolved by Models. A require request must be enforced by the transport. */
+    readonly inputConstraint: "off" | "require";
   }[];
 }
 
@@ -62,5 +67,5 @@ export interface ModelTransport {
     model: ModelTransportModel,
     request: ModelTransportRequest,
     options: ModelTransportOptions,
-  ): AsyncIterable<ModelTransportEvent>;
+  ): AsyncIterable<Exclude<ModelTransportEvent, { type: "tool_constraint_report" }>>;
 }

@@ -1,21 +1,24 @@
 import type { FilesystemCapabilityScope } from "./types";
+import type { NetworkTarget } from "../network";
 
-export type AccessConsentRequest =
+export interface AccessConsentRequest {
+  readonly workspaceId: string;
+  readonly agentId: string;
+  readonly toolName: string;
+  readonly toolCallId: string;
+  readonly targets: readonly NetworkTarget[];
+  readonly scopes: readonly FilesystemCapabilityScope[];
+  readonly purpose: string;
+}
+
+export type AccessConsentDecision = "approve" | "deny";
+export type AccessConsentResponse =
+  | AccessConsentDecision
   | {
-      readonly kind: "network";
-      readonly workspaceId: string;
-      readonly agentId: string;
-      readonly toolName: string;
-    }
-  | {
-      readonly kind: "filesystem";
-      readonly workspaceId: string;
-      readonly agentId: string;
-      readonly toolName: string;
-      readonly scopes: readonly FilesystemCapabilityScope[];
+      readonly decision: AccessConsentDecision;
+      readonly permissionId: string;
+      readonly reason: "user" | "expired" | "cancelled" | "disconnected" | "unavailable";
     };
-
-export type AccessConsentResponse = "approve" | "deny";
 
 export interface AccessConsentBroker {
   request(request: AccessConsentRequest, signal?: AbortSignal): Promise<AccessConsentResponse>;

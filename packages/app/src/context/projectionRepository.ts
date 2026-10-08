@@ -1,5 +1,5 @@
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
+import { SessionArtifactStore } from "../persistence/session-artifact-store";
+import { readFile, stat } from "node:fs/promises";
 import {
   digestContextValue,
   type ContextProjectionState,
@@ -71,16 +71,7 @@ export class ContextProjectionRepository implements ContextProjectionStorePort {
     artifactId: string,
     content: string,
   ): Promise<void> {
-    const path = this.artifactPath(sessionId, artifactId);
-    await mkdir(dirname(path), { recursive: true });
-    try {
-      await writeFile(path, content, { encoding: "utf8", mode: 0o600, flag: "wx" });
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error;
-      if ((await readFile(path, "utf8")) !== content) {
-        throw new Error(`Context artifact digest collision: ${artifactId}`);
-      }
-    }
+    await SessionArtifactStore.writeSnapshot(this.artifactPath(sessionId, artifactId), content);
   }
 
   private async readOrQuarantine(sessionId: string): Promise<ContextProjectionState | undefined> {

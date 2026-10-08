@@ -13,6 +13,11 @@ export type {
   AgentRunObservationPort,
   AgentRunObservationRequest,
 } from "./application/agent-run-observation";
+export { AgentServiceAccessConsentBroker } from "./application/permissions/service-access-consent-broker";
+export type {
+  AgentServicePermissionEvent,
+  PermissionPresentation,
+} from "./application/permissions/service-access-consent-broker";
 export {
   ContextSidecarLayout,
   ContextProjectionRepository,
@@ -146,3 +151,10 @@ export type {
   TraceMaintenancePort,
   TraceQueryPort,
 } from "./tracing/index";
+export * from "./mcp/index";
+
+export type { AgentModelService, ModelAdministration } from "./models/model-service";
+export { connectModelExecution, serveModelExecution } from "./models/model-execution";
+
+export { captureModelConfiguration } from "./models/configuration-snapshot";
+export { resolveAgentModel } from "./models/resolve-agent-model";

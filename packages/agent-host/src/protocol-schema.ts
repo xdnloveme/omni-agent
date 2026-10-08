@@ -41,7 +41,7 @@ export const agentHostHelloSchema = {
   additionalProperties: false,
   required: ["v", "type", "token"],
   properties: {
-    v: { const: 1 },
+    v: { const: 2 },
     type: { const: "hello" },
     token: {
       type: "string",
@@ -68,6 +68,11 @@ export const agentHostRequestSchema = {
       ["agentId", "sessionId", "text"],
     ),
     operation("cancel", { requestId }, ["requestId"]),
+    operation(
+      "resolve_permission",
+      { permissionId: requestId, decision: { enum: ["approve", "deny"] } },
+      ["permissionId", "decision"],
+    ),
   ],
 } as const;
 
@@ -75,7 +80,7 @@ export const agentHostServerMessageSchema = {
   oneOf: [
     strictObject(
       {
-        v: { const: 1 },
+        v: { const: 2 },
         type: { const: "ready" },
         connectionId: { type: "string", minLength: 1 },
       },
@@ -112,6 +117,15 @@ export const agentHostServerMessageSchema = {
       properties: {
         kind: { const: "cancel_requested" },
         requestId,
+      },
+    }),
+    result({
+      type: "object",
+      additionalProperties: false,
+      required: ["kind", "permissionId"],
+      properties: {
+        kind: { const: "permission_resolved" },
+        permissionId: requestId,
       },
     }),
     event(
@@ -154,7 +168,35 @@ export const agentHostServerMessageSchema = {
     event(strictObject({ type: { const: "cancelled" } }, ["type"])),
     strictObject(
       {
-        v: { const: 1 },
+        v: { const: 2 },
+        type: { const: "permission.requested" },
+        requestId,
+        permissionId: requestId,
+        expiresAt: { type: "number" },
+        presentation: strictObject(
+          {
+            title: { type: "string" },
+            resources: { type: "array", items: { type: "string" } },
+          },
+          ["title", "resources"],
+        ),
+      },
+      ["v", "type", "requestId", "permissionId", "expiresAt", "presentation"],
+    ),
+    strictObject(
+      {
+        v: { const: 2 },
+        type: { const: "permission.resolved" },
+        requestId,
+        permissionId: requestId,
+        decision: { enum: ["approve", "deny"] },
+        reason: { enum: ["user", "expired", "cancelled", "disconnected"] },
+      },
+      ["v", "type", "requestId", "permissionId", "decision", "reason"],
+    ),
+    strictObject(
+      {
+        v: { const: 2 },
         type: { const: "error" },
         id: requestId,
         error: failure,
@@ -174,7 +216,7 @@ function operation(
     additionalProperties: false,
     required: ["v", "id", "type", ...required],
     properties: {
-      v: { const: 1 },
+      v: { const: 2 },
       id: requestId,
       type: { const: type },
       ...properties,
@@ -185,7 +227,7 @@ function operation(
 function result(resultSchema: Readonly<Record<string, unknown>>): Record<string, unknown> {
   return strictObject(
     {
-      v: { const: 1 },
+      v: { const: 2 },
       type: { const: "result" },
       id: requestId,
       result: resultSchema,
@@ -197,7 +239,7 @@ function result(resultSchema: Readonly<Record<string, unknown>>): Record<string,
 function event(eventSchema: Readonly<Record<string, unknown>>): Record<string, unknown> {
   return strictObject(
     {
-      v: { const: 1 },
+      v: { const: 2 },
       type: { const: "event" },
       requestId,
       event: eventSchema,

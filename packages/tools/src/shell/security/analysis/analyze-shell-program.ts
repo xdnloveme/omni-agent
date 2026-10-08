@@ -24,7 +24,7 @@ import {
   type ShellRedirection,
   type ShellStatement,
 } from "../parser";
-import { DYNAMIC_EXECUTION_BUILTINS } from "../semantics/shell-builtins";
+import { DYNAMIC_EXECUTION_BUILTINS, isShellBuiltinCommand } from "../semantics/shell-builtins";
 import {
   analyzeCommandSemantics,
   type ShellCommandSemantics,
@@ -32,7 +32,9 @@ import {
 import { analyzeFindCommand } from "../semantics/find-command-semantics";
 import {
   emptyAnalysis,
-  mergeAnalysis,
+  mergeAnalysisFacts,
+  continuedContext,
+  sameOutcomes,
   producedEffects,
   type AnalyzedShellProgram,
 } from "./analysis-accumulator";
@@ -95,12 +97,12 @@ export async function analyzeShellProgram(
     const current = await analyzeStatement(
       statement,
       input,
-      result.context,
+      continuedContext(result),
       wrapperChain,
       depth,
       state,
     );
-    result = mergeAnalysis(result, current, current.context);
+    result = { ...mergeAnalysisFacts(result, current), outcomes: current.outcomes };
     if (state.limitExceeded) break;
   }
   if (program.status !== "complete") {
@@ -133,8 +135,17 @@ async function analyzeStatement(
       return analyzeNestedPrograms(statement.nested, input, context, wrapperChain, depth, state);
     case "pipeline":
       return analyzePipeline(statement.statements, input, context, wrapperChain, depth, state);
-    case "background":
-      return analyzeStatement(statement.statement, input, context, wrapperChain, depth, state);
+    case "background": {
+      const result = await analyzeStatement(
+        statement.statement,
+        input,
+        context,
+        wrapperChain,
+        depth,
+        state,
+      );
+      return { ...result, outcomes: sameOutcomes(context) };
+    }
     case "list": {
       const left = await analyzeStatement(
         statement.left,
@@ -147,14 +158,27 @@ async function analyzeStatement(
       const right = await analyzeStatement(
         statement.right,
         input,
-        statement.operator === "||" ? context : left.context,
+        statement.operator === "||"
+          ? left.outcomes.failure
+          : statement.operator === "&&"
+            ? left.outcomes.success
+            : continuedContext(left),
         wrapperChain,
         depth,
         state,
       );
-      const nextContext =
-        statement.operator === ";" ? right.context : mergeBranchContexts(context, right.context);
-      return mergeAnalysis(left, right, nextContext);
+      const successContext =
+        statement.operator === "||"
+          ? mergeBranchContexts(left.outcomes.success, right.outcomes.success)
+          : right.outcomes.success;
+      const failureContext =
+        statement.operator === "&&"
+          ? mergeBranchContexts(left.outcomes.failure, right.outcomes.failure)
+          : right.outcomes.failure;
+      return {
+        ...mergeAnalysisFacts(left, right),
+        outcomes: { success: successContext, failure: failureContext },
+      };
     }
     case "group": {
       const grouped = await analyzeShellProgram(
@@ -165,7 +189,7 @@ async function analyzeStatement(
         depth + 1,
         state,
       );
-      return { ...grouped, context: statement.scoped ? context : grouped.context };
+      return statement.scoped ? { ...grouped, outcomes: sameOutcomes(context) } : grouped;
     }
     case "loop": {
       const nested = await analyzeNestedPrograms(
@@ -179,14 +203,18 @@ async function analyzeStatement(
       const condition = await analyzeShellProgram(
         { body: statement.condition, status: "complete" },
         input,
-        nested.context,
+        continuedContext(nested),
         wrapperChain,
         depth + 1,
         state,
       );
       const bodyContext = statement.variable
-        ? bindUnknownVariable(condition.context, statement.variable, producedEffects(nested))
-        : condition.context;
+        ? bindUnknownVariable(
+            continuedContext(condition),
+            statement.variable,
+            producedEffects(nested),
+          )
+        : continuedContext(condition);
       const body = await analyzeShellProgram(
         { body: statement.body, status: "complete" },
         input,
@@ -195,11 +223,10 @@ async function analyzeStatement(
         depth + 1,
         state,
       );
-      return mergeAnalysis(
-        mergeAnalysis(nested, condition, condition.context),
-        body,
-        mergeBranchContexts(context, body.context),
-      );
+      return {
+        ...mergeAnalysisFacts(mergeAnalysisFacts(nested, condition), body),
+        outcomes: sameOutcomes(mergeBranchContexts(context, continuedContext(body))),
+      };
     }
     case "branch": {
       const nested = await analyzeNestedPrograms(
@@ -213,26 +240,26 @@ async function analyzeStatement(
       const condition = await analyzeShellProgram(
         { body: statement.condition, status: "complete" },
         input,
-        nested.context,
+        continuedContext(nested),
         wrapperChain,
         depth + 1,
         state,
       );
-      let result = mergeAnalysis(nested, condition, condition.context);
-      let branchContext = condition.context;
+      let result = mergeAnalysisFacts(nested, condition);
+      let branchContext = continuedContext(condition);
       for (const branch of statement.branches) {
         const analyzed = await analyzeShellProgram(
           { body: branch, status: "complete" },
           input,
-          condition.context,
+          continuedContext(condition),
           wrapperChain,
           depth + 1,
           state,
         );
-        result = mergeAnalysis(result, analyzed, result.context);
-        branchContext = mergeBranchContexts(branchContext, analyzed.context);
+        result = mergeAnalysisFacts(result, analyzed);
+        branchContext = mergeBranchContexts(branchContext, continuedContext(analyzed));
       }
-      return { ...result, context: branchContext };
+      return { ...result, outcomes: sameOutcomes(branchContext) };
     }
     case "function": {
       if (isRecursiveBackgroundFunction(statement.name, statement.statements)) {
@@ -251,7 +278,8 @@ async function analyzeStatement(
         kind: "unsupported_syntax",
         reason: "Shell function definitions cannot be analyzed completely",
       });
-      return { ...recovered, context: functionContext };
+      // Inspect deferred code for security facts without executing its state transitions.
+      return { ...recovered, outcomes: sameOutcomes(functionContext) };
     }
     case "redirected": {
       const body = await analyzeStatement(
@@ -262,7 +290,7 @@ async function analyzeStatement(
         depth,
         state,
       );
-      const redirections = await analyzeRedirections(statement.redirections, input, body.context);
+      const redirections = await analyzeRedirections(statement.redirections, input, context);
       const nested = await analyzeNestedPrograms(
         statement.nested,
         input,
@@ -271,7 +299,13 @@ async function analyzeStatement(
         depth,
         state,
       );
-      return mergeAnalysis(mergeAnalysis(body, redirections, body.context), nested, body.context);
+      // Redirections occur before the body, and can fail without changing its directory.
+      const failureContext = mergeBranchContexts(context, body.outcomes.failure);
+      const successContext = body.outcomes.success;
+      return {
+        ...mergeAnalysisFacts(mergeAnalysisFacts(body, redirections), nested),
+        outcomes: { success: successContext, failure: failureContext },
+      };
     }
     case "unsupported": {
       const recovered = await analyzeShellProgram(
@@ -304,7 +338,10 @@ async function analyzePipeline(
     parts.push(await analyzeStatement(statement, input, context, wrapperChain, depth, state));
   }
   const result = parts.reduce(
-    (combined, part) => mergeAnalysis(combined, part, context),
+    (combined, part) => ({
+      ...mergeAnalysisFacts(combined, part),
+      outcomes: sameOutcomes(context),
+    }),
     emptyAnalysis(context),
   );
   const hardStop = analyzePipelineFlow(parts);
@@ -328,9 +365,13 @@ async function analyzeCommand(
     depth,
     state,
   );
-  const localContext = assignments.context;
+  const localContext = continuedContext(assignments);
   if (localContext.variableLimitExceeded) state.limitExceeded = true;
-  const wrapper = command.executableName ? analyzeWrapper(command) : undefined;
+  const wrapper =
+    command.executableName &&
+    !localContext.shellFunctions.has(command.executable?.staticValue ?? "")
+      ? analyzeWrapper(command)
+      : undefined;
   const findSemantics = analyzeFindCommand(command);
   const wrapperAssignmentPrograms =
     wrapper?.kind === "argv"
@@ -354,18 +395,18 @@ async function analyzeCommand(
     depth,
     state,
   );
-  const nested = mergeAnalysis(assignments, commandNested, localContext);
+  const nested = mergeAnalysisFacts(assignments, commandNested);
   if (!command.executableName) {
     const flowHardStop = analyzeUnresolvedExecutionFlow(nested);
     if (flowHardStop) {
       nested.hardStops.push(flowHardStop);
-      return { ...nested, context };
+      return { ...nested, outcomes: sameOutcomes(context) };
     }
     nested.uncertainties.push({
       kind: "execution_target",
       reason: "Shell executable cannot be resolved statically",
     });
-    return { ...nested, context };
+    return { ...nested, outcomes: sameOutcomes(context) };
   }
 
   if (state.resourceExhaustionFunctions.has(command.executableName)) {
@@ -373,14 +414,14 @@ async function analyzeCommand(
       code: "shell.hard.resource-exhaustion",
       reason: "Invokes a recursively expanding background function",
     };
-    const semantics = analyzeCommandSemantics(command);
+    const semantics = analyzeCommandSemantics(command, localContext);
     nested.hardStops.push(hardStop);
     nested.commands.push(commandFact(command, semantics, wrapperChain, localContext));
-    return { ...nested, context };
+    return { ...nested, outcomes: sameOutcomes(context) };
   }
 
   const resolvedCommand = resolveCommandFacts(command, localContext);
-  const baseSemantics = analyzeCommandSemantics(resolvedCommand);
+  const baseSemantics = analyzeCommandSemantics(resolvedCommand, localContext);
   const consumedEffects = effectsConsumedByCommand(command, localContext);
   const semantics: ShellCommandSemantics = {
     ...baseSemantics,
@@ -389,19 +430,19 @@ async function analyzeCommand(
   const hardStop = analyzeCommandHardStop(
     resolvedCommand,
     localContext.cwd,
-    input.cwd,
+    input.workspaceRoot,
     input.environment.home,
   );
   if (hardStop) {
     nested.hardStops.push(hardStop);
     nested.commands.push(commandFact(command, semantics, wrapperChain, localContext));
-    return { ...nested, context };
+    return { ...nested, outcomes: sameOutcomes(context) };
   }
   const flowHardStops = analyzeNestedFlow(semantics.effects, nested, [], consumedEffects);
   if (flowHardStops.length > 0) {
     nested.hardStops.push(...flowHardStops);
     nested.commands.push(commandFact(command, semantics, wrapperChain, localContext));
-    return { ...nested, context };
+    return { ...nested, outcomes: sameOutcomes(context) };
   }
   if (DYNAMIC_EXECUTION_BUILTINS.has(command.executableName)) {
     nested.commands.push(commandFact(command, semantics, wrapperChain, localContext));
@@ -409,12 +450,12 @@ async function analyzeCommand(
       kind: "execution_target",
       reason: `${command.executableName} target cannot be resolved statically`,
     });
-    return { ...nested, context };
+    return { ...nested, outcomes: sameOutcomes(context) };
   }
 
   if (wrapper === null) {
     nested.uncertainties.push({ kind: "execution_target", reason: "Wrapper target is unknown" });
-    return { ...nested, context };
+    return { ...nested, outcomes: sameOutcomes(context) };
   }
   if (wrapper?.kind === "shell") {
     const wrapperPaths = await analyzePathsForCommand(
@@ -432,10 +473,13 @@ async function analyzeCommand(
       depth + 1,
       state,
     );
-    const wrapperAnalysis = mergeAnalysis(nested, wrapperPaths, context);
+    const wrapperAnalysis = mergeAnalysisFacts(nested, wrapperPaths);
     wrapperAnalysis.effects.push(...semantics.effects);
     wrapperAnalysis.commands.push(commandFact(command, semantics, wrapperChain, localContext));
-    return mergeAnalysis(wrapperAnalysis, target.analyzed, context);
+    return {
+      ...mergeAnalysisFacts(wrapperAnalysis, target.analyzed),
+      outcomes: sameOutcomes(context),
+    };
   }
   if (wrapper?.kind === "argv") {
     const wrapperPaths = await analyzePathsForCommand(
@@ -456,16 +500,21 @@ async function analyzeCommand(
     const target = await analyzeCommand(
       wrapper.target,
       input,
-      targetContext.context,
+      continuedContext(targetContext),
       [...wrapperChain, command.executableName],
       depth + 1,
       state,
     );
-    return mergeAnalysis(
-      mergeAnalysis(mergeAnalysis(nested, wrapperPaths, context), targetContext, context),
-      target,
-      context,
-    );
+    const sharesState =
+      wrapper.stateScope === "current" &&
+      isShellBuiltinCommand(command, localContext.shellFunctions);
+    return {
+      ...mergeAnalysisFacts(
+        mergeAnalysisFacts(mergeAnalysisFacts(nested, wrapperPaths), targetContext),
+        target,
+      ),
+      outcomes: sharesState ? target.outcomes : sameOutcomes(context),
+    };
   }
 
   const paths = await analyzePathsForCommand(
@@ -475,7 +524,7 @@ async function analyzeCommand(
     localContext,
     findSemantics?.pathOperands,
   );
-  let result = mergeAnalysis(nested, paths, context);
+  let result = mergeAnalysisFacts(nested, paths);
   result.effects.push(...semantics.effects);
   result.hardStops.push(
     ...analyzeNestedFlow(semantics.effects, nested, paths.paths, consumedEffects),
@@ -490,7 +539,7 @@ async function analyzeCommand(
       depth + 1,
       state,
     );
-    result = mergeAnalysis(result, analyzed, context);
+    result = mergeAnalysisFacts(result, analyzed);
   }
   if (findSemantics?.unresolvedDelegation) {
     result.uncertainties.push({
@@ -498,9 +547,19 @@ async function analyzeCommand(
       reason: "find delegated command cannot be resolved",
     });
   }
-  const nextContext = applyCommandState(command, context, localContext, producedEffects(nested));
+  const nextContext = applyCommandState(
+    command,
+    context,
+    localContext,
+    producedEffects(nested),
+    semantics,
+  );
   if (nextContext.variableLimitExceeded) state.limitExceeded = true;
-  return { ...result, context: nextContext };
+  const failureContext = semantics.directoryChange ? context : nextContext;
+  return {
+    ...result,
+    outcomes: { success: nextContext, failure: failureContext },
+  };
 }
 
 async function analyzePathsForCommand(
@@ -516,9 +575,19 @@ async function analyzePathsForCommand(
   return {
     ...emptyAnalysis(context),
     paths: [...pathAnalysis.facts],
-    uncertainties: pathAnalysis.unresolved
-      ? [{ kind: "path", reason: "A shell path cannot be resolved statically" }]
-      : [],
+    uncertainties: [
+      ...(pathAnalysis.unresolved
+        ? [{ kind: "path" as const, reason: "A shell path cannot be resolved statically" }]
+        : []),
+      ...(pathAnalysis.unresolvedMutation
+        ? [
+            {
+              kind: "mutation" as const,
+              reason: "A command's write targets cannot be bounded statically",
+            },
+          ]
+        : []),
+    ],
   };
 }
 
@@ -535,17 +604,17 @@ async function analyzeAssignments(
     const nested = await analyzeNestedPrograms(
       nestedProgramsOfWord(assignment.value),
       input,
-      result.context,
+      continuedContext(result),
       wrapperChain,
       depth,
       state,
     );
     const nextContext = applyPersistentAssignment(
-      result.context,
+      continuedContext(result),
       assignment,
       producedEffects(nested),
     );
-    result = mergeAnalysis(result, nested, nextContext);
+    result = { ...mergeAnalysisFacts(result, nested), outcomes: sameOutcomes(nextContext) };
     if (nextContext.variableLimitExceeded) state.limitExceeded = true;
   }
   return result;
@@ -568,10 +637,11 @@ async function applyWrapperTargetContext(
     depth,
     state,
   );
+  const assignedContext = continuedContext(assignments);
   const nextContext = target.cwd
-    ? changeDirectory(assignments.context, resolveShellWord(target.cwd, assignments.context))
-    : assignments.context;
-  return { ...assignments, context: nextContext };
+    ? changeDirectory(assignedContext, resolveShellWord(target.cwd, assignedContext))
+    : assignedContext;
+  return { ...assignments, outcomes: sameOutcomes(nextContext) };
 }
 
 async function analyzeRedirections(
@@ -595,10 +665,16 @@ async function analyzeRedirections(
     span: { startByte: 0, endByte: 0 },
   };
   const semantics: ShellCommandSemantics = {
-    pathAccess: fileRedirections.some(({ operator }) => operator.includes(">")) ? "write" : "read",
+    // There is no executable here. Redirect targets own their individual access effects.
+    pathAccess: "read",
     effects: [],
   };
-  const hardStop = analyzeCommandHardStop(command, context.cwd, input.cwd, input.environment.home);
+  const hardStop = analyzeCommandHardStop(
+    command,
+    context.cwd,
+    input.workspaceRoot,
+    input.environment.home,
+  );
   const paths = await analyzePathsForCommand(command, semantics, input, context, []);
   if (hardStop) paths.hardStops.push(hardStop);
   return paths;
@@ -622,7 +698,7 @@ async function analyzeNestedPrograms(
       depth + 1,
       state,
     );
-    result = mergeAnalysis(result, nested, context);
+    result = { ...mergeAnalysisFacts(result, nested), outcomes: sameOutcomes(context) };
   }
   return result;
 }

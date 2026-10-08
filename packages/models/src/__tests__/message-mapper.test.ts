@@ -1,3 +1,4 @@
+import { resolveToolConstraints } from "../runtime/tool-constraints";
 import { describe, expect, it } from "vitest";
 import type { ModelContextMessage } from "@omni-agent/core";
 import {
@@ -112,6 +113,10 @@ describe("model message boundary", () => {
         toolCallId: "call-1",
         toolName: "inspect",
         content: [{ type: "image", data: "cmVzdWx0", mimeType: "image/png" }],
+        details: {
+          omniContent: [{ type: "image", data: "cmVzdWx0", mimeType: "image/png" }],
+          structuredContent: undefined,
+        },
         addedToolNames: ["follow_up"],
         isError: false,
         timestamp: 0,
@@ -133,6 +138,53 @@ describe("model message boundary", () => {
       region: "cn",
     });
   });
+
+  it("projects rich ToolResult content to the backend contract without losing the original", () => {
+    const messages: ModelContextMessage[] = [
+      {
+        role: "toolResult",
+        toolCallId: "call-rich",
+        toolName: "mcp__media__read",
+        content: [
+          { type: "text", text: "private text", annotations: { audience: ["user"] } },
+          {
+            type: "image",
+            data: "aW1hZ2U=",
+            mimeType: "image/png",
+            annotations: { audience: ["user"] },
+          },
+          { type: "audio", data: "YXVkaW8=", mimeType: "audio/wav" },
+          {
+            type: "resource_link",
+            name: "private",
+            uri: "https://example.com/private",
+            annotations: { audience: ["user"] },
+          },
+          {
+            type: "resource",
+            resource: { uri: "file:///notes.txt", mimeType: "text/plain", text: "notes" },
+          },
+        ],
+        structuredContent: { answer: 42 },
+        isError: false,
+      },
+    ];
+    const backend = toBackendMessages(messages);
+    const result = backend[0];
+    if (result.role !== "toolResult") throw new Error("Expected tool result");
+    expect(result.content).toEqual([
+      { type: "text", text: "[text content omitted: audience=user]" },
+      { type: "text", text: "[image content omitted: audience=user]" },
+      { type: "text", text: "[audio: audio/wav; base64-bytes=5]" },
+      { type: "text", text: "[resource_link content omitted: audience=user]" },
+      {
+        type: "text",
+        text: "[embedded resource: file:///notes.txt; mime=text/plain]\nnotes",
+      },
+      { type: "text", text: 'Structured tool result:\n{"answer":42}' },
+    ]);
+    expect(fromBackendContextMessages(backend)).toEqual(messages);
+  });
 });
 
 describe("model request boundary", () => {
@@ -145,11 +197,17 @@ describe("model request boundary", () => {
           name: "inspect",
           description: "Inspect",
           schema: { type: "object", properties: { path: { type: "string" } } },
-          strict: true,
+          inputConstraint: "prefer",
         },
       ],
     } as const;
-    const context = toBackendContext(request);
+    const context = toBackendContext(
+      request,
+      resolveToolConstraints(request.tools, "openai-completions", {
+        state: "unknown",
+        source: "unknown",
+      }).decisions,
+    );
 
     (
       context.tools?.[0].parameters as unknown as {
@@ -166,6 +224,7 @@ describe("model request boundary", () => {
           name: "inspect",
           description: "Inspect",
           parameters: { type: "object", properties: { path: { type: "number" } } },
+          constrainedSampling: false,
         },
       ],
     });

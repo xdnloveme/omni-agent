@@ -1,13 +1,24 @@
+import {
+  DEFAULT_OUTPUT_LIMITS,
+  type OutputStorageLimits,
+} from "../persistence/session-artifact-store";
 import { join, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import { isAgentId } from "@omni-agent/core";
 import { containsSecretField, type ConfigurationScope } from "@omni-agent/models";
 import { AtomicJsonFile } from "../persistence/atomic-json-file";
 import type { ModelSelection } from "../models/model-service";
 import type { ConfigDiagnostic, OmniConfig, ResolvedModelConfiguration } from "./types";
+import {
+  containsMcpSecrets,
+  parseMcpConfiguration,
+  type ResolvedMcpConfiguration,
+} from "../mcp/config/types";
 
 export interface ConfigServiceOptions {
   readonly cwd: string;
   readonly globalDirectory: string;
+  readonly projectFile?: string;
 }
 
 interface ConfigLayer {
@@ -30,7 +41,29 @@ export class ConfigService {
   constructor(options: ConfigServiceOptions) {
     const { cwd, globalDirectory } = options;
     this.globalPath = join(globalDirectory, "config.json");
-    this.projectPath = resolve(cwd, PROJECT_CONFIG_FILE);
+    this.projectPath = resolve(cwd, options.projectFile ?? PROJECT_CONFIG_FILE);
+  }
+
+  /** Validate every exported layer before delivery; model precedence remains with the loader. */
+  async snapshot(): Promise<{ global?: string; project?: string }> {
+    const read = async (scope: ConfigurationScope) => {
+      try {
+        const text = await readFile(this.path(scope), "utf8");
+        let value: unknown;
+        try {
+          value = JSON.parse(text);
+        } catch {
+          // JSON parser diagnostics can quote secret-bearing input.
+          throw new InvalidConfigError(`Cannot export invalid ${scope} configuration`);
+        }
+        assertSecretFreeConfig(value);
+        return text;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
+      }
+    };
+    return { global: await read("global"), project: await read("project") };
   }
 
   async resolveModel(agentId: string): Promise<ModelSelection | null> {
@@ -66,6 +99,31 @@ export class ConfigService {
     if (layers.project.config) return layers.project.config.model;
     if (layers.global.present && !layers.global.config) return null;
     return layers.global.config?.model ?? null;
+  }
+
+  async resolveMcpServers(): Promise<ResolvedMcpConfiguration> {
+    const layers = await this.loadLayers();
+    for (const source of ["project", "global"] as const) {
+      const layer = layers[source];
+      if (layer.present && !layer.config)
+        return {
+          servers: [],
+          diagnostics: [{ source, message: "Configuration file is invalid or unreadable" }],
+        };
+      if (layer.config?.mcp !== undefined) return parseMcpConfiguration(layer.config.mcp, source);
+    }
+    return { servers: [], diagnostics: [] };
+  }
+
+  async resolveOutputLimits(): Promise<OutputStorageLimits> {
+    const layers = await this.loadLayers();
+    for (const source of ["project", "global"] as const) {
+      const layer = layers[source];
+      if (layer.present && !layer.config) throw new Error(`Invalid ${source} output configuration`);
+      if (layer.config?.outputRetention)
+        return { ...DEFAULT_OUTPUT_LIMITS, ...layer.config.outputRetention };
+    }
+    return DEFAULT_OUTPUT_LIMITS;
   }
 
   async saveSharedModel(
@@ -134,7 +192,8 @@ export class ConfigService {
       if (value === undefined) return { present: false, config: null };
       const config = parseOmniConfig(value);
       if (!config) throw new InvalidConfigError("Configuration format is invalid");
-      assertSecretFreeConfig(config);
+      const { mcp: _mcp, ...modelConfig } = config;
+      assertSecretFreeConfig(modelConfig);
       return { present: true, config };
     } catch (error) {
       this.diagnostics.push({
@@ -162,8 +221,10 @@ export class ConfigService {
 
 class InvalidConfigError extends Error {}
 
-function assertSecretFreeConfig(config: OmniConfig): void {
-  if (containsSecretField(config)) {
+function assertSecretFreeConfig(config: unknown): void {
+  if (!isRecord(config)) throw new InvalidConfigError("Configuration must be an object");
+  const { mcp, ...modelConfig } = config;
+  if (containsSecretField(modelConfig) || containsMcpSecrets(mcp)) {
     throw new InvalidConfigError("Secret values are not allowed in model configuration");
   }
 }
@@ -173,12 +234,30 @@ function parseOmniConfig(value: unknown): OmniConfig | null {
   if (value.version !== undefined && value.version !== 3) return null;
   const { version: _legacyVersion, ...config } = value;
   if (!isModelSelection(config.model)) return null;
-  if (config.agents === undefined) return config as unknown as OmniConfig;
-  if (!isRecord(config.agents)) return null;
-  const validAgents = Object.entries(config.agents).every(
-    ([agentId, entry]) => isAgentId(agentId) && isRecord(entry) && isModelSelection(entry.model),
-  );
-  return validAgents ? (config as unknown as OmniConfig) : null;
+  if (config.agents !== undefined) {
+    if (!isRecord(config.agents)) return null;
+    if (
+      !Object.entries(config.agents).every(
+        ([agentId, entry]) =>
+          isAgentId(agentId) && isRecord(entry) && isModelSelection(entry.model),
+      )
+    )
+      return null;
+  }
+  if (config.outputRetention !== undefined) {
+    if (!isRecord(config.outputRetention)) return null;
+    if (
+      !Object.entries(config.outputRetention).every(
+        ([key, number]) =>
+          ["previewBytes", "callBytes", "sessionBytes"].includes(key) &&
+          typeof number === "number" &&
+          Number.isSafeInteger(number) &&
+          number > 0,
+      )
+    )
+      return null;
+  }
+  return config as unknown as OmniConfig;
 }
 
 function withoutAgentModel(config: OmniConfig, agentId: string): OmniConfig {

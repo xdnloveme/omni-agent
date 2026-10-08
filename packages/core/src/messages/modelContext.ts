@@ -1,6 +1,8 @@
 import type { DeepReadonly } from "../data";
+import type { JsonValue } from "../data";
 import type { ImageContent, TextContent, ThinkingContent, ToolCallContent } from "./content";
 import type { AssistantTranscriptMessage, DeferredModelResponse } from "./transcript";
+import type { ToolResultContent } from "../types";
 
 export interface UserModelContextMessage {
   readonly role: "user";
@@ -23,7 +25,8 @@ export interface ToolResultModelContextMessage {
   readonly role: "toolResult";
   readonly toolCallId: string;
   readonly toolName: string;
-  readonly content: readonly DeepReadonly<TextContent | ImageContent>[];
+  readonly content: readonly DeepReadonly<ToolResultContent>[];
+  readonly structuredContent?: DeepReadonly<JsonValue>;
   readonly addedToolNames?: readonly string[];
   readonly isError: boolean;
 }

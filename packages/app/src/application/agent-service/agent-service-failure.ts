@@ -2,8 +2,8 @@ import {
   AgentPackageCatalogError,
   type AgentPackageCatalogErrorCode,
 } from "../../agent-packages/contracts";
-import { InteractionError } from "@omni-agent/core";
-import { AgentModelNotConfiguredError } from "../../assembly/errors";
+import { InteractionError, InvalidRunDeadlineError } from "@omni-agent/core";
+import { AgentAssemblyError, AgentModelNotConfiguredError } from "../../assembly/errors";
 import { AgentApplicationLifecycleError } from "../agent-application";
 import {
   AgentServiceDisposalError,
@@ -12,6 +12,8 @@ import {
 } from "./contracts";
 
 export function toAgentServiceFailure(error: unknown): AgentServiceFailure {
+  if (error instanceof InvalidRunDeadlineError)
+    return { code: error.code, message: error.message, retryable: false };
   if (error instanceof AgentServiceError) {
     return { code: error.code, message: error.message, retryable: error.retryable };
   }
@@ -25,6 +27,13 @@ export function toAgentServiceFailure(error: unknown): AgentServiceFailure {
     return {
       code: error.code,
       message: "Model is not configured for this Agent",
+      retryable: false,
+    };
+  }
+  if (error instanceof AgentAssemblyError) {
+    return {
+      code: error.code,
+      message: `Agent assembly failed during ${error.stage}`,
       retryable: false,
     };
   }

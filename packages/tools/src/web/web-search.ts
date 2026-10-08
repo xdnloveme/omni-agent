@@ -1,161 +1,120 @@
 import * as cheerio from "cheerio";
-import { createAbortError, type AgentToolDefinition, type ToolResult } from "@omni-agent/core";
+import { type AgentToolDefinition, type JsonValue, type ToolResult } from "@omni-agent/core";
 import { createWebAccess } from "./access/web-access-assessor";
 
 const DEFAULT_MAX_RESULTS = 5;
 const SEARCH_TIMEOUT_MS = 15_000;
+const SEARCH_URL = "https://html.duckduckgo.com/html/";
 
-interface SearchResult {
-  title: string;
-  url: string;
-  snippet: string;
-}
-
-function parseDuckDuckGoResults(html: string, maxResults: number): SearchResult[] {
-  const $ = cheerio.load(html);
-  const results: SearchResult[] = [];
-
-  $(".result, .web-result").each((_i, el) => {
-    if (results.length >= maxResults) return false;
-
-    const $el = $(el);
-    const linkEl = $el.find(".result__a");
-    const snippetEl = $el.find(".result__snippet");
-
-    const title = linkEl.text().trim();
-    let url = linkEl.attr("href") || "";
-    const snippet = snippetEl.text().trim();
-
-    // DuckDuckGo wraps URLs in a redirect — extract the actual URL
-    if (url.includes("uddg=")) {
-      try {
-        const parsed = new URL(url, "https://duckduckgo.com");
-        url = decodeURIComponent(parsed.searchParams.get("uddg") || url);
-      } catch {
-        // keep original url
-      }
-    }
-
-    if (title && url) {
-      results.push({ title, url, snippet });
-    }
-  });
-
-  return results;
+export interface WebSearchResult {
+  readonly rank: number;
+  readonly title: string;
+  readonly url: string;
+  readonly snippet: string;
+  readonly provider: "duckduckgo";
 }
 
 export const webSearchTool: AgentToolDefinition = {
   name: "web_search",
-  access: createWebAccess({
-    parameter: "query",
-    valueKind: "text",
-  }),
+  access: createWebAccess({ parameter: "query", valueKind: "text" }),
   execution: { kind: "in_process" },
   invocation: { action: "search", resource: { kind: "text", inputKey: "query" } },
-  timeout: { kind: "none" },
-  strict: true,
+  timeout: { kind: "fixed", timeoutMs: SEARCH_TIMEOUT_MS },
+  inputConstraint: "prefer",
   description:
-    "Search the web for current information using DuckDuckGo.\n\n" +
-    "Usage:\n" +
-    "- Use when you need up-to-date information not available in the local codebase.\n" +
-    "- Returns an array of results, each with `title`, `url`, and `snippet`.\n" +
-    "- When search results support an important conclusion, retain the supporting source URL in the answer so the claim remains auditable.\n" +
-    "- No API key required — uses DuckDuckGo HTML search.\n" +
-    "- Default returns 5 results; adjust with `max_results`.\n\n" +
-    "When to use:\n" +
-    "- Looking up library documentation, APIs, or error messages.\n" +
-    "- Finding current best practices or solutions to problems.\n" +
-    "- Verifying package names, versions, or installation instructions.\n\n" +
-    "When NOT to use:\n" +
-    "- Reading a specific URL you already have (use web_fetch instead).\n" +
-    "- Searching local file contents (use grep instead).",
+    "Search current public web pages through the fixed DuckDuckGo HTML endpoint. " +
+    "Returns ranked title, URL, snippet, and provider fields. Result URLs are not automatically authorized for web_fetch.",
   schema: {
     type: "object",
     additionalProperties: false,
     properties: {
-      query: {
-        type: "string",
-        minLength: 1,
-        maxLength: 4096,
-        description: "The search query",
-      },
-      max_results: {
-        type: "integer",
-        minimum: 1,
-        maximum: 20,
-        description: "Maximum number of results to return. Defaults to 5.",
-      },
+      query: { type: "string", minLength: 1, maxLength: 4096 },
+      max_results: { type: "integer", minimum: 1, maximum: 20 },
     },
     required: ["query"],
   },
-  execute: async (params, context): Promise<ToolResult> => {
-    const query = params.query as string;
-    if (!query) {
-      return {
-        content: [{ type: "text", text: "Error: query is required" }],
-        isError: true,
-      };
-    }
-
+  async execute(params, context): Promise<ToolResult> {
+    if (!context.network)
+      return error("network_runtime_unavailable", "Network runtime unavailable");
     const maxResults = Number(params.max_results) || DEFAULT_MAX_RESULTS;
-    const searchUrl = `https://html.duckduckgo.com/html/?q=${encodeURIComponent(query)}`;
-    const requestTimeoutSignal = AbortSignal.timeout(SEARCH_TIMEOUT_MS);
-
+    const url = `${SEARCH_URL}?q=${encodeURIComponent(params.query as string)}`;
+    let response;
     try {
-      const response = await fetch(searchUrl, {
-        signal: context.signal
-          ? AbortSignal.any([context.signal, requestTimeoutSignal])
-          : requestTimeoutSignal,
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9",
-        },
+      response = await context.network.request({
+        url,
+        method: "GET",
+        headers: { "User-Agent": "OmniAgent/1.0", Accept: "text/html" },
+        maxCompressedBytes: 2 * 1024 * 1024,
+        maxDecompressedBytes: 4 * 1024 * 1024,
+        signal: context.signal,
       });
-
-      if (!response.ok) {
-        return {
-          content: [
-            {
-              type: "text",
-              text: `Error: Search request failed with HTTP ${response.status}`,
-            },
-          ],
-          isError: true,
-        };
+    } catch (cause) {
+      if (context.signal?.aborted) throw cause;
+      return error("web_search_transport_error", "Search request could not reach DuckDuckGo");
+    }
+    if (response.status < 200 || response.status >= 300) {
+      return error("web_search_http_error", `Search request failed with HTTP ${response.status}`);
+    }
+    let results: WebSearchResult[];
+    try {
+      const html = new TextDecoder().decode(response.body);
+      results = parseDuckDuckGoResults(html, maxResults);
+      if (results.length === 0 && !isNoResultsDocument(html)) {
+        throw new Error("DuckDuckGo result selectors were not present");
       }
-
-      const html = await response.text();
-      const results = parseDuckDuckGoResults(html, maxResults);
-
-      if (results.length === 0) {
-        return {
-          content: [{ type: "text", text: "No results found for the given query." }],
-          isError: false,
-        };
-      }
-
+    } catch {
+      return error("web_search_parser_error", "DuckDuckGo response could not be parsed");
+    }
+    if (results.length === 0) {
       return {
-        content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+        content: [{ type: "text", text: "No results found for the given query." }],
+        structuredContent: [],
         isError: false,
-      };
-    } catch (err: unknown) {
-      if (context.signal?.aborted) throw createAbortError(context.signal);
-      let msg: string;
-      if (err instanceof Error) {
-        if (requestTimeoutSignal.aborted) {
-          msg = `Search request timed out`;
-        } else {
-          msg = err.message;
-        }
-      } else {
-        msg = String(err);
-      }
-      return {
-        content: [{ type: "text", text: `Error: ${msg}` }],
-        isError: true,
+        meta: { code: "web_search_no_results", provider: "duckduckgo" },
       };
     }
+    return {
+      content: [{ type: "text", text: JSON.stringify(results, null, 2) }],
+      structuredContent: results as unknown as JsonValue,
+      isError: false,
+      meta: {
+        networkCompressedBytes: response.compressedBytes,
+        networkDecompressedBytes: response.body.byteLength,
+      },
+    };
   },
 };
+
+function parseDuckDuckGoResults(html: string, maxResults: number): WebSearchResult[] {
+  const document = cheerio.load(html);
+  const results: WebSearchResult[] = [];
+  document(".result, .web-result").each((_index, element) => {
+    if (results.length >= maxResults) return false;
+    const item = document(element);
+    const link = item.find(".result__a").first();
+    const title = link.text().trim();
+    const rawUrl = link.attr("href") ?? "";
+    const snippet = item.find(".result__snippet").first().text().trim();
+    const url = unwrapDuckDuckGoUrl(rawUrl);
+    if (title && url) {
+      results.push({ rank: results.length + 1, title, url, snippet, provider: "duckduckgo" });
+    }
+  });
+  return results;
+}
+
+function isNoResultsDocument(html: string): boolean {
+  const document = cheerio.load(html);
+  if (document(".no-results, .result--no-result").length > 0) return true;
+  return /\bno results\b/i.test(document("body").text());
+}
+
+function unwrapDuckDuckGoUrl(value: string): string {
+  if (!value.includes("uddg=")) return value;
+  const parsed = new URL(value, "https://duckduckgo.com");
+  return parsed.searchParams.get("uddg") ?? value;
+}
+
+function error(code: string, message: string): ToolResult {
+  return { content: [{ type: "text", text: message }], isError: true, meta: { code } };
+}

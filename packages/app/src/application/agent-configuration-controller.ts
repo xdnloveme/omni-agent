@@ -2,25 +2,28 @@ import type { AgentConfig } from "@omni-agent/core";
 import type { AgentAssemblyEvidence } from "../assembly/agent-assembly-evidence";
 import type { ConfigService } from "../config/config-service";
 import type { ExtensionManager } from "../extensions/extension-manager";
-import type { ModelSelection, ModelService } from "../models/model-service";
+import type { ModelSelection, AgentModelService } from "../models/model-service";
 
 export interface AgentConfigurationControllerDependencies {
+  readonly additionalInstructions?: () => string;
   readonly agentId: string;
   readonly cwd: string;
   readonly agentConfig: AgentConfig;
   readonly initialModelSelection: ModelSelection;
   readonly extensions: ExtensionManager;
   readonly configService: ConfigService;
-  readonly modelService: ModelService;
+  readonly modelService: AgentModelService;
   readonly assemblyEvidence?: AgentAssemblyEvidence;
 }
 
 /** Owns all effective runtime configuration transitions for one Agent instance. */
 export class AgentConfigurationController {
   private activeSelection: ModelSelection;
+  private baseSystemPrompt: string;
 
   constructor(private readonly dependencies: AgentConfigurationControllerDependencies) {
     this.activeSelection = dependencies.initialModelSelection;
+    this.baseSystemPrompt = dependencies.agentConfig.systemPrompt;
   }
 
   get modelSelection(): ModelSelection {
@@ -28,14 +31,21 @@ export class AgentConfigurationController {
   }
 
   async refreshInstructions(): Promise<void> {
-    const { agentId, cwd, extensions, agentConfig, assemblyEvidence } = this.dependencies;
+    const { agentId, cwd, extensions } = this.dependencies;
     const contribution = extensions.agents.get(agentId);
     if (!contribution) throw new Error(`Agent not found: ${agentId}`);
     const instructions = contribution.definition.instructions;
-    const systemPrompt =
+    this.baseSystemPrompt =
       typeof instructions === "function" ? await instructions({ cwd }) : instructions;
-    assemblyEvidence?.updateSystemPrompt(systemPrompt);
-    agentConfig.systemPrompt = systemPrompt;
+    this.refreshAdditionalInstructions();
+  }
+
+  refreshAdditionalInstructions(): void {
+    const systemPrompt = [this.baseSystemPrompt, this.dependencies.additionalInstructions?.()]
+      .filter(Boolean)
+      .join("\n\n");
+    this.dependencies.assemblyEvidence?.updateSystemPrompt(systemPrompt);
+    this.dependencies.agentConfig.systemPrompt = systemPrompt;
   }
 
   async setAgentModel(selection: ModelSelection): Promise<void> {

@@ -255,6 +255,11 @@ export class AgentHostProtocolClient {
       pending.resolve(message.result);
       return;
     }
+    if (message.type === "permission.requested") {
+      void this.#denyPermission(message.permissionId);
+      return;
+    }
+    if (message.type === "permission.resolved") return;
     if (message.id) {
       const request = this.#pendingRequests.get(message.id);
       if (request) {
@@ -274,6 +279,20 @@ export class AgentHostProtocolClient {
         run.stream.push({ type: "failed", ...message.error });
         run.stream.finish();
       }
+    }
+  }
+
+  async #denyPermission(permissionId: string): Promise<void> {
+    try {
+      await this.request({
+        v: AGENT_HOST_PROTOCOL_VERSION,
+        id: crypto.randomUUID(),
+        type: "resolve_permission",
+        permissionId,
+        decision: "deny",
+      });
+    } catch {
+      // The run or connection will surface any terminal failure to its existing consumer.
     }
   }
 

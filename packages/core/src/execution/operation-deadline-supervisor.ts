@@ -1,6 +1,6 @@
 import { createAbortError, throwIfAborted } from "./abort";
 
-const DEFAULT_CLEANUP_GRACE_MS = 2_000;
+export const DEFAULT_CLEANUP_GRACE_MS = 2_000;
 
 export interface LateOperationSettlementEvent {
   operationName: string;
@@ -40,10 +40,19 @@ export class OperationDeadlineSupervisor {
     controller.signal.addEventListener("abort", onLinkedAbort, { once: true });
     const timeoutMs = request.timeoutMs;
     if (timeoutMs !== undefined) {
-      deadline = setTimeout(
-        () => controller.abort(request.createTimeoutError(timeoutMs)),
-        timeoutMs,
-      );
+      const expiresAt = performance.now() + timeoutMs;
+      const schedule = () => {
+        const remaining = expiresAt - performance.now();
+        deadline = setTimeout(
+          () => {
+            if (performance.now() >= expiresAt)
+              controller.abort(request.createTimeoutError(timeoutMs));
+            else schedule();
+          },
+          Math.min(Math.max(0, remaining), 2_147_483_647),
+        );
+      };
+      schedule();
     }
 
     let operation: Promise<T> | undefined;

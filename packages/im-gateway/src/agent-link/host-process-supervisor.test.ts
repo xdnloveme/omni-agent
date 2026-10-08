@@ -32,7 +32,7 @@ describe("HostProcessSupervisor", () => {
     });
 
     const client = await supervisor.getClient();
-    const result = await client.request({ v: 1, id: "list", type: "list_agents" });
+    const result = await client.request({ v: 2, id: "list", type: "list_agents" });
     expect(result).toMatchObject({ kind: "agents", agents: [{ id: "coding" }] });
     const observation = JSON.parse(await readFile(observationPath, "utf8")) as {
       readonly pid: number;
@@ -62,12 +62,12 @@ server.on("connection", (socket) => {
     const message = JSON.parse(data.toString());
     if (!authenticated) {
       authenticated = true;
-      socket.send(JSON.stringify({ v: 1, type: "ready", connectionId: "fake" }));
+      socket.send(JSON.stringify({ v: 2, type: "ready", connectionId: "fake" }));
       return;
     }
     if (message.type === "list_agents") {
       socket.send(JSON.stringify({
-        v: 1,
+        v: 2,
         type: "result",
         id: message.id,
         result: {
@@ -89,7 +89,7 @@ server.once("listening", () => {
   const address = server.address();
   process.stdout.write(JSON.stringify({
     type: "agent_host_ready",
-    version: 1,
+    version: 2,
     host: "127.0.0.1",
     port: address.port
   }) + "\\n");

@@ -1,4 +1,5 @@
 import type { RegisteredAgentTool } from "../types";
+import { cloneData, freezeData } from "../dataCopy";
 import type { AuthorizedToolCall, ToolExecutionContext, ToolExecutionPlan } from "./types";
 
 export function createAuthorizedToolCall(
@@ -9,14 +10,8 @@ export function createAuthorizedToolCall(
 ): AuthorizedToolCall {
   return {
     tool,
-    input: freezeDeep(structuredClone(input)),
+    input: freezeData(cloneData(input)),
     context: Object.freeze({ ...context }),
-    executionPlan: freezeDeep(structuredClone(executionPlan)),
+    executionPlan: freezeData(cloneData(executionPlan)),
   } as AuthorizedToolCall;
-}
-
-function freezeDeep<T>(value: T): T {
-  if (!value || typeof value !== "object" || Object.isFrozen(value)) return value;
-  for (const nested of Object.values(value)) freezeDeep(nested);
-  return Object.freeze(value);
 }

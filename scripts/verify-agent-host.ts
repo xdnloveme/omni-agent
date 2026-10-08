@@ -27,11 +27,11 @@ try {
   const socket = await openWebSocket(`ws://${ready.host}:${ready.port}/`);
 
   const authenticated = nextMessage(socket);
-  socket.send(JSON.stringify({ v: 1, type: "hello", token }));
+  socket.send(JSON.stringify({ v: 2, type: "hello", token }));
   assertMessageType(await authenticated, "ready");
 
   const response = nextMessage(socket);
-  socket.send(JSON.stringify({ v: 1, id: "verify-agents", type: "list_agents" }));
+  socket.send(JSON.stringify({ v: 2, id: "verify-agents", type: "list_agents" }));
   const agentIds = parseAgentIds(await response);
   socket.close();
 
@@ -43,7 +43,7 @@ try {
     throw new Error("Agent Host wrote unexpected stdout records");
   }
   process.stdout.write(
-    `${JSON.stringify({ type: "agent_host_verified", version: 1, agents: agentIds })}\n`,
+    `${JSON.stringify({ type: "agent_host_verified", version: 2, agents: agentIds })}\n`,
   );
 } catch (error) {
   process.stderr.write(`${error instanceof Error ? error.message : String(error)}\n`);
@@ -60,7 +60,7 @@ function parseReady(line: string): { readonly host: string; readonly port: numbe
   const value = JSON.parse(line) as Record<string, unknown>;
   if (
     value.type !== "agent_host_ready" ||
-    value.version !== 1 ||
+    value.version !== 2 ||
     value.host !== "127.0.0.1" ||
     !Number.isInteger(value.port)
   ) {
@@ -87,7 +87,7 @@ function parseAgentIds(message: Record<string, unknown>): readonly string[] {
 }
 
 function assertMessageType(message: Record<string, unknown>, type: string): void {
-  if (message.type !== type || message.v !== 1) {
+  if (message.type !== type || message.v !== 2) {
     throw new Error(`Agent Host returned an invalid ${type} message`);
   }
 }

@@ -1,3 +1,4 @@
+import type { OutputCallContext } from "@omni-agent/core";
 import type {
   ProcessExecutionPlan,
   ProcessExecutionRouterPort,
@@ -10,9 +11,13 @@ import { runSandboxProcess, type SandboxProcessRuntime } from "./sandbox-process
 export class ProcessExecutionRouter implements ProcessExecutionRouterPort {
   constructor(private readonly sandboxRuntime: SandboxProcessRuntime) {}
 
-  run(plan: ProcessExecutionPlan, signal?: AbortSignal): Promise<ProcessResult> {
+  run(
+    plan: ProcessExecutionPlan,
+    signal?: AbortSignal,
+    output?: OutputCallContext,
+  ): Promise<ProcessResult> {
     return plan.route === "sandbox"
-      ? runSandboxProcess(plan, this.sandboxRuntime, signal)
-      : runHostProcess({ ...plan.invocation, signal });
+      ? runSandboxProcess(plan, this.sandboxRuntime, signal, output)
+      : runHostProcess({ ...plan.invocation, signal, output });
   }
 }

@@ -1,6 +1,6 @@
 import {
-  inspectPathSecurity,
-  type PathSecurityInspection,
+  inspectPathTarget,
+  type PathTargetInspection,
   type PathTargetKind,
 } from "./inspect-path-security";
 import type { PathSecurityEnvironment } from "./sensitive-paths";
@@ -12,7 +12,7 @@ export interface PathPreflightIssue {
 }
 
 export type PathPreflightResult =
-  | { outcome: "ready"; inspection: PathSecurityInspection }
+  | { outcome: "ready"; inspection: PathTargetInspection }
   | { outcome: "error"; issue: PathPreflightIssue };
 
 export async function inspectPathPreflight(
@@ -27,7 +27,7 @@ export async function inspectPathPreflight(
   if (typeof value !== "string") {
     return issue("invalid_path", "Path must be a string", false);
   }
-  const inspection = await inspectPathSecurity(value, cwd, environment);
+  const inspection = await inspectPathTarget(value, cwd, environment);
   // Device access is an access-policy hard-stop, so the assessor owns its canonical denial.
   if (inspection.sensitivity === "device") return { outcome: "ready", inspection };
   if (inspection.targetKind === "dangling_symlink") {

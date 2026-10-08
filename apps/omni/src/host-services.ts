@@ -1,6 +1,7 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createProcessExecutionRuntime, type CliHostServices } from "@omni-agent/cli";
+import { createNetworkRuntime } from "@omni-agent/network";
 import {
   confirmTerminalAction,
   createAgentConsole,
@@ -35,6 +36,8 @@ export function createCliHostServices(termination: ProcessTerminationPort): CliH
     processRouter: processExecution.router,
     processPlanner: processExecution.planner,
     hostRuntime: processExecution.hostRuntime,
+    networkRuntime: createNetworkRuntime(),
+    mcpEnvironment: Object.freeze({ ...process.env }),
     createAgentConsole(options) {
       const consoleView = createAgentConsole(options);
       const unsubscribe = termination.subscribe((result) => consoleView.terminate(result));

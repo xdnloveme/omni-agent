@@ -15,7 +15,7 @@ import type {
   ResolvedAgentAssemblyPlan,
 } from "../assembly/contracts";
 import type { ConfigService } from "../config/config-service";
-import type { ModelService } from "../models/model-service";
+import type { AgentModelService } from "../models/model-service";
 import type { AgentTraceControlCapability } from "../tracing";
 import type { WorkspaceContext } from "../workspaces";
 import type { AgentApplication } from "./agent-application";
@@ -35,7 +35,7 @@ export interface AgentFactoryOptions {
   readonly workspaceRoots?: readonly string[];
   readonly globalDirectory: string;
   readonly configService: ConfigService;
-  readonly modelService: ModelService;
+  readonly modelService: AgentModelService;
   readonly host: AgentHostDependencies;
   readonly extensionSourceLoader?: ExtensionSourceLoader;
 }

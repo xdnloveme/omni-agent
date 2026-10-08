@@ -1,21 +1,21 @@
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { startAgentHost, type AgentHostServer } from "@omni-agent/agent-host";
-import type { AgentHostComposition } from "./agent-host-composition";
-import { createAgentHostComposition } from "./agent-host-composition";
+import type { AgentServiceComposition } from "./agent-service-composition";
+import { createAgentServiceComposition } from "./agent-service-composition";
 import { ProcessTerminationController, registerProcessSignals } from "./process-signals";
 
 const termination = new ProcessTerminationController();
 const signals = registerProcessSignals((result) => termination.terminate(result));
 let host: AgentHostServer | undefined;
-let composition: AgentHostComposition | undefined;
+let composition: AgentServiceComposition | undefined;
 let ready = false;
 
 void run()
   .catch((error) => {
     if (!ready) {
       process.stdout.write(
-        `${JSON.stringify({ type: "agent_host_failed", version: 1, code: "host_start_failed" })}\n`,
+        `${JSON.stringify({ type: "agent_host_failed", version: 2, code: "host_start_failed" })}\n`,
       );
     }
     process.stderr.write(
@@ -30,7 +30,7 @@ async function run(): Promise<void> {
   if (!token) throw new Error("OMNI_AGENT_HOST_TOKEN is required");
   const port = parsePort(process.env.OMNI_AGENT_HOST_PORT);
   const globalDirectory = join(homedir(), ".omni-agent");
-  composition = await createAgentHostComposition({
+  composition = await createAgentServiceComposition({
     cwd: process.cwd(),
     globalDirectory,
     resolutionBase: process.argv[1] ?? import.meta.filename,
@@ -49,7 +49,7 @@ async function run(): Promise<void> {
     process.stdout.write(
       `${JSON.stringify({
         type: "agent_host_ready",
-        version: 1,
+        version: 2,
         host: host.address.host,
         port: host.address.port,
       })}\n`,

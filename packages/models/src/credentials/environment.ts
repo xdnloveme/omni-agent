@@ -19,10 +19,16 @@ function readLayeredEnvironment(cwd: string, globalDirectory: string): Map<strin
 export function createNodeAuthContext(
   cwd = process.cwd(),
   globalDirectory = resolve(homedir(), ".omni-agent"),
+  authEnvironment?: Readonly<Record<string, string>>,
 ): AuthContext {
-  const layeredEnvironment = readLayeredEnvironment(cwd, globalDirectory);
+  // An explicit authentication environment is authoritative and never mutates
+  // process startup settings or inherits undeclared host credentials.
+  const explicit =
+    authEnvironment === undefined ? undefined : new Map(Object.entries(authEnvironment));
+  const layeredEnvironment = explicit ?? readLayeredEnvironment(cwd, globalDirectory);
   return {
-    env: async (name) => process.env[name] ?? layeredEnvironment.get(name),
+    env: async (name) =>
+      explicit ? explicit.get(name) : (process.env[name] ?? layeredEnvironment.get(name)),
     fileExists: async (path) => {
       const expanded = path.startsWith("~/")
         ? resolve(process.env.HOME ?? cwd, path.slice(2))

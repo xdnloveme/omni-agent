@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "vendors": [
+    {
+      "id": "fixture",
+      "displayName": "Local fixture",
+      "connections": [
+        {
+          "id": "default",
+          "displayName": "Local fixture",
+          "providerId": "fixture",
+          "baseUrl": "http://127.0.0.1:18080/v1",
+          "envVars": ["OMNI_SMOKE_API_KEY"],
+          "protocol": "openai-completions",
+          "models": [
+            {
+              "id": "fixture",
+              "name": "Fixture",
+              "contextWindow": 200000,
+              "maxTokens": 4096,
+              "reasoning": false
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

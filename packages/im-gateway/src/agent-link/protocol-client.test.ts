@@ -25,7 +25,7 @@ describe("AgentHostProtocolClient", () => {
     const controller = new AbortController();
     const stream = client.stream(
       {
-        v: 1,
+        v: 2,
         id: "run-1",
         type: "run",
         agentId: "coding",
@@ -40,7 +40,7 @@ describe("AgentHostProtocolClient", () => {
     expect(run).toMatchObject({ type: "run", id: "run-1" });
     run.socket.send(
       JSON.stringify({
-        v: 1,
+        v: 2,
         type: "event",
         requestId: "run-1",
         event: { type: "started", requestId: "run-1", sessionId: "session-1" },
@@ -55,7 +55,7 @@ describe("AgentHostProtocolClient", () => {
     expect(cancel).toMatchObject({ type: "cancel", requestId: "run-1" });
     cancel.socket.send(
       JSON.stringify({
-        v: 1,
+        v: 2,
         type: "result",
         id: cancel.id,
         result: { kind: "cancel_requested", requestId: "run-1" },
@@ -63,7 +63,7 @@ describe("AgentHostProtocolClient", () => {
     );
     cancel.socket.send(
       JSON.stringify({
-        v: 1,
+        v: 2,
         type: "event",
         requestId: "run-1",
         event: { type: "cancelled" },
@@ -80,7 +80,7 @@ describe("AgentHostProtocolClient", () => {
   it("projects an authenticated disconnect as an unknown Run terminal", async () => {
     const { client, messages } = await connect();
     const stream = client.stream({
-      v: 1,
+      v: 2,
       id: "run-2",
       type: "run",
       agentId: "coding",
@@ -102,7 +102,7 @@ describe("AgentHostProtocolClient", () => {
   it("accepts a valid server event larger than the request limit", async () => {
     const { client, messages } = await connect();
     const stream = client.stream({
-      v: 1,
+      v: 2,
       id: "run-large",
       type: "run",
       agentId: "coding",
@@ -115,7 +115,7 @@ describe("AgentHostProtocolClient", () => {
     const text = "x".repeat(70_000);
     run.socket.send(
       JSON.stringify({
-        v: 1,
+        v: 2,
         type: "event",
         requestId: "run-large",
         event: { type: "text_delta", text },
@@ -123,7 +123,7 @@ describe("AgentHostProtocolClient", () => {
     );
     run.socket.send(
       JSON.stringify({
-        v: 1,
+        v: 2,
         type: "event",
         requestId: "run-large",
         event: { type: "completed" },
@@ -139,6 +139,57 @@ describe("AgentHostProtocolClient", () => {
       value: { type: "completed" },
     });
     await expect(iterator.next()).resolves.toEqual({ done: true, value: undefined });
+  });
+
+  it("denies Protocol v2 permission requests without leaving the run blocked", async () => {
+    const { client, messages } = await connect();
+    const agents = client.request({ v: 2, id: "list", type: "list_agents" });
+    const list = await nextMessage(messages);
+    list.socket.send(
+      JSON.stringify({
+        v: 2,
+        type: "permission.requested",
+        requestId: "run-1",
+        permissionId: "permission-1",
+        expiresAt: Date.now() + 1_000,
+        presentation: { title: "Network access", resources: ["https://example.com"] },
+      }),
+    );
+
+    const denial = await nextMessage(messages);
+    expect(denial).toMatchObject({
+      type: "resolve_permission",
+      permissionId: "permission-1",
+      decision: "deny",
+    });
+    denial.socket.send(
+      JSON.stringify({
+        v: 2,
+        type: "result",
+        id: denial.id,
+        result: { kind: "permission_resolved", permissionId: "permission-1" },
+      }),
+    );
+    denial.socket.send(
+      JSON.stringify({
+        v: 2,
+        type: "permission.resolved",
+        requestId: "run-1",
+        permissionId: "permission-1",
+        decision: "deny",
+        reason: "user",
+      }),
+    );
+    list.socket.send(
+      JSON.stringify({
+        v: 2,
+        type: "result",
+        id: "list",
+        result: { kind: "agents", agents: [] },
+      }),
+    );
+
+    await expect(agents).resolves.toEqual({ kind: "agents", agents: [] });
   });
 });
 
@@ -158,7 +209,7 @@ async function connect(): Promise<{
       if (message.type === "hello") {
         socket.send(
           JSON.stringify({
-            v: 1,
+            v: 2,
             type: "ready",
             connectionId: "connection-1",
           }),

@@ -17,8 +17,8 @@ describe("OutboundWriter", () => {
     } as unknown as WebSocket;
     const writer = new OutboundWriter(socket);
 
-    const first = writer.send({ v: 1, type: "result", id: "1", result: { kind: "closed" } });
-    const second = writer.send({ v: 1, type: "result", id: "2", result: { kind: "closed" } });
+    const first = writer.send({ v: 2, type: "result", id: "1", result: { kind: "closed" } });
+    const second = writer.send({ v: 2, type: "result", id: "2", result: { kind: "closed" } });
     const closing = writer.close();
     await Promise.resolve();
 
@@ -31,7 +31,7 @@ describe("OutboundWriter", () => {
 
     await expect(Promise.all([second, closing])).resolves.toBeDefined();
     await expect(
-      writer.send({ v: 1, type: "result", id: "3", result: { kind: "closed" } }),
+      writer.send({ v: 2, type: "result", id: "3", result: { kind: "closed" } }),
     ).rejects.toMatchObject({ code: "host_closed" });
   });
 
@@ -46,7 +46,7 @@ describe("OutboundWriter", () => {
     const writer = new OutboundWriter(socket);
 
     await expect(
-      writer.send({ v: 1, type: "result", id: "1", result: { kind: "closed" } }),
+      writer.send({ v: 2, type: "result", id: "1", result: { kind: "closed" } }),
     ).rejects.toMatchObject({ code: "host_busy" });
   });
 });

@@ -4,13 +4,14 @@ import type {
   TextContent,
   UserTranscriptMessage,
 } from "../../messages";
+import type { ToolResultContent } from "../../types";
 import { cloneData } from "../../dataCopy";
 import type { ContextEntry } from "../contracts/types";
 import { digestContextValue } from "../digest";
 import { encodeCheckpointPromptJson } from "../encoding";
 
-export const CHECKPOINT_PROMPT_VERSION = 2;
-export const CHECKPOINT_SOURCE_PROJECTION_VERSION = 1;
+export const CHECKPOINT_PROMPT_VERSION = 3;
+export const CHECKPOINT_SOURCE_PROJECTION_VERSION = 3;
 
 export const CHECKPOINT_SUMMARY_HEADINGS = [
   "## Conversation Facts & Findings",
@@ -256,7 +257,17 @@ export function createCheckpointSourceEntries(
         toolCallId: message.toolCallId,
         toolName: message.toolName,
         isError: message.isError,
-        content: message.content.map(projectVisibleContent),
+        content: [
+          ...message.content.map(projectVisibleContent),
+          ...(message.structuredContent === undefined
+            ? []
+            : [
+                {
+                  type: "text" as const,
+                  text: `Structured tool result:\n${JSON.stringify(message.structuredContent)}`,
+                },
+              ]),
+        ],
       },
     ];
   });
@@ -284,12 +295,30 @@ function projectUserContent(content: UserTranscriptMessage["content"]): Checkpoi
 }
 
 function projectVisibleContent(
-  block: TextContent | ImageContent,
+  block: TextContent | ImageContent | ToolResultContent,
 ): CheckpointTextContent | CheckpointImageReference {
+  if (
+    "annotations" in block &&
+    block.annotations?.audience &&
+    !block.annotations.audience.includes("assistant")
+  )
+    return { type: "text", text: `[${block.type} content omitted: audience=user]` };
   if (block.type === "text") return { type: "text", text: block.text };
+  if (block.type === "image")
+    return {
+      type: "image",
+      mimeType: block.mimeType,
+      contentDigest: digestContextValue(block.data),
+    };
+  if (block.type === "audio")
+    return {
+      type: "text",
+      text: `[audio ${block.mimeType}; digest=${digestContextValue(block.data)}]`,
+    };
+  if (block.type === "resource_link")
+    return { type: "text", text: `[resource ${block.name}: ${block.uri}]` };
   return {
-    type: "image",
-    mimeType: block.mimeType,
-    contentDigest: digestContextValue(block.data),
+    type: "text",
+    text: `[embedded resource: ${block.resource.uri}]${"text" in block.resource ? `\n${block.resource.text}` : ""}`,
   };
 }

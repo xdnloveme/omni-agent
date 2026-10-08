@@ -49,7 +49,7 @@ export class AgentHostProtocolValidator {
     } catch {
       throw new AgentHostError("invalid_message", "Agent Host message is invalid");
     }
-    if (isRecord(value) && value.v !== 1) {
+    if (isRecord(value) && value.v !== 2) {
       throw new AgentHostError("unsupported_version", "Agent Host protocol version is unsupported");
     }
     return value;

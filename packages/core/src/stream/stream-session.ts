@@ -160,7 +160,7 @@ export class StreamSession {
     // Stay in streaming — more events may follow
     this._messages.push({
       type: "tool_result",
-      content: event.result.content.map((c) => c.text).join("\n"),
+      content: event.result.content.map(renderToolContent).join("\n"),
       timestamp: Date.now(),
       meta: {
         toolCallId: event.toolCallId,
@@ -237,4 +237,12 @@ export class StreamSession {
 
     this._state = target;
   }
+}
+
+function renderToolContent(content: import("../types").ToolResultContent): string {
+  if (content.type === "text") return content.text;
+  if (content.type === "image" || content.type === "audio")
+    return `[${content.type}: ${content.mimeType}]`;
+  if (content.type === "resource_link") return `[resource: ${content.name} ${content.uri}]`;
+  return `[embedded resource: ${content.resource.uri}]`;
 }

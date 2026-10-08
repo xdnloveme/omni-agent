@@ -2,14 +2,14 @@
 
 The IM Gateway connects one or more Feishu/Lark bots to independently hosted Omni Agent sessions.
 Phase one uses separate processes on the same machine and communicates only through loopback
-WebSocket Protocol v1.
+WebSocket Protocol v2.
 
 ## Security model
 
 Each bot binds one Agent id, one canonical workspace root, and one private state directory. The IM
-Host resets execution settings to Controlled mode with Tool network disabled and no approved
-filesystem roots before startup. It loads model and Agent configuration from the private state
-directory rather than the writable workspace, and it disables local ESM extensions.
+Host resets execution settings to Controlled mode with no approved network targets or filesystem
+roots before startup. It loads model and Agent configuration from the private state directory
+rather than the writable workspace, and it disables local ESM extensions.
 
 The gateway never copies Feishu credentials into the Agent Host environment. Model credentials must
 be stored through Omni's credential store; environment-variable model credentials are not supported

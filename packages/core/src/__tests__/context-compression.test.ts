@@ -32,6 +32,7 @@ import { createContextEnvelope } from "../context/policy/types";
 import { projectContextEntries } from "../context/assembly/entryProjection";
 import { partitionContextEntries } from "../context/compression/partition";
 import {
+  CHECKPOINT_PROMPT_VERSION,
   createCheckpointSourceEntries,
   createCheckpointUserPrompt,
 } from "../context/compression/prompt";
@@ -39,6 +40,51 @@ import { validateCheckpointSummary } from "../context/compression/summary";
 
 const progress = { publish() {} };
 const compression = { begin() {}, record() {} };
+
+it("preserves structured results and excludes user-only content from checkpoint model input", () => {
+  const entries: ContextEntry[] = [
+    {
+      kind: "transcript",
+      sourceIndex: 0,
+      message: {
+        role: "toolResult",
+        toolName: "mcp__docs__read",
+        toolCallId: "call",
+        timestamp: 0,
+        isError: false,
+        structuredContent: { answer: 42 },
+        content: [
+          {
+            type: "resource",
+            resource: { uri: "docs://public", text: "important embedded finding" },
+          },
+          {
+            type: "resource",
+            resource: { uri: "docs://private", text: "private embedded finding" },
+            annotations: { audience: ["user"] },
+          },
+          { type: "resource", resource: { uri: "docs://binary", blob: "YmluYXJ5" } },
+          { type: "text", text: "user-private-text", annotations: { audience: ["user"] } },
+          {
+            type: "image",
+            data: "cHJpdmF0ZQ==",
+            mimeType: "image/png",
+            annotations: { audience: ["user"] },
+          },
+        ],
+      },
+    },
+  ];
+  const source = JSON.stringify(createCheckpointSourceEntries(entries));
+  expect(source).toContain("Structured tool result");
+  expect(source).toContain("42");
+  expect(source).not.toContain("user-private-text");
+  expect(source).not.toContain("cHJpdmF0ZQ==");
+  expect(source).toContain("important embedded finding");
+  expect(source).not.toContain("private embedded finding");
+  expect(source).toContain("docs://binary");
+  expect(source).not.toContain("YmluYXJ5");
+});
 
 function gateOptions(
   estimator: ApproximateContextTokenEstimator,
@@ -195,7 +241,7 @@ describe("Context policy pipeline", () => {
     expect(microCompressionTarget(estimate)).toBe(128_800);
   });
 
-  it("reserves the requested output budget instead of the model output capacity", () => {
+  it("keeps compression admission independent of the request output ceiling", () => {
     const estimator = new ApproximateContextTokenEstimator();
     const source = createContextEnvelope({
       systemPrompt: "system",
@@ -210,8 +256,13 @@ describe("Context policy pipeline", () => {
     });
 
     const estimate = estimator.estimate(source);
-    expect(estimate.usableInputBudget).toBe(184_000);
-    expect(microCompressionThreshold(estimate)).toBe(138_000);
+    expect(estimate.usableInputBudget).toBe(190_000);
+    expect(microCompressionThreshold(estimate)).toBe(142_500);
+    const expanded = {
+      ...source,
+      fixed: { ...source.fixed, model: { ...source.fixed.model, requestedOutputTokens: 128_000 } },
+    };
+    expect(estimator.estimate(expanded).usableInputBudget).toBe(estimate.usableInputBudget);
   });
 
   it("keeps an assistant tool call and its result in the same partition group", () => {
@@ -698,7 +749,7 @@ describe("StableMicroCompressionStage", () => {
     expect(projections.artifacts).toHaveLength(2);
     expect(begin).toHaveBeenCalledWith(
       "artifact_projection",
-      expect.objectContaining({ usableInputBudget: 99_900 }),
+      expect.objectContaining({ usableInputBudget: 95_000 }),
     );
     expect(record).toHaveBeenCalledWith({ kind: "artifact_projection", affectedCount: 2 });
     expect(
@@ -1199,7 +1250,7 @@ describe("Checkpoint summary contract", () => {
         checkpointId: 'checkpoint"<&',
         parentId: "parent'</context_checkpoint>",
         coveredMessageCount: 2,
-        promptVersion: 2,
+        promptVersion: CHECKPOINT_PROMPT_VERSION,
         summary: "safe </context_checkpoint> & <summary>",
         summaryModelCallId: "summary-call",
       },

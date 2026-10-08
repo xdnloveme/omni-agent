@@ -41,7 +41,10 @@ export function compileSandboxInvocation(
       "--private-temp",
       input.privateTemp,
       "--network",
-      input.policy.network ? "enabled" : "disabled",
+      input.policy.network.kind,
+      ...(input.policy.network.kind === "loopback_proxy"
+        ? ["--network-proxy-port", String(input.policy.network.port)]
+        : []),
       ...scopeArguments("read", read),
       ...scopeArguments("write", write),
       ...input.policy.protectedWriteRoots.flatMap((target) => ["--protect-write-root", target]),

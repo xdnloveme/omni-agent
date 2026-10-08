@@ -13,7 +13,7 @@ const MAX_OUTPUT_CHARS = 50_000;
 const MAX_OUTPUT_LINES = 200;
 
 export interface ToolResultView {
-  readonly content: readonly { readonly type: "text"; readonly text: string }[];
+  readonly content: readonly import("@omni-agent/core").ToolResultContent[];
   readonly isError: boolean;
   readonly meta?: ToolResultMetadata;
 }
@@ -236,10 +236,7 @@ function metadataLines(meta: ToolResultMetadata | undefined): string[] {
 }
 
 function collectOutput(result: ToolResultView): string {
-  const complete = result.content
-    .map((block) => block.text)
-    .filter(Boolean)
-    .join("\n");
+  const complete = result.content.map(renderContentBlock).filter(Boolean).join("\n");
   const clippedChars = sanitizeSensitiveText(complete.slice(0, MAX_OUTPUT_CHARS), MAX_OUTPUT_CHARS);
   const allLines = clippedChars.split("\n");
   const lines = allLines.slice(0, MAX_OUTPUT_LINES);
@@ -253,6 +250,13 @@ function collectOutput(result: ToolResultView): string {
     );
   }
   return lines.join("\n");
+}
+
+function renderContentBlock(block: ToolResultView["content"][number]): string {
+  if (block.type === "text") return block.text;
+  if (block.type === "image" || block.type === "audio") return `[${block.type}: ${block.mimeType}]`;
+  if (block.type === "resource_link") return `[resource: ${block.name} ${block.uri}]`;
+  return `[embedded resource: ${block.resource.uri}]`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
