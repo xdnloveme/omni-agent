@@ -53,8 +53,6 @@ os.chmod('/run/omni-model',0o700)
             SOCKET,
             "--agent",
             agent_id,
-            "--state-dir",
-            "/home/benchmark-runner/model/state",
             "--configuration-dir",
             "/home/benchmark-runner/model",
             "--auth-file",
