@@ -4,7 +4,7 @@ import {
   serveModelExecution,
   resolveAgentModel,
 } from "@omni-agent/app";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { readFile, unlink, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -20,20 +20,12 @@ async function main(): Promise<void> {
     options: {
       socket: { type: "string" },
       agent: { type: "string" },
-      "state-dir": { type: "string" },
       "configuration-dir": { type: "string" },
       "auth-file": { type: "string" },
       "ready-file": { type: "string" },
     },
   });
-  for (const key of [
-    "socket",
-    "agent",
-    "state-dir",
-    "configuration-dir",
-    "auth-file",
-    "ready-file",
-  ] as const) {
+  for (const key of ["socket", "agent", "configuration-dir", "auth-file", "ready-file"] as const) {
     if (!values[key]) throw new Error(`--${key} is required`);
   }
   const authFile = resolve(values["auth-file"]!);
@@ -50,8 +42,6 @@ async function main(): Promise<void> {
     Object.values(authEnvironment).some((value) => typeof value !== "string")
   )
     throw new Error("Invalid authentication environment");
-  const state = resolve(values["state-dir"]!);
-  await mkdir(state, { mode: 0o700 });
   const configurationDirectory = resolve(values["configuration-dir"]!);
   const service = await createModelService({
     cwd: configurationDirectory,
