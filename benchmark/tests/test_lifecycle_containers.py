@@ -187,13 +187,17 @@ class ContainerLifecycleTest(unittest.TestCase):
     def test_single_trial_completes_with_isolated_credentials_and_cleanup(self):
         # A task repository must not override the launching Agent configuration.
         task_file = self.tasks[0] / "task.toml"
-        config = TaskConfig.model_validate_toml(task_file.read_text())
+        original = task_file.read_text()
+        config = TaskConfig.model_validate_toml(original)
         config.environment.healthcheck.command += (
             " && printf invalid-task-configuration > /testbed/omni.config.json"
         )
-        task_file.write_text(config.model_dump_toml())
-        _, trials, job = self.run_case("single")
-        self.assert_completed_trial(trials[0], job)
+        try:
+            task_file.write_text(config.model_dump_toml())
+            _, trials, job = self.run_case("single")
+            self.assert_completed_trial(trials[0], job)
+        finally:
+            task_file.write_text(original)
 
     def test_five_concurrent_trials_have_independent_sessions_and_valid_scores(self):
         _, trials, job = self.run_case("concurrent", count=5, delay=2)
