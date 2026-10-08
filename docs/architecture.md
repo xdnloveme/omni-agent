@@ -1127,3 +1127,9 @@ semantics. Constraint decisions are resolved once per call; the same decision fe
 mapping and observation. Existing cache fingerprints include tool intents, and their semantic
 version changes when the protocol mapping changes; they remain semantic evidence rather than
 an assertion about provider cache hits.
+
+### Configuration capture for isolated execution
+
+App captures project/global configuration layers through ConfigService and effective Provider definitions through ProviderRepository. Model selection is not reimplemented by deployment adapters. Assembly and isolated validation share `resolveAgentModel`; interactive CLI onboarding remains a host workflow. Models resolves the single explicitly selected environment credential with its normal process/project/global precedence. Keychain and OAuth transfer are outside the current isolated deployment.
+
+Apps exposes a configuration capture process entry. Its stdout is a private authentication transfer to the invoking adapter, not a diagnostic stream. Public snapshots contain source identities and hashes but no authentication values. The headless composition can use an explicit configuration directory independently of the task workspace and fresh Session state. Benchmark captures one snapshot per trial for both execution modes; image preparation does not read model configuration.

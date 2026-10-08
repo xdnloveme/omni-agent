@@ -75,6 +75,7 @@ export interface ProviderSnapshot {
 export interface ProviderRepositoryOptions {
   readonly cwd?: string;
   readonly globalDirectory?: string;
+  readonly projectFile?: string;
 }
 
 const PROJECT_PROVIDERS_FILE = "omni.providers.json";
@@ -190,7 +191,10 @@ export class ProviderRepository {
       join(options.globalDirectory ?? join(homedir(), ".omni-agent"), "providers.json"),
       "global",
     );
-    this.project = new ProviderFileRepository(resolve(cwd, PROJECT_PROVIDERS_FILE), "project");
+    this.project = new ProviderFileRepository(
+      resolve(cwd, options.projectFile ?? PROJECT_PROVIDERS_FILE),
+      "project",
+    );
   }
 
   async list(): Promise<readonly ProviderDefinition[]> {

@@ -66,6 +66,7 @@ async function main(): Promise<void> {
       "input-file": { type: "string" },
       "deadline-at-ms": { type: "string" },
       "config-file": { type: "string" },
+      "configuration-dir": { type: "string" },
       "providers-file": { type: "string" },
       "model-channel": { type: "string" },
       "output-dir": { type: "string" },
@@ -74,9 +75,13 @@ async function main(): Promise<void> {
   });
   if (!values["confirm-unrestricted"])
     throw new Error("Headless execution requires --confirm-unrestricted");
-  for (const name of ["input-file", "config-file", "output-dir"] as const) {
+  for (const name of ["input-file", "output-dir"] as const) {
     if (!values[name]) throw new Error(`--${name} is required`);
   }
+  if (Boolean(values["config-file"]) === Boolean(values["configuration-dir"]))
+    throw new Error("Exactly one of --config-file or --configuration-dir is required");
+  if (values["configuration-dir"] && values["providers-file"])
+    throw new Error("--configuration-dir cannot be combined with --providers-file");
   if (Boolean(values["providers-file"]) === Boolean(values["model-channel"]))
     throw new Error("Exactly one of --providers-file or --model-channel is required");
   const deadlineAtMs =
@@ -98,7 +103,8 @@ async function main(): Promise<void> {
   try {
     // Never apply execution settings to existing state, including another headless attempt.
     await mkdir(globalDirectory, { mode: 0o700 });
-    await copyFile(resolve(values["config-file"]!), join(globalDirectory, "config.json"));
+    if (values["config-file"])
+      await copyFile(resolve(values["config-file"]), join(globalDirectory, "config.json"));
     if (values["providers-file"])
       await copyFile(resolve(values["providers-file"]), join(globalDirectory, "providers.json"));
     if (values["model-channel"])
@@ -114,6 +120,9 @@ async function main(): Promise<void> {
     );
     composition = await createAgentServiceComposition({
       cwd: workspace.root,
+      configurationDirectory: values["configuration-dir"]
+        ? resolve(values["configuration-dir"])
+        : undefined,
       modelService: remoteModelService,
       globalDirectory,
       traceEnabled: true,

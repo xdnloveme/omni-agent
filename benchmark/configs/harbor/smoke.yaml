@@ -9,6 +9,7 @@ agents:
   - import_path: benchmark.adapters.omni.agent:OmniAgent
     kwargs:
       credential_env: OMNI_SMOKE_API_KEY
+      global_directory: benchmark/adapters/omni/fixtures
       config_file: benchmark/adapters/omni/fixtures/omni.config.json
       providers_file: benchmark/adapters/omni/fixtures/omni.providers.json
   - name: oracle

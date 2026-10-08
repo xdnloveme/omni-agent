@@ -1,8 +1,4 @@
-"""Omni packaging and provider requirements for the generic preparation lifecycle."""
-
-import hashlib
-import json
-from pathlib import Path
+"""Omni build inputs for the generic preparation lifecycle; no model configuration."""
 
 from benchmark.adapters.omni.prepare import create_source_archive, prepare
 
@@ -20,30 +16,9 @@ class SuiteAdapter:
             raise ValueError(
                 "Omni preparation requires exactly one Omni Agent declaration"
             )
-        self.kwargs = agents[0].setdefault("kwargs", {})
 
     def snapshot(self, work):
-        configuration = {}
-        for key, name in (
-            ("config_file", "omni.config.json"),
-            ("providers_file", "omni.providers.json"),
-        ):
-            source = Path(self.kwargs.get(key, self.source / name))
-            if not source.is_absolute():
-                source = self.source / source
-            data = source.read_bytes()
-            target = work / name
-            target.write_bytes(data)
-            self.kwargs[key] = str(target)
-            json.loads(data)
-            configuration[key] = hashlib.sha256(data).hexdigest()
-        # Model selection (including Agent overrides) is validated by App's
-        # ConfigService/ModelService at startup, before any model request.
         archive = work / "omni-source.tar"
-        # Runtime configuration is evidence, not an image build input.
-        (work / "omni-config-snapshot.json").write_text(
-            json.dumps(configuration, indent=2) + "\n"
-        )
         identity = {"source_sha256": create_source_archive(self.source, archive)}
         return {
             "identity": identity,

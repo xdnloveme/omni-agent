@@ -1,6 +1,11 @@
-import { ConfigService, createModelService, serveModelExecution } from "@omni-agent/app";
-import { copyFile, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
-import { join, resolve } from "node:path";
+import {
+  ConfigService,
+  createModelService,
+  serveModelExecution,
+  resolveAgentModel,
+} from "@omni-agent/app";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import { resolve } from "node:path";
 import { parseArgs } from "node:util";
 
 // Process composition only. Provider protocol and credentials remain owned by Models.
@@ -16,8 +21,7 @@ async function main(): Promise<void> {
       socket: { type: "string" },
       agent: { type: "string" },
       "state-dir": { type: "string" },
-      "config-file": { type: "string" },
-      "providers-file": { type: "string" },
+      "configuration-dir": { type: "string" },
       "auth-file": { type: "string" },
       "ready-file": { type: "string" },
     },
@@ -26,8 +30,7 @@ async function main(): Promise<void> {
     "socket",
     "agent",
     "state-dir",
-    "config-file",
-    "providers-file",
+    "configuration-dir",
     "auth-file",
     "ready-file",
   ] as const) {
@@ -49,20 +52,20 @@ async function main(): Promise<void> {
     throw new Error("Invalid authentication environment");
   const state = resolve(values["state-dir"]!);
   await mkdir(state, { mode: 0o700 });
-  await copyFile(resolve(values["providers-file"]!), join(state, "providers.json"));
-  await copyFile(resolve(values["config-file"]!), join(state, "config.json"));
-  const selection = await new ConfigService({ cwd: state, globalDirectory: state }).resolveModel(
-    values.agent!,
-  );
-  if (!selection) throw new Error("No valid model selection for execution");
+  const configurationDirectory = resolve(values["configuration-dir"]!);
   const service = await createModelService({
-    cwd: state,
-    globalDirectory: state,
+    cwd: configurationDirectory,
+    globalDirectory: configurationDirectory,
     authEnvironment: authEnvironment as Record<string, string>,
   });
   try {
     if (service.diagnostics.length) throw new Error("Model service initialization failed");
-    const server = await serveModelExecution(service, selection, resolve(values.socket!));
+    const { modelSelection } = await resolveAgentModel(
+      values.agent!,
+      new ConfigService({ cwd: configurationDirectory, globalDirectory: configurationDirectory }),
+      service,
+    );
+    const server = await serveModelExecution(service, modelSelection, resolve(values.socket!));
     const stop = () => server.close();
     process.once("SIGTERM", stop);
     process.once("SIGINT", stop);

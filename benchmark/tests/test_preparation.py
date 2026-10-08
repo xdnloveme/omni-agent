@@ -14,63 +14,18 @@ from benchmark.run import tracked_run, index_job
 
 
 class OmniAuthenticationBoundaryTest(unittest.IsolatedAsyncioTestCase):
-    def test_snapshot_does_not_require_credentials(self):
+    def test_snapshot_requires_neither_credentials_nor_model_configuration(self):
         from benchmark.adapters.omni.suite import SuiteAdapter
-
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for name in ("omni.config.json", "omni.providers.json"):
-                (root / name).write_text("{}")
-            work = root / "snapshot"
-            work.mkdir()
-            execution = {
-                "agents": [{"import_path": "benchmark.adapters.omni.agent:OmniAgent"}]
-            }
-            with (
-                patch.dict(os.environ, {}, clear=True),
-                patch(
-                    "benchmark.adapters.omni.suite.create_source_archive",
-                    return_value="source-hash",
-                ),
+            execution = {"agents": [{"import_path": "benchmark.adapters.omni.agent:OmniAgent"}]}
+            with patch.dict(os.environ, {}, clear=True), patch(
+                "benchmark.adapters.omni.suite.create_source_archive", return_value="source-hash"
             ):
-                snapshot = SuiteAdapter(
-                    {"source": str(root)}, root, execution
-                ).snapshot(work)
-            self.assertEqual(snapshot["identity"]["source_sha256"], "source-hash")
-            self.assertEqual((work / "omni.config.json").read_text(), "{}")
-            self.assertNotIn("credential_env", execution["agents"][0]["kwargs"])
-
-    def test_model_configuration_is_frozen_without_invalidating_build_identity(self):
-        from benchmark.adapters.omni.suite import SuiteAdapter
-
-        with tempfile.TemporaryDirectory() as directory:
-            root = Path(directory)
-            identities = []
-            hashes = []
-            for index in range(2):
-                for name in ("omni.config.json", "omni.providers.json"):
-                    (root / name).write_text(json.dumps({"revision": index}))
-                work = root / str(index)
-                work.mkdir()
-                execution = {
-                    "agents": [{"import_path": "benchmark.adapters.omni.agent:OmniAgent"}]
-                }
-                with patch(
-                    "benchmark.adapters.omni.suite.create_source_archive",
-                    return_value="same-source",
-                ):
-                    snapshot = SuiteAdapter(
-                        {"source": str(root)}, root, execution
-                    ).snapshot(work)
-                identities.append(snapshot["identity"])
-                hashes.append(json.loads((work / "omni-config-snapshot.json").read_text()))
-                for option in ("config_file", "providers_file"):
-                    frozen = Path(execution["agents"][0]["kwargs"][option])
-                    self.assertEqual(json.loads(frozen.read_text()), {"revision": index})
-                    self.assertEqual(hashes[-1][option], hashlib.sha256(frozen.read_bytes()).hexdigest())
-            self.assertEqual(identities[0], identities[1])
-            self.assertNotEqual(hashes[0], hashes[1])
-            self.assertEqual(json.loads((root / "0/omni.config.json").read_text()), {"revision": 0})
+                snapshot = SuiteAdapter({"source": str(root)}, root, execution).snapshot(root)
+            self.assertEqual(snapshot["identity"], {"source_sha256": "source-hash"})
+            self.assertEqual(list(root.iterdir()), [])
+            self.assertNotIn("kwargs", execution["agents"][0])
 
     def test_run_rejects_missing_credentials_before_preparation_and_records_failure(self):
         from benchmark.run import check_config
@@ -92,6 +47,7 @@ class OmniAuthenticationBoundaryTest(unittest.IsolatedAsyncioTestCase):
                         with self.assertRaisesRegex(ValueError, "credential_env"):
                             check_config(config, validate_tasks=False)
                     with (
+                        patch("benchmark.adapters.omni.agent.capture_configuration", side_effect=ValueError("Provider is not configured: fixture")),
                         patch("benchmark.capacity.capture_capacity") as capacity,
                         patch("benchmark.preparation.prepare_selected") as prepare,
                         patch("benchmark.run.subprocess.Popen") as launch,
@@ -108,30 +64,17 @@ class OmniAuthenticationBoundaryTest(unittest.IsolatedAsyncioTestCase):
                 self.assertEqual(record["stage"], "configuration")
                 self.assertEqual(record["state"], "failed")
 
-    async def test_execution_requires_explicit_credentials_before_environment_io(self):
+    async def test_install_rejects_configuration_failure_before_environment_io(self):
         from benchmark.adapters.omni.agent import OmniAgent, OmniOptions
-        from pydantic import ValidationError
-
-        with self.assertRaises(ValidationError):
-            OmniOptions.model_validate({})
         agent = object.__new__(OmniAgent)
         agent.options = OmniOptions(credential_env="TEST_MODEL_KEY")
         environment = AsyncMock()
-        with patch.dict(os.environ, {}, clear=True):
-            with self.assertRaisesRegex(ValueError, "TEST_MODEL_KEY"):
-                await agent.install(environment)
-            with self.assertRaisesRegex(ValueError, "TEST_MODEL_KEY"):
-                await agent.run("task", environment, None)
+        with tempfile.TemporaryDirectory() as directory:
+            agent.logs_dir = Path(directory)
+            with patch("benchmark.adapters.omni.agent.capture_configuration", side_effect=ValueError("Provider is not configured: fixture")):
+                with self.assertRaisesRegex(ValueError, "Provider is not configured"):
+                    await agent.install(environment)
         self.assertEqual(environment.mock_calls, [])
-        # Unrelated credentials never act as fallback, and values are not retained.
-        with patch.dict(os.environ, {"OTHER_MODEL_KEY": "unrelated"}, clear=True):
-            with self.assertRaises(ValueError):
-                agent._credential(agent.options)
-            os.environ["TEST_MODEL_KEY"] = "selected"
-            self.assertEqual(agent._credential(agent.options), "selected")
-            del os.environ["TEST_MODEL_KEY"]
-            with self.assertRaises(ValueError):
-                agent._credential(agent.options)
 
 
 class Taskpack:
@@ -401,10 +344,7 @@ class ContainerPreparationTest(unittest.TestCase):
             "options": {"source": str(root / "source/files")},
         }
         profile["preparation"]["adapter"]["options"]["source"] = str(ROOT)
-        profile["execution"]["agents"][0]["kwargs"] = {
-            "config_file": "benchmark/adapters/omni/fixtures/omni.config.json",
-            "providers_file": "benchmark/adapters/omni/fixtures/omni.providers.json",
-        }
+        # Preparation must not require any model configuration or credential options.
         (root / "profile.json").write_text(json.dumps(profile))
         env = dict(os.environ)
         records = []
