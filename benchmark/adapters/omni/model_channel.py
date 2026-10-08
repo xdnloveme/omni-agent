@@ -21,6 +21,7 @@ async def model_channel(
             {
                 "config.json": config_file.resolve().read_text(),
                 "providers.json": providers_file.resolve().read_text(),
+                "auth.json": json.dumps({credential_env: key}),
             }
         ).encode()
     ).decode()
@@ -59,6 +60,8 @@ os.chmod('/run/omni-model',0o700)
             "/home/benchmark-runner/model/config.json",
             "--providers-file",
             "/home/benchmark-runner/model/providers.json",
+            "--auth-file",
+            "/home/benchmark-runner/model/auth.json",
             "--ready-file",
             "/home/benchmark-runner/model/ready",
         ]
@@ -72,7 +75,7 @@ os.chmod('/run/omni-model',0o700)
             command,
             service=SERVICE,
             user="benchmark-runner",
-            env={"HOME": "/home/benchmark-runner", credential_env: key},
+            env={"HOME": "/home/benchmark-runner"},
         )
     )
 

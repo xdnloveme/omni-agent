@@ -2,7 +2,6 @@
 
 import hashlib
 import json
-import os
 from pathlib import Path
 
 from benchmark.adapters.omni.prepare import create_source_archive, prepare
@@ -24,12 +23,7 @@ class SuiteAdapter:
         self.kwargs = agents[0].setdefault("kwargs", {})
 
     def snapshot(self, work):
-        credential = self.kwargs.get("credential_env", "ARK_AGENT_PLAN_API_KEY")
-        if not os.environ.get(credential):
-            raise ValueError(
-                "Required credential environment variable is missing: " + credential
-            )
-        identity = {}
+        configuration = {}
         for key, name in (
             ("config_file", "omni.config.json"),
             ("providers_file", "omni.providers.json"),
@@ -42,11 +36,15 @@ class SuiteAdapter:
             target.write_bytes(data)
             self.kwargs[key] = str(target)
             json.loads(data)
-            identity[key] = hashlib.sha256(data).hexdigest()
+            configuration[key] = hashlib.sha256(data).hexdigest()
         # Model selection (including Agent overrides) is validated by App's
         # ConfigService/ModelService at startup, before any model request.
         archive = work / "omni-source.tar"
-        identity["source_sha256"] = create_source_archive(self.source, archive)
+        # Runtime configuration is evidence, not an image build input.
+        (work / "omni-config-snapshot.json").write_text(
+            json.dumps(configuration, indent=2) + "\n"
+        )
+        identity = {"source_sha256": create_source_archive(self.source, archive)}
         return {
             "identity": identity,
             "archive": str(archive),

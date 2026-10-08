@@ -30,18 +30,21 @@ export PYTHONPATH="$PWD"
 pnpm run benchmark list --all
 pnpm run benchmark list --task sphinx-doc__sphinx-11510
 
-# 免费静态检查：验证配置；自动准备模式不代表环境已就绪
-pnpm run benchmark check --first 3
+# 免费准备：不需要模型凭据，但会构建并验证容器环境
+pnpm run benchmark prepare --first 3
 
-# 下列 run 命令自动准备环境后调用真实模型；先配置凭据
-pnpm run benchmark run --all --concurrency 5
-pnpm run benchmark run --task sphinx-doc__sphinx-11510
-pnpm run benchmark run --first 3
-pnpm run benchmark run --first 10 --concurrency 5
-pnpm run benchmark run --sample 5 --seed 42 --concurrency 5
+# 免费静态检查：验证运行参数结构，不验证凭据值或环境就绪
+pnpm run benchmark check --profile benchmark/configs/omni.local.json --first 3
+
+# 下列 run 命令自动准备环境后调用真实模型；先按下文创建用户 profile 并配置凭据
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --all --concurrency 5
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --task sphinx-doc__sphinx-11510
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --first 3
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --first 10 --concurrency 5
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --sample 5 --seed 42 --concurrency 5
 
 # 显式指定准备缓存、Agent 时间和 Docker 共享的日志目录
-pnpm run benchmark run --first 3 --task-root benchmark/artifacts/my-prepared-suite \
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --first 3 --task-root benchmark/artifacts/my-prepared-suite \
   --timeout 1800 --jobs-dir benchmark/jobs
 
 # 原生 Harbor 配置（也走同一个 tracked_run），以及结果报告
@@ -50,7 +53,19 @@ pnpm run benchmark run --config benchmark/configs/harbor/smoke.yaml --kind fixtu
 pnpm run benchmark report benchmark/jobs/JOB_ID
 ```
 
-默认配置为 `configs/default.json`，可用 `--profile PATH` 替换。配置中的 `manifest`、`task_root` 相对于配置文件目录解析；命令行路径相对于当前工作目录解析。`execution` 是已有 Harbor 作业配置，适配器及其 Provider 配置仍由适配器负责，公共选题层不读取模型凭据。默认 Omni 使用 `ARK_AGENT_PLAN_API_KEY` 环境变量及已有 `omni.config.json`、`omni.providers.json`；需要切换配置文件时修改 `execution.agents[].kwargs` 的 `config_file` / `providers_file`，不要把密钥写入 profile。
+默认配置为 `configs/default.json`，可用 `--profile PATH` 替换。配置中的 `manifest`、`task_root` 相对于配置文件目录解析；命令行路径相对于当前工作目录解析。`execution` 是已有 Harbor 作业配置，适配器及其 Provider 配置仍由适配器负责，公共选题层不读取模型凭据。默认 profile 不绑定 Provider 凭据，可直接用于免费环境准备。真实运行时，将它复制为同目录的 `configs/omni.local.json`（已忽略），在 `execution.agents[0]` 添加以下 `kwargs`，然后通过 `--profile benchmark/configs/omni.local.json` 选择它：
+
+```json
+{
+  "config_file": "omni.config.json",
+  "providers_file": "omni.providers.json",
+  "credential_env": "MY_MODEL_API_KEY"
+}
+```
+
+这是 `kwargs` 的内容，不是完整 profile。这两个文件路径在自动准备时相对于 Omni `source` 目录解析；使用原生 `--config` 时，应提供绝对路径。模型选择由 `config_file` 和现有 ConfigService 负责，Provider 定义及鉴权由 `providers_file` 和 Models 负责。`credential_env` 只声明允许传入隔离模型服务的一个环境变量名，必须与所选 Provider 的鉴权配置匹配；变量值由调用进程环境提供，benchmark 不自动加载整个 `.env`。不要把密钥写入 profile。
+
+准备阶段不要求凭据；`check` 校验运行参数结构，不校验凭据值或调用模型。真实 `run` 在容量检查和镜像准备之前复用 Harbor preflight 检查适配器参数及凭据存在；安装和作答前仍重新检查。缺少名称或变量值会失败，不猜测其他凭据。模型服务仍使用正式配置解析和鉴权校验，配置不匹配不会自动切换 Provider。当前隔离部署支持单个环境变量凭据，不自动迁移宿主机 Keychain 或 OAuth 登录状态。凭据仅通过权限受限的临时文件传给隔离模型服务，读取后删除。模型鉴权上下文独立于进程环境，不继承未声明的宿主变量或 `.env`；凭据不进入作答工具容器或配置快照。模型配置文件及其 `omni-config-snapshot.json` 哈希保留在作业准备目录，用于追溯；它们不参与镜像缓存身份，切换模型不会因此重建环境。
 
 - 必须显式选择 `--all` / `--task` / `--first` / `--sample` 之一，互斥；`--task` 可重复，错误或重复 ID 会拒绝执行。
 - `--first N` 使用清单顺序。`--sample N --seed S` 不放回抽样，最终仍按清单顺序执行；运行记录保留确切 ID，不依赖将来重新抽样。
@@ -213,7 +228,7 @@ Omni's existing state archive includes Session output manifests and sanitized bo
 # 免费：准备当前 Agent 与任务镜像、校验声明的环境，不调用模型
 pnpm run benchmark prepare --first 3 --jobs-dir /path/shared-with-docker/jobs
 # 付费：相同准备流程后进入原来的 Harbor 调度
-pnpm run benchmark run --first 3 --concurrency 3 --jobs-dir /path/shared-with-docker/jobs
+pnpm run benchmark run --profile benchmark/configs/omni.local.json --first 3 --concurrency 3 --jobs-dir /path/shared-with-docker/jobs
 ```
 
 运行前配置正确的 Docker context，导出适配器要求的凭据环境变量。公共入口不读取

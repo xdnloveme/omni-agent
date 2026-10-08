@@ -62,9 +62,9 @@ class ContainerLifecycleTest(unittest.TestCase):
             compose_path.write_text(yaml.safe_dump(compose))
         path = case / "config.yaml"
         path.write_text(yaml.safe_dump(config))
+        # Preserve Docker's host connection settings. Container environment
+        # projection belongs to Harbor and the adapter, not this test launcher.
         env = {**os.environ, "OMNI_SMOKE_API_KEY": "fixture"}
-        # Credential absence is explicit even if the caller's shell contains one.
-        env.pop("ARK_AGENT_PLAN_API_KEY", None)
         with (case / "command.log").open("w") as log:
             process = subprocess.Popen(
                 [
@@ -166,23 +166,31 @@ class ContainerLifecycleTest(unittest.TestCase):
         )
         return invocation, trials, job
 
+    def assert_completed_trial(self, trial, job):
+        self.assertIsNone(trial["exception_info"])
+        self.assertEqual(trial["verifier_result"]["rewards"]["reward"], 1)
+        agent = job / trial["trial_name"] / "agent"
+        network = json.loads((agent / "omni/network-probe.json").read_text())
+        self.assertEqual(network["interfaces"], ["lo"])
+        self.assertTrue(network["credential_absent"])
+        self.assertTrue(network["no_inherited_socket"])
+        for target in ("ipv4", "ipv6", "provider", "model_channel"):
+            self.assertTrue(network[target]["blocked"])
+        trace = json.loads((agent / "trace-summary.json").read_text())["traces"]
+        self.assertEqual(len(trace), 1)
+        self.assertEqual(trace[0]["state"], "complete")
+        receipt = json.loads((agent / "model-process.json").read_text())
+        self.assertTrue(receipt["stopped"])
+        self.assertEqual(receipt["return_code"], 0)
+        return trace[0]["session_id"]
+
+    def test_single_trial_completes_with_isolated_credentials_and_cleanup(self):
+        _, trials, job = self.run_case("single")
+        self.assert_completed_trial(trials[0], job)
+
     def test_five_concurrent_trials_have_independent_sessions_and_valid_scores(self):
         _, trials, job = self.run_case("concurrent", count=5, delay=2)
-        sessions = []
-        for trial in trials:
-            self.assertIsNone(trial["exception_info"])
-            self.assertEqual(trial["verifier_result"]["rewards"]["reward"], 1)
-            agent = job / trial["trial_name"] / "agent"
-            network = json.loads((agent / "omni/network-probe.json").read_text())
-            self.assertEqual(network["interfaces"], ["lo"])
-            self.assertTrue(network["credential_absent"])
-            self.assertTrue(network["no_inherited_socket"])
-            for target in ("ipv4", "ipv6", "provider", "model_channel"):
-                self.assertTrue(network[target]["blocked"])
-            trace = json.loads((agent / "trace-summary.json").read_text())["traces"]
-            self.assertEqual(len(trace), 1)
-            self.assertEqual(trace[0]["state"], "complete")
-            sessions.append(trace[0]["session_id"])
+        sessions = [self.assert_completed_trial(trial, job) for trial in trials]
         self.assertEqual(len(set(sessions)), 5)
         # Prove execution actually overlapped, rather than accepting a configured number.
         self.assertLess(

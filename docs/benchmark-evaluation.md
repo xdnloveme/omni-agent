@@ -2,7 +2,7 @@
 
 The benchmark integration invokes the production coding Agent through `apps/omni/src/headless-entry.ts`. `packages/cli/src/headless/run.ts` owns one new Session and one Run; the Apps composition owns the Service, model resources, signal handling and final Trace query. Harbor adapters and evaluation data belong under `benchmark/`; production packages do not import them.
 
-The headless entry requires explicit `--confirm-unrestricted` plus `--cwd`, `--input-file`, `--config-file`, `--providers-file` and `--output-dir`. It creates a new `state` directory under the output directory and refuses to reuse an existing one. Only that fresh state receives unrestricted execution settings. The caller must supply an isolated execution environment; this flag does not create an OS sandbox.
+The headless entry requires explicit `--confirm-unrestricted` plus `--input-file`, `--config-file` and `--output-dir`, and exactly one of `--providers-file` or `--model-channel`. `--cwd` defaults to the current directory; the benchmark adapter supplies it explicitly. It creates a new `state` directory under the output directory and refuses to reuse an existing one. Only that fresh state receives unrestricted execution settings. The caller must supply an isolated execution environment; this flag does not create an OS sandbox.
 
 Output uses version 1 JSON. `request.json` reserves one attempt; `started.json` records the created Session before Run submission; `result.json` records the terminal outcome and native Trace association after Service disposal. Exit codes are 0 for completed, 130 for cooperative cancellation and 1 for failure. GNU timeout or OS termination can produce their own nonzero exit codes without a complete result file.
 

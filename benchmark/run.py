@@ -229,7 +229,7 @@ def job_completion(job, trials):
     }
 
 
-def check_config(config, *, validate_tasks=True):
+def check_config(config, *, validate_tasks=True, validate_agents=True):
     import yaml
     from harbor.models.job.config import JobConfig
     from harbor.models.task.config import TaskConfig
@@ -272,6 +272,14 @@ def check_config(config, *, validate_tasks=True):
     resolved = JobConfig.model_validate(value)
     if resolved.n_attempts != 1 or resolved.retry.max_retries != 0:
         raise ValueError("This contract requires one attempt per task and no retries")
+    if validate_agents:
+        from harbor.agents.factory import AgentFactory
+        from harbor.utils.env import resolve_env_vars
+
+        for agent in resolved.agents:
+            AgentFactory.get_agent_class_from_config(agent).parse_options(
+                agent.kwargs, resolve_env_vars(agent.env)
+            )
     return value
 
 
@@ -367,7 +375,15 @@ def tracked_run(config, jobs_dir, kind, selection=None, *, prepare_only=False):
     try:
         record["stage"] = "configuration"
         write_json(job / "invocation.json", record)
-        check_config(snapshot, validate_tasks=False)
+        checked = check_config(
+            snapshot, validate_tasks=False, validate_agents=not prepare_only
+        )
+        if not prepare_only:
+            from harbor.agents.factory import AgentFactory
+            from harbor.models.job.config import JobConfig
+
+            for agent in JobConfig.model_validate(checked).agents:
+                AgentFactory.run_preflight(agent)
         from benchmark.capacity import capture_capacity
 
         record["capacity"] = [
@@ -387,7 +403,7 @@ def tracked_run(config, jobs_dir, kind, selection=None, *, prepare_only=False):
                 lambda: write_json(job / "invocation.json", record),
             )
             snapshot.write_text(yaml.safe_dump(compiled, sort_keys=False))
-        compiled = check_config(snapshot)
+        compiled = check_config(snapshot, validate_agents=not prepare_only)
         config_bytes = yaml.safe_dump(compiled, sort_keys=False).encode()
         snapshot.write_bytes(config_bytes)
         record["config_sha256"] = hashlib.sha256(config_bytes).hexdigest()
@@ -568,7 +584,7 @@ def main():
                         path.write_text(yaml.safe_dump(value))
                     check_config(path)
                     print(
-                        "Configuration valid (no model or Docker execution; preparation and readiness are not verified)"
+                        "Configuration schema valid (no model or Docker execution; credentials, preparation and readiness are not verified)"
                     )
                     return 0
                 previous = signal.signal(signal.SIGTERM, request_cancel)

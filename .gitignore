@@ -138,3 +138,6 @@ artifacts/
 /benchmark/jobs/
 /benchmark/artifacts/
 __pycache__/
+
+# User-selected benchmark model configuration (never store credentials here).
+/benchmark/configs/*.local.json
