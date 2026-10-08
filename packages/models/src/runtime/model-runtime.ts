@@ -27,6 +27,8 @@ export interface ModelRuntimeOptions {
   catalogDirectory?: string;
   globalDirectory?: string;
   credentials?: CredentialStore;
+  /** Exclusive environment for provider authentication; never applied to process.env. */
+  authEnvironment?: Readonly<Record<string, string>>;
   credentialAliases?: CredentialAliasRegistry;
   credentialIndex?: CredentialIndexReconciler;
   /** Test/debug observation hook delegated to pi-ai; production does not retain payloads. */
@@ -61,7 +63,7 @@ export class ModelRuntime {
     this.onPayload = options.onPayload;
     this.models = createModels({
       credentials: this.credentials,
-      authContext: createNodeAuthContext(cwd, options.globalDirectory),
+      authContext: createNodeAuthContext(cwd, options.globalDirectory, options.authEnvironment),
       modelsStore: new FileModelsStore(options.catalogDirectory),
     });
   }

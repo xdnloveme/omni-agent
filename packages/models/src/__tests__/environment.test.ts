@@ -54,3 +54,34 @@ describe("model environment", () => {
     expect(process.env.DOTENV_MULTILINE_TEST).toBeUndefined();
   });
 });
+
+it("isolates explicit authentication values from process startup and ambient credentials", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "omni-auth-isolation-"));
+  try {
+    writeFileSync(join(cwd, ".env"), "UNDECLARED_SECRET=ambient\n");
+    const startup = {
+      HOME: process.env.HOME,
+      PATH: process.env.PATH,
+      NODE_OPTIONS: process.env.NODE_OPTIONS,
+    };
+    const values = {
+      HOME: "credential-home",
+      PATH: "credential-path",
+      NODE_OPTIONS: "credential-options",
+    };
+    const context = createNodeAuthContext(cwd, cwd, values);
+    values.HOME = "changed-after-binding";
+    await expect(context.env("HOME")).resolves.toBe("credential-home");
+    await expect(context.env("PATH")).resolves.toBe("credential-path");
+    await expect(context.env("NODE_OPTIONS")).resolves.toBe("credential-options");
+    await expect(context.env("UNDECLARED_SECRET")).resolves.toBeUndefined();
+    expect({
+      HOME: process.env.HOME,
+      PATH: process.env.PATH,
+      NODE_OPTIONS: process.env.NODE_OPTIONS,
+    }).toEqual(startup);
+    await expect(createNodeAuthContext(cwd, cwd, {}).env("HOME")).resolves.toBeUndefined();
+  } finally {
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

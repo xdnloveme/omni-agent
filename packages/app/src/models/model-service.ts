@@ -29,6 +29,7 @@ export interface ModelServiceOptions {
   loadConfiguredProviders?: boolean;
   globalDirectory: string;
   credentials?: CredentialStore;
+  authEnvironment?: Readonly<Record<string, string>>;
   credentialAliases?: CredentialAliasRegistry;
   credentialIndex?: CredentialIndexReconciler;
 }
@@ -133,6 +134,7 @@ export async function createModelService(options: ModelServiceOptions): Promise<
   const runtime = new ModelRuntime({
     cwd,
     globalDirectory: options.globalDirectory,
+    authEnvironment: options.authEnvironment,
     credentials,
     credentialAliases: options.credentialAliases,
     credentialIndex: options.credentialIndex,

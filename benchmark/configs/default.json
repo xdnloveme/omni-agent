@@ -14,10 +14,7 @@
     },
     "agents": [
       {
-        "import_path": "benchmark.adapters.omni.agent:OmniAgent",
-        "kwargs": {
-          "credential_env": "ARK_AGENT_PLAN_API_KEY"
-        }
+        "import_path": "benchmark.adapters.omni.agent:OmniAgent"
       }
     ],
     "benchmark": {

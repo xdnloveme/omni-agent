@@ -173,7 +173,7 @@ def prepare_selected(config, selection, job, record, persist):
     work.mkdir()
     record["preparation"] = {"state": "running", "tasks": []}
     persist()
-    # Credential presence is checked by the adapter before expensive environment work.
+    # Freeze packaging inputs without requiring model authentication.
     with (
         (work / "preflight.log").open("w") as log,
         redirect_stdout(log),

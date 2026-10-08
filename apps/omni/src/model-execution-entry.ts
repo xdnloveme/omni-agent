@@ -1,5 +1,5 @@
 import { ConfigService, createModelService, serveModelExecution } from "@omni-agent/app";
-import { copyFile, mkdir, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 
@@ -18,6 +18,7 @@ async function main(): Promise<void> {
       "state-dir": { type: "string" },
       "config-file": { type: "string" },
       "providers-file": { type: "string" },
+      "auth-file": { type: "string" },
       "ready-file": { type: "string" },
     },
   });
@@ -27,10 +28,25 @@ async function main(): Promise<void> {
     "state-dir",
     "config-file",
     "providers-file",
+    "auth-file",
     "ready-file",
   ] as const) {
     if (!values[key]) throw new Error(`--${key} is required`);
   }
+  const authFile = resolve(values["auth-file"]!);
+  let authEnvironment: unknown;
+  try {
+    authEnvironment = JSON.parse(await readFile(authFile, "utf8"));
+  } finally {
+    await unlink(authFile);
+  }
+  if (
+    !authEnvironment ||
+    typeof authEnvironment !== "object" ||
+    Array.isArray(authEnvironment) ||
+    Object.values(authEnvironment).some((value) => typeof value !== "string")
+  )
+    throw new Error("Invalid authentication environment");
   const state = resolve(values["state-dir"]!);
   await mkdir(state, { mode: 0o700 });
   await copyFile(resolve(values["providers-file"]!), join(state, "providers.json"));
@@ -39,7 +55,11 @@ async function main(): Promise<void> {
     values.agent!,
   );
   if (!selection) throw new Error("No valid model selection for execution");
-  const service = await createModelService({ cwd: state, globalDirectory: state });
+  const service = await createModelService({
+    cwd: state,
+    globalDirectory: state,
+    authEnvironment: authEnvironment as Record<string, string>,
+  });
   try {
     if (service.diagnostics.length) throw new Error("Model service initialization failed");
     const server = await serveModelExecution(service, selection, resolve(values.socket!));

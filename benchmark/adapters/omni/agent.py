@@ -48,7 +48,23 @@ class OmniAgent(BaseInstalledAgent):
         if not 1 <= self.process_timeout_sec <= 1800:
             raise ValueError("Invalid benchmark Agent budget")
 
+    @staticmethod
+    def _credential(options: OmniOptions) -> str:
+        key = os.environ.get(options.credential_env)
+        if not key:
+            raise ValueError(
+                f"Missing credential environment variable: {options.credential_env}"
+            )
+        return key
+
+    @classmethod
+    def preflight(cls, kwargs=None, env=None) -> None:
+        options = cls.parse_options(kwargs, env)
+        cls._credential(options)
+
     async def install(self, environment: BaseEnvironment) -> None:
+        # Validate before installation; re-read at run time rather than retaining secrets.
+        self._credential(self.options)
         await self._exec(
             environment,
             "test -f /opt/omni/package.json && test -x /opt/omni-node/bin/node",
@@ -72,11 +88,7 @@ class OmniAgent(BaseInstalledAgent):
     async def run(
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
     ) -> None:
-        key = os.environ.get(self.options.credential_env)
-        if not key:
-            raise ValueError(
-                f"Missing credential environment variable: {self.options.credential_env}"
-            )
+        key = self._credential(self.options)
         with tempfile.TemporaryDirectory(prefix="omni-instruction-") as directory:
             path = Path(directory) / "instruction.txt"
             path.write_text(

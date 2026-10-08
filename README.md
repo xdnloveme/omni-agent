@@ -828,6 +828,6 @@ Unknown support with `prefer` keeps ordinary calls working and records the reaso
 ### Benchmark command
 
 Use `pnpm run benchmark list --all` to preview the fixed suite and
-`pnpm run benchmark run --all --concurrency 5` to run prepared tasks with up to five
+`pnpm run benchmark run --profile benchmark/configs/omni.local.json --all --concurrency 5` to run prepared tasks with up to five
 concurrent trials. See [benchmark setup and command options](benchmark/README.md)
 for environment preparation, credentials, selection, and trace reports.

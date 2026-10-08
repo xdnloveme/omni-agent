@@ -160,6 +160,13 @@ implement another provider stack or an HTTP forwarding proxy. Apps owns the head
 model execution process entries. A remote session rejects configuration changes rather than silently
 falling back to local execution.
 
+`ModelServiceOptions.authEnvironment` supplies an optional, authoritative snapshot of
+variables for provider authentication. Models resolves this snapshot without mutating
+`process.env` or consulting ambient environment variables or `.env` files. Omission preserves
+normal local authentication lookup; this does not replace the separate `CredentialStore` contract.
+The isolated model entry requires a private `--auth-file`, consumes and deletes it, and passes
+its values through App to Models. Deployment must keep that file outside the solver filesystem.
+
 The server removes its listening socket before acknowledging the connection. Tool children do not
 inherit the connected descriptor. Disconnection aborts provider work; a partially consumed stream
 closes the session. Terminal transport boundaries are drained before exposing terminal events to the
