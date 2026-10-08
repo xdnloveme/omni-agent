@@ -12,16 +12,15 @@ SOCKET = "/run/omni-model/session.sock"
 
 @asynccontextmanager
 async def model_channel(
-    environment, *, config_file, providers_file, credential_env, key, logs_dir, agent_id
+    environment, *, configuration, auth_environment, logs_dir, agent_id
 ):
     # Service-local stdin replacement: native service_exec has no upload/stdin API.
     # Data travels as an exec environment value, never through the solver filesystem.
     payload = base64.b64encode(
         json.dumps(
             {
-                "config.json": config_file.resolve().read_text(),
-                "providers.json": providers_file.resolve().read_text(),
-                "auth.json": json.dumps({credential_env: key}),
+                **{p.name: p.read_text() for p in configuration.iterdir() if p.name in {"config.json", "omni.config.json", "providers.json"}},
+                "auth.json": json.dumps(auth_environment),
             }
         ).encode()
     ).decode()
@@ -56,10 +55,8 @@ os.chmod('/run/omni-model',0o700)
             agent_id,
             "--state-dir",
             "/home/benchmark-runner/model/state",
-            "--config-file",
-            "/home/benchmark-runner/model/config.json",
-            "--providers-file",
-            "/home/benchmark-runner/model/providers.json",
+            "--configuration-dir",
+            "/home/benchmark-runner/model",
             "--auth-file",
             "/home/benchmark-runner/model/auth.json",
             "--ready-file",

@@ -81,3 +81,5 @@ export { containsSecretField } from "./schema/vendor-settings";
 
 export { ModelExecutionClient, listenModelExecution } from "./execution-channel/channel";
 export type { ModelExecutionBinding } from "./execution-channel/channel";
+
+export { createNodeAuthContext } from "./credentials/environment";

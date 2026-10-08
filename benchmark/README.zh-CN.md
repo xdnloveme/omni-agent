@@ -59,15 +59,19 @@ pnpm run benchmark report benchmark/jobs/JOB_ID
 
 ```json
 {
-  "config_file": "omni.config.json",
-  "providers_file": "omni.providers.json",
   "credential_env": "MY_MODEL_API_KEY"
 }
 ```
 
-这是 `kwargs` 的内容，不是完整 profile。这两个文件路径在自动准备时相对于 Omni `source` 目录解析；使用原生 `--config` 时，应提供绝对路径。模型选择由 `config_file` 和现有 ConfigService 负责，Provider 定义及鉴权由 `providers_file` 和 Models 负责。`credential_env` 只声明允许传入隔离模型服务的一个环境变量名，必须与所选 Provider 的鉴权配置匹配；变量值由调用进程环境提供，benchmark 不自动加载整个 `.env`。不要把密钥写入 profile。
+这是 `kwargs` 的内容，不是完整 profile。默认复用当前代码仓库与 `~/.omni-agent` 的正式配置层：项目 Agent 覆盖、全局 Agent 覆盖、项目共享模型、全局共享模型。优先级由 ConfigService 负责，Provider 合并由 ProviderRepository 负责。可用 `configuration_cwd` 和 `global_directory` 显式选择配置来源，覆盖时使用绝对路径。做题工作区仅负责执行，不能覆盖已捕获的启动配置。交互式 coding 在缺配置时可能进入 onboarding；benchmark 无法交互，会返回正式模型/配置校验的失败原因并停止。
 
-准备阶段不要求凭据；`check` 校验运行参数结构，不校验凭据值或调用模型。真实 `run` 在容量检查和镜像准备之前复用 Harbor preflight 检查适配器参数及凭据存在；安装和作答前仍重新检查。缺少名称或变量值会失败，不猜测其他凭据。模型服务仍使用正式配置解析和鉴权校验，配置不匹配不会自动切换 Provider。当前隔离部署支持单个环境变量凭据，不自动迁移宿主机 Keychain 或 OAuth 登录状态。凭据仅通过权限受限的临时文件传给隔离模型服务，读取后删除。模型鉴权上下文独立于进程环境，不继承未声明的宿主变量或 `.env`；凭据不进入作答工具容器或配置快照。模型配置文件及其 `omni-config-snapshot.json` 哈希保留在作业准备目录，用于追溯；它们不参与镜像缓存身份，切换模型不会因此重建环境。
+可选的 `config_file`、`providers_file` 只覆盖项目层输入文件，不取消全局层；覆盖时使用绝对路径。`preparation.adapter.options.source` 选择打包源码，不决定模型配置来源。免费 smoke 夹具显式使用测试配置及空全局层，不继承开发者的全局 Agent 覆盖。
+
+`credential_env` 指定唯一允许进入隔离模型服务的鉴权变量名，必须匹配所选 Provider。变量值复用 Models 的正式查找顺序：进程环境、工作区 `.env`、全局 `.env`。仅传递所选值，不复制 `.env` 文件或无关变量。密钥不能写入 profile。当前隔离部署不支持宿主 Keychain 或 OAuth 状态。
+
+`prepare` 不需要模型配置或凭据；`check` 只校验适配器参数结构，不解析模型、验证凭据或调用模型。真实 `run` 在容量检查及准备前，通过 Harbor preflight 调用正式 App/Models 校验；Agent 安装阶段再次捕获并校验。自动准备和原生 `--config` 运行共用这条适配器链路。以上检查均不发起模型请求。
+
+每个 trial 在 `agent/configuration/` 保存公开的分层配置及合并后的 Provider 定义，`snapshot.json` 记录来源路径和文件摘要。同一快照供作答配置和模型服务使用；Provider 定义与凭据仅进入模型服务，作答容器只接收 Agent 配置层。凭据通过权限受限的临时文件交付，模型服务读取后删除，不进入公开快照。模型配置不参与镜像缓存身份，仅切换模型不会重建镜像。
 
 - 必须显式选择 `--all` / `--task` / `--first` / `--sample` 之一，互斥；`--task` 可重复，错误或重复 ID 会拒绝执行。
 - `--first N` 使用清单顺序。`--sample N --seed S` 不放回抽样，最终仍按清单顺序执行；运行记录保留确切 ID，不依赖将来重新抽样。
@@ -103,7 +107,7 @@ benchmark/.venv/bin/python -m benchmark.run run \
 
 `smoke.yaml` 使用真实 Omni 和确定性本地 HTTP 模型，不调用付费 API；同一任务还由 Harbor Oracle 执行参考对照。Oracle 不代表第二个真实 Agent 框架已完成接入。
 
-镜像准备允许下载依赖；作答阶段 setup 只注入配置。镜像 ID、源码归档摘要、依赖锁摘要和任务配置摘要写入 `preparation.json`。自动准备另在作业目录保存模型配置副本及 `omni-config-snapshot.json`；原生 `--config` 不自动复制这些外部配置文件，调用者应保留所引用的版本。不将个人配置、`.env` 或运行产物装入源码归档。
+镜像准备允许下载依赖；作答阶段 setup 只注入配置。镜像 ID、源码归档摘要、依赖锁摘要和任务配置摘要写入 `preparation.json`。模型配置在每个 trial 的 Agent 安装阶段捕获，自动准备和原生运行使用同一路径。不将个人配置、`.env` 或运行产物装入源码归档。
 
 免费模型服务仅保留在 `tasks/execution-contract/model-server.py`；Omni 夹具配置归 `adapters/omni/fixtures/`。旧 smoke、isolation-probe 任务已移除，不提供旧协议执行入口。
 
@@ -234,8 +238,8 @@ pnpm run benchmark run --profile benchmark/configs/omni.local.json --first 3 --c
 ```
 
 运行前配置正确的 Docker context，导出适配器要求的凭据环境变量。公共入口不读取
-宿主机的 `.env`、猜测 Docker socket 或自动启动 Docker。`prepare` 不要求模型凭据；
-只有真实 `run` 才在准备前检查凭据，凭据不传给构建或健康检查容器。
+宿主机的 `.env`、猜测 Docker socket 或自动启动 Docker；Omni 适配器将指定凭据解析交给 Models。
+`prepare` 不要求模型配置或凭据；真实 `run` 在准备前校验配置，凭据不传给构建或健康检查容器。
 `check` 只验证配置与插件声明，不构建镜像，也不证明环境就绪。
 
 准备插件是受信任的本地 Python 代码，由 profile 的 `entrypoint=module:Class`
@@ -243,10 +247,9 @@ pnpm run benchmark run --profile benchmark/configs/omni.local.json --first 3 --c
 
 - Taskpack 接收 options/profile 目录/manifest。`resolve(task, requirements)` 返回
   固定准备输入，`prepare(task, output, resolved)` 复用任务自己的准备器。
-- Adapter 接收 options/profile 目录/execution 配置。`snapshot(work)` 检查自身配置，
-  返回 identity、requirements 及私有快照信息；`prepare(task, output, snapshot)`
-  复用 Agent 打包实现，输出原有 Harbor task 契约。Adapter 可把 execution 中的
-  配置路径指向本次冻结副本，公共层不解释模型配置或凭据。
+- Adapter 接收 options/profile 目录/execution 配置。`snapshot(work)` 捕获构建输入，
+  返回 identity、requirements 及私有构建信息；`prepare(task, output, snapshot)`
+  复用 Agent 打包实现，输出原有 Harbor task 契约。Omni 的运行配置在 trial 安装时单独捕获，公共准备层不解释模型配置或凭据。
 - 插件入口源码和本仓库准备实现会参与缓存身份；外部插件的额外依赖、模板、
   文件与版本须进入其 resolve / snapshot.identity，不能依赖未声明的可变输入。
 - 环境依赖仍由 taskpack、上游 Dockerfile 和 runtime 声明负责。健康检查复用

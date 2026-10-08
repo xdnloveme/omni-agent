@@ -155,3 +155,6 @@ export * from "./mcp/index";
 
 export type { AgentModelService, ModelAdministration } from "./models/model-service";
 export { connectModelExecution, serveModelExecution } from "./models/model-execution";
+
+export { captureModelConfiguration } from "./models/configuration-snapshot";
+export { resolveAgentModel } from "./models/resolve-agent-model";

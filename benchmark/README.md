@@ -63,19 +63,19 @@ The default profile does not bind Provider credentials and can prepare environme
 
 ```json
 {
-  "config_file": "omni.config.json",
-  "providers_file": "omni.providers.json",
   "credential_env": "MY_MODEL_API_KEY"
 }
 ```
 
-This is the contents of `kwargs`, not a complete profile. Automatic preparation resolves these two file paths relative to the Omni `source` directory. With native `--config`, use absolute paths. ConfigService owns model selection from `config_file`; Models owns Provider definitions and authentication from `providers_file`.
+This is the contents of `kwargs`, not a complete profile. By default Omni uses the normal configuration layers for this checkout and `~/.omni-agent`: project Agent override, global Agent override, project shared model, then global shared model. ConfigService owns this precedence; ProviderRepository owns Provider merging. `configuration_cwd` and `global_directory` explicitly select other configuration sources. Use absolute paths when overriding them. The task workspace is only the execution directory and cannot override this captured configuration. Interactive coding may enter onboarding when configuration is missing; benchmark is non-interactive and returns the production model/configuration validation failure instead.
 
-`credential_env` names the single environment variable permitted into the isolated model service and must match the selected Provider's authentication configuration. Supply its value through the launcher's environment. Benchmark does not load the entire `.env` file. Never put keys in profiles.
+Optional `config_file` and `providers_file` override the project-layer input files; they do not remove global layers. Use absolute paths for these overrides. `preparation.adapter.options.source` chooses code to package, not the model configuration source. The free smoke fixture explicitly selects its test configuration and an empty global layer so it cannot inherit a developer's global Agent override.
 
-`prepare` requires no model credentials. `check` validates argument structure without checking credential values or calling a model. Real `run` uses Harbor preflight to validate adapter options and credential presence before capacity checks or preparation, and rechecks during installation and execution. Missing names or values fail explicitly; there is no credential guessing or automatic Provider substitution.
+`credential_env` names the one authentication variable allowed into the isolated model service. It must match the selected Provider. The value is resolved by Models using the normal order: process environment, workspace `.env`, then global `.env`. Only the selected value is transferred; `.env` files and unrelated variables are not copied. Do not put keys in profiles. Host Keychain and OAuth state are not supported by this isolated deployment.
 
-The isolated deployment currently supports one environment-variable credential; it does not migrate host Keychain or OAuth state. A private temporary file transfers credentials to the model service and is deleted after reading. Authentication uses a separate environment snapshot rather than ambient process variables or `.env`. Credentials do not enter the solver container or configuration snapshots. Automatic preparation retains model configuration copies and their `omni-config-snapshot.json` hashes in the job directory. These do not affect image cache identity, so changing only the model does not rebuild images.
+`prepare` requires neither model configuration nor credentials. `check` checks adapter option structure without resolving models, validating credentials, or calling a model. Real `run` invokes the formal App/Models validation during Harbor preflight before capacity checks and preparation, then captures and validates again during Agent installation. Both automatic preparation and native `--config` runs use this same adapter path. No model request is made by these checks.
+
+Each trial stores its public layered configuration and merged Provider definitions under `agent/configuration/`, with source paths and file hashes in `snapshot.json`. One snapshot feeds both solver configuration and the model service. Provider definitions and credentials go only to the model service; the solver receives the Agent configuration layers. Credentials are transferred through a private temporary file that the model service consumes and deletes. They are absent from the public snapshot. Configuration does not enter the image cache key, so changing only a model does not rebuild images.
 
 - Choose exactly one of `--all`, `--task`, `--first`, or `--sample`. Repeat `--task` for multiple IDs; invalid or duplicate IDs are rejected.
 - `--first N` follows manifest order. `--sample N --seed S` samples without replacement; selected IDs are then ordered by the manifest. Recorded IDs are authoritative rather than future resampling.
@@ -113,7 +113,7 @@ benchmark/.venv/bin/python -m benchmark.run run \
 
 `smoke.yaml` runs real Omni against a deterministic local HTTP model, without paid API calls. Harbor Oracle also runs reference controls. Oracle is not evidence of integrating a second real Agent framework.
 
-Image preparation may download dependencies; solver setup injects configuration into prepared images. `preparation.json` records image IDs, source archive and dependency-lock hashes, and the task configuration hash. Automatic preparation separately saves model configuration copies and `omni-config-snapshot.json` in the job. Native `--config` does not copy these external configuration files automatically; retain their referenced versions yourself. Personal configuration, `.env`, and run artifacts are excluded from the source archive.
+Image preparation may download dependencies; solver setup injects configuration into prepared images. `preparation.json` records image IDs, source archive and dependency-lock hashes, and the task configuration hash. Model configuration is captured per trial during Agent installation, using the same path for automatic and native runs. Personal configuration, `.env`, and run artifacts are excluded from the source archive.
 
 The fixture model is confined to `tasks/execution-contract/model-server.py`; Omni fixture configuration belongs to `adapters/omni/fixtures/`. Old smoke/isolation-probe tasks and their execution protocols have been removed.
 
@@ -240,12 +240,12 @@ pnpm run benchmark prepare --first 3 --jobs-dir /path/shared-with-docker/jobs
 pnpm run benchmark run --profile benchmark/configs/omni.local.json --first 3 --concurrency 3 --jobs-dir /path/shared-with-docker/jobs
 ```
 
-Configure the Docker context and export required credentials before real runs. The shared entry does not load host `.env`, guess sockets, or start Docker. `prepare` requires no credentials; real `run` checks them before preparation. Build and healthcheck containers receive no model credentials. `check` validates configuration/plugin declarations, not readiness.
+Configure the Docker context and export required credentials before real runs. The shared entry does not parse `.env`, guess sockets, or start Docker. The Omni adapter delegates selected credential resolution to Models. `prepare` needs neither model configuration nor credentials; real `run` checks configuration before preparation. Build and healthcheck containers receive no model credentials. `check` validates configuration/plugin declarations, not readiness.
 
 Preparation plugins are trusted local Python code explicitly selected by `entrypoint=module:Class`; the shared layer does not dispatch on task, language, or Agent names.
 
 - Taskpacks receive options, the profile directory, and manifest. `resolve(task, requirements)` returns pinned inputs; `prepare(task, output, resolved)` invokes the task preparer.
-- Adapters receive options, the profile directory, and execution configuration. `snapshot(work)` validates configuration and returns `identity`, `requirements`, and private snapshot information. `prepare(task, output, snapshot)` packages the Agent into the Harbor task contract. Adapters may replace execution paths with frozen copies; shared code does not interpret model configuration or credentials.
+- Adapters receive options, the profile directory, and execution configuration. `snapshot(work)` captures build inputs and returns `identity`, `requirements`, and private build information. `prepare(task, output, snapshot)` packages the Agent into the Harbor task contract. Omni captures runtime model configuration separately at trial installation; shared preparation code does not interpret it or credentials.
 - Plugin entrypoint source and repository preparation code participate in cache identity. External dependencies, templates, files, and versions must enter the plugin's `resolve` result or `snapshot.identity`; undeclared mutable inputs are unsupported.
 - Taskpacks, upstream Dockerfiles, and runtime declarations own dependencies. Healthchecks verify declared probes, not arbitrary software or business tests.
 

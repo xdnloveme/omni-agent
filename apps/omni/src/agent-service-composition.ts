@@ -18,6 +18,7 @@ export interface AgentServiceCompositionOptions {
   readonly modelService?: AgentModelService;
   readonly traceEnabled?: boolean;
   readonly cwd: string;
+  readonly configurationDirectory?: string;
   readonly globalDirectory: string;
   readonly resolutionBase: string;
   readonly agentPackagesDirectory: string;
@@ -35,14 +36,14 @@ export async function createAgentServiceComposition(
 ): Promise<AgentServiceComposition> {
   const workspace = await resolveWorkspaceContext(options.cwd);
   const configService = new ConfigService({
-    cwd: workspace.root,
-    globalDirectory: options.globalDirectory,
+    cwd: options.configurationDirectory ?? workspace.root,
+    globalDirectory: options.configurationDirectory ?? options.globalDirectory,
   });
   const modelService =
     options.modelService ??
     (await createModelService({
-      cwd: workspace.root,
-      globalDirectory: options.globalDirectory,
+      cwd: options.configurationDirectory ?? workspace.root,
+      globalDirectory: options.configurationDirectory ?? options.globalDirectory,
     }));
   try {
     const catalog = createDefaultAgentPackageCatalog({

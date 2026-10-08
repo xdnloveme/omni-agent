@@ -2,7 +2,6 @@
 
 import json
 import asyncio
-import os
 import shlex
 import tempfile
 import time
@@ -18,6 +17,7 @@ from pydantic import Field
 from .evidence import populate_evidence
 from .instruction import prepare_instruction
 from .model_channel import model_channel, SOCKET
+from .configuration import capture_configuration
 
 ROOT = Path(__file__).resolve().parents[3]
 REMOTE_OUTPUT = "/home/benchmark-runner/output"
@@ -25,8 +25,10 @@ REMOTE_OUTPUT = "/home/benchmark-runner/output"
 
 class OmniOptions(InstalledAgentOptions):
     agent_id: str = Field(default="coding", pattern=r"^[a-z][a-z0-9-]*$")
-    config_file: Path = ROOT / "omni.config.json"
-    providers_file: Path = ROOT / "omni.providers.json"
+    configuration_cwd: Path = ROOT
+    global_directory: Path = Field(default_factory=lambda: Path.home() / ".omni-agent")
+    config_file: Path | None = None
+    providers_file: Path | None = None
     cleanup_grace_sec: int = Field(default=10, ge=1)
     credential_env: str = Field(pattern=r"^[A-Z][A-Z0-9_]*$")
 
@@ -48,31 +50,24 @@ class OmniAgent(BaseInstalledAgent):
         if not 1 <= self.process_timeout_sec <= 1800:
             raise ValueError("Invalid benchmark Agent budget")
 
-    @staticmethod
-    def _credential(options: OmniOptions) -> str:
-        key = os.environ.get(options.credential_env)
-        if not key:
-            raise ValueError(
-                f"Missing credential environment variable: {options.credential_env}"
-            )
-        return key
-
     @classmethod
     def preflight(cls, kwargs=None, env=None) -> None:
         options = cls.parse_options(kwargs, env)
-        cls._credential(options)
+        with tempfile.TemporaryDirectory(prefix="omni-config-check-") as directory:
+            capture_configuration(options, Path(directory) / "configuration")
 
     async def install(self, environment: BaseEnvironment) -> None:
-        # Validate before installation; re-read at run time rather than retaining secrets.
-        self._credential(self.options)
-        await self._exec(
-            environment,
-            "test -f /opt/omni/package.json && test -x /opt/omni-node/bin/node",
-        )
-        for source, destination in [
-            (self.options.config_file, "/installed-agent/omni.config.json"),
-        ]:
-            await environment.upload_file(source.resolve(), destination)
+        # One per-trial snapshot feeds both solver configuration and model service.
+        self._configuration = self.logs_dir / "configuration"
+        self._auth_environment = await asyncio.to_thread(capture_configuration, self.options, self._configuration)
+        await self._exec(environment, "test -f /opt/omni/package.json && test -x /opt/omni-node/bin/node")
+        await self.exec_as_root(environment, "install -d -m 755 /installed-agent/configuration")
+        # Provider definitions and credentials belong only in the model service.
+        for name in ("config.json", "omni.config.json"):
+            source = self._configuration / name
+            if source.exists():
+                await environment.upload_file(source, "/installed-agent/configuration/" + name)
+                await self.exec_as_root(environment, "chmod 644 /installed-agent/configuration/" + name)
         facts = await self._exec(
             environment, "cat /benchmark-audit/environment.json", user="root"
         )
@@ -88,7 +83,6 @@ class OmniAgent(BaseInstalledAgent):
     async def run(
         self, instruction: str, environment: BaseEnvironment, context: AgentContext
     ) -> None:
-        key = self._credential(self.options)
         with tempfile.TemporaryDirectory(prefix="omni-instruction-") as directory:
             path = Path(directory) / "instruction.txt"
             path.write_text(
@@ -107,8 +101,8 @@ class OmniAgent(BaseInstalledAgent):
                 self.options.agent_id,
                 "--input-file",
                 "/installed-agent/instruction.txt",
-                "--config-file",
-                "/installed-agent/omni.config.json",
+                "--configuration-dir",
+                "/installed-agent/configuration",
                 "--model-channel",
                 SOCKET,
                 "--output-dir",
@@ -150,11 +144,9 @@ class OmniAgent(BaseInstalledAgent):
         try:
             async with model_channel(
                 environment,
-                config_file=self.options.config_file,
-                providers_file=self.options.providers_file,
-                credential_env=self.options.credential_env,
+                configuration=self._configuration,
+                auth_environment=self._auth_environment,
                 agent_id=self.options.agent_id,
-                key=key,
                 logs_dir=self.logs_dir,
             ):
                 process_started = time.monotonic()

@@ -3,6 +3,7 @@ import {
   type OutputStorageLimits,
 } from "../persistence/session-artifact-store";
 import { join, resolve } from "node:path";
+import { readFile } from "node:fs/promises";
 import { isAgentId } from "@omni-agent/core";
 import { containsSecretField, type ConfigurationScope } from "@omni-agent/models";
 import { AtomicJsonFile } from "../persistence/atomic-json-file";
@@ -17,6 +18,7 @@ import {
 export interface ConfigServiceOptions {
   readonly cwd: string;
   readonly globalDirectory: string;
+  readonly projectFile?: string;
 }
 
 interface ConfigLayer {
@@ -39,7 +41,20 @@ export class ConfigService {
   constructor(options: ConfigServiceOptions) {
     const { cwd, globalDirectory } = options;
     this.globalPath = join(globalDirectory, "config.json");
-    this.projectPath = resolve(cwd, PROJECT_CONFIG_FILE);
+    this.projectPath = resolve(cwd, options.projectFile ?? PROJECT_CONFIG_FILE);
+  }
+
+  /** Preserve both input layers; resolution and diagnostics still belong to the normal loader. */
+  async snapshot(): Promise<{ global?: string; project?: string }> {
+    const read = async (scope: ConfigurationScope) => {
+      try {
+        return await readFile(this.path(scope), "utf8");
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
+        throw error;
+      }
+    };
+    return { global: await read("global"), project: await read("project") };
   }
 
   async resolveModel(agentId: string): Promise<ModelSelection | null> {
