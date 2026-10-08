@@ -1,8 +1,6 @@
 # 社区 Verified Mini 50 题基准 v1
 
-本目录是 Omni 当前选定的固定 50 题基准，完整采用 HAL 实际加载的题目集合，不自行增删或按 Omni 成绩换题。已核实任务身份与上游环境映射；首批三题已通过官方正负评分对照，真实运行已完成，三题均官方 resolved。当前证据见[三题报告](../../reports/verified-first3-2026-09-15.md)，历史评分阻塞见[预检报告](../../reports/verified-mini-preflight-2026-09-15.md)。
-
-[manifest.json](manifest.json) 是唯一运行清单来源，包含全部 ID、基线 commit、源文件哈希、环境引用和首批任务。此文件目前不是可直接执行的 Harbor YAML。
+本目录是固定 50 题基准，采用下列已锁定 HAL 版本加载的题目集合，不按 Omni 成绩换题。`manifest.json` 只维护题目身份、来源核对、覆盖范围与镜像引用；运行配置和每次结果分别由 profile 与 job 记录。
 
 ## 来源核验与更正
 
@@ -31,34 +29,12 @@ HAL loader 未固定 Hugging Face revision，所以这只能证明上述已锁�
 
 ## 上游环境与评分边界
 
-每题沿用对应 Harbor Verified 任务和 SWE-bench 基础镜像。清单中的 `upstream_image` 是上游标签引用，首批三题另有 `pinned_base_image` 固定 digest，其余题目尚未解析/固定 digest，不能称为全部运行环境已冻结；不同题仍可能使用不同镜像，25+25 题不意味着只有两个容器镜像。
+每题沿用对应 Harbor Verified 任务和 SWE-bench 基础镜像。`pinned_base_image` 存在时使用其 digest，否则准备时解析 `upstream_image` 并冻结；最终镜像身份记录在准备产物中。不同题目可能需要不同镜像，25+25 题不意味着只有两个镜像。
 
-题面核对发现：25 道 Django 题的空白行中制表符/空格被 Harbor 去除，25 道 Sphinx 题只涉及换行/首尾空白差异。全部 50 题在统一换行、清空纯空白行、去除整体首尾空白后文本相同。原始 HF 题面和 Harbor instruction 分别记录 SHA-256；此规范化只用于本次审计比较，不新增运行时题面清洗或兼容逻辑。
+题面核对发现：Django 题的纯空白行、Sphinx 题的换行与首尾空白存在上游格式差异。统一换行、清空纯空白行、去除整体首尾空白后，50 题文本一致；原始题面与 Harbor instruction 分别记录 SHA-256。这仅是来源核对方法，不是运行时题面清洗规则。
 
-静态映射通过不等于环境就绪。当前入口为 `python -m benchmark.taskpacks.swe.prepare`，显式指定数据集、任务和镜像；公共环境负责作答及评分两侧的 amd64 平台。首批原生 Oracle 发现上游 Python 评分器在断网阶段重新生成 TestSpec 时请求 GitHub，导致标准补丁测试通过却返回无效的 reward=0。空补丁 0 同样无效。
+通过正式 `pnpm run benchmark prepare` / `run` 入口准备和运行。准备阶段联网生成官方测试规范并执行空补丁与参考补丁对照；作答工具断网，提交封存后由独立评分环境按任务包声明访问官方测试资源。评分规则和参考材料不提供给作答 Agent。详见 [benchmark 契约与验收边界](../../README.md)。
 
-历史验收结论：**Ready with trade-offs**。下述首批三题结果属于当时的协议，不代表当前 v3 组合镜像已准备；使用新框架时必须重新准备并完成评分对照，其余题目同样需要逐题验收。用户已确认在联网准备阶段生成官方 TestSpec，断网评分阶段加载它并调用官方评分 API，替换原样执行上游脚本的契约。离线评分适配已实现并通过[首题 V0/V1 验收](../../reports/verified-offline-single-2026-09-15.md)，V2 三题验收已完成，V3 三题真实运行已完成，三题均官方 resolved；以[实施计划](../../../docs/plans/benchmark-integration-v1.md#官方离线评分契约修订2026-09-15已确认)的 V0–V4 门槛推进，不放开评分网络、不新增隐式回退。
+## 来源复核
 
-## 首批 3 题与运行门槛
-
-用户因用量将首批缩为 3 题，沿 HAL 文件的零基索引 `[0,12,25]` 取两道 Django 和一道 Sphinx。选法不读取得分，仅用于本轮试跑，不承诺统计代表性。固定 50 题及已锁定的上游镜像身份保持。
-
-| 题目                       | 上游标题                                                                                 |
-| -------------------------- | ---------------------------------------------------------------------------------------- |
-| `django__django-11790`     | AuthenticationForm's username field doesn't set maxlength HTML attribute.                |
-| `django__django-12193`     | SplitArrayField with BooleanField always has widgets checked after the first True value. |
-| `sphinx-doc__sphinx-10323` | Use of literalinclude prepend results in incorrect indent formatting for code eamples    |
-
-1. 通过既有准备入口生成首批任务，拉取并锁定镜像 digest，验证 amd64、系统兼容性、普通用户、`/testbed`、Conda/Python/测试依赖和 Omni 私有工具链隔离。
-2. 在可信独立评分侧逐题做空补丁 reward=0、标准补丁 reward=1 对照，验证基线恢复、离线执行与提交交接；参考答案和评分材料不进入 Agent 执行环境。不另写评分器。
-3. 通过门槛后使用 `python -m benchmark.run run` 运行。每题一次、并发 1、Harbor 无重试；Agent 1800 秒、外层 1830 秒。保留每次原生 Trace、源码快照、输入/配置、最终补丁、官方评分和用量；时间上限不是费用上限。
-4. 先验收首批三题证据，再准备其余 47 题。环境/评分故障必须单独报告，不当成 Agent 解题失败，也不悄悄换题；发生重跑必须关联并保留原尝试。
-5. 首次完整报告同时给出解决数/50、环境未完成数、取消数、Trace 完整性、耗时和可核实用量。环境未完成时不把较小分母的通过率冒充 50 题成绩；对小幅版本差异复测，逐题比较而非只看总分。
-
-## 复核与本次验证
-
-可按清单锁定的 Git commit/HF revision 取回源文件，校验文件 SHA-256；比较 HAL 文件、作者优化 JSON 和 Mini parquet 的 ID 集合应都为同一 50 题。与父集只读取公开列进行比较：instance_id、repo、base_commit、environment_setup_commit、version、problem_statement；不需要读取参考补丁或测试补丁。
-
-本次已完成上述三方 ID、父集元数据、50 份 Harbor 配置解析和 150 个 Harbor 源文件哈希核验。临时下载与分析文件放在工作区外，不进入 Git。现有 benchmark/jobs/、benchmark/artifacts/ 忽略规则继续用于后续运行，不增加另一套日志写入器。
-
-题集冻结阶段的静态检查结果仍有效；后续镜像、Oracle 和无效负对照结果以运行报告为准。本轮真实运行及用量以[三题报告](../../reports/verified-first3-2026-09-15.md)为准，不外推全量成绩。
+按清单的 Git commit/HF revision 获取源文件并校验 SHA-256。HAL 文件、作者优化 JSON 和 Mini 数据集的 ID 集合应为同一 50 题。与父集比较公开题目元数据，不需要读取参考补丁或测试补丁。题目身份核对不等于当前环境可启动，也不等于 Agent 已通过题目。

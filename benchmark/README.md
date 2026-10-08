@@ -1,7 +1,5 @@
 # Benchmark
 
-当前实现与验收边界见[2026-09-19 收尾报告](reports/closeout-2026-09-19.md)。
-
 基于 Harbor 0.23.0 的 Agent 评测环境。公共机制不绑定待测框架；Omni 是第一个适配器，SWE 是第一个任务包。当前支持 Linux Debian/Ubuntu amd64 容器。
 
 ## 职责
@@ -55,13 +53,13 @@ pnpm run benchmark report benchmark/jobs/JOB_ID
 默认配置为 `configs/default.json`，可用 `--profile PATH` 替换。配置中的 `manifest`、`task_root` 相对于配置文件目录解析；命令行路径相对于当前工作目录解析。`execution` 是已有 Harbor 作业配置，适配器及其 Provider 配置仍由适配器负责，公共选题层不读取模型凭据。默认 Omni 使用 `ARK_AGENT_PLAN_API_KEY` 环境变量及已有 `omni.config.json`、`omni.providers.json`；需要切换配置文件时修改 `execution.agents[].kwargs` 的 `config_file` / `providers_file`，不要把密钥写入 profile。
 
 - 必须显式选择 `--all` / `--task` / `--first` / `--sample` 之一，互斥；`--task` 可重复，错误或重复 ID 会拒绝执行。
-- `--first N` 使用清单顺序，**不是之前人工选出的 first_batch**。`--sample N --seed S` 不放回抽样，最终仍按清单顺序执行；运行记录保留确切 ID，不依赖将来重新抽样。
+- `--first N` 使用清单顺序。`--sample N --seed S` 不放回抽样，最终仍按清单顺序执行；运行记录保留确切 ID，不依赖将来重新抽样。
 - `--concurrency N` 必须为正整数，覆盖配置值；默认 1。5 表示 Harbor 同时最多执行 5 道，一道结束即补下一道，不是每 5 道等待全部完成。每题仍只尝试一次，禁止自动重试。
 - `--timeout` 覆盖每题 Agent 执行时间（1–1800 秒），不包含镜像准备和 Agent setup；现有收尾宽限保持不变。
 - 每次 `run` 冻结有效配置、选题 ID、seed、清单/profile SHA-256，复用每题 Trace、产物和报告索引。日志及准备产物继续由 `.gitignore` 排除。
 - `--config` 是完整原生配置输入，与 suite 参数互斥；两种输入在执行前收敛到同一个校验和运行入口。`run` 默认标记 `paid`；`--kind fixture` 仅声明证据类型，**不会将真实 Provider 变成免费模型**。
 
-**准备边界：** 默认 profile 声明自动准备插件，`run` 按选题准备并验证环境，再进入 Harbor；`prepare` 执行同样的准备与预检，但不调用模型。缓存由内容身份区分，`--task-root` 指定其根目录。未声明准备插件的 profile 和原生 `--config` 引用已准备任务，继续走同一个运行入口；`prepare` 要求显式的准备插件。`list` 和 `check` 不判断镜像是否可启动。环境健康检查复用 Harbor 的启动、探针和清理机制；50 题全部环境、评分正负对照及 5 路并行仍需单独验证。
+**准备边界：** 默认 profile 声明自动准备插件，`run` 按选题准备并验证环境，再进入 Harbor；`prepare` 执行同样的准备与预检，但不调用模型。缓存由内容身份区分，`--task-root` 指定其根目录。未声明准备插件的 profile 和原生 `--config` 引用已准备任务，继续走同一个运行入口；`prepare` 要求显式的准备插件。`list` 和 `check` 不判断镜像是否可启动。环境健康检查复用 Harbor 的启动、探针和清理机制，依次启动作答环境与独立评分环境，任一失败即停止进入作答；原生配置也使用同一检查。检查不调用模型、不执行评分、不降低题目资源要求，每阶段结束都清理容器。它验证当时单个环境能否启动，不保证后续资源始终可用或并发容量。50 题构建及官方评分正负对照已完成，新增两阶段预检的真实容器验收及真实 Provider 5 路并行尚未完成。
 
 ## 免费完整链路
 
@@ -108,7 +106,7 @@ benchmark/.venv/bin/python -m benchmark.taskpacks.swe.prepare \
 
 随后使用 Omni `prepare` 准备组合镜像，并在原生配置中引用新的任务目录。其他 Agent 通过 Harbor 原生接口接入，任务评分和产物收集不随适配器改变。
 
-新协议为 `isolated-swe-v3`；历史 v2/v7 派生任务必须重新准备，检查入口拒绝旧交接契约，不自动回退。固定 50 题清单和历史成绩保留，本轮不扩跑、不产生排行榜成绩。当前三题及难题配置分别引用 `artifacts/tasks/verified-mini/`、`artifacts/tasks/verified-hard1/` 下重新准备的任务；不再引用历史 v7 目录，运行前必须完成准备。
+当前协议为 `isolated-swe-v3`。不符合当前交接契约的派生任务必须重新准备，检查入口不自动回退。默认 profile 使用固定 50 题清单，通过 `--task`、`--first`、`--sample` 或 `--all` 选择任务并自动准备。
 
 ## 环境声明与时限
 
@@ -138,7 +136,7 @@ benchmark/.venv/bin/python -m benchmark.taskpacks.swe.prepare \
 
 Agent 启动前建立一次性 Unix socket 会话；服务端删除监听入口后才允许 Agent 开始工作。工具子进程不继承连接，不能重新连接模型入口。取消或断连会终止 Provider 工作，没有直连回退。该边界覆盖所有工具的网络，不依赖工具名或命令黑名单；进程内扩展仍是受信任代码。
 
-模型通道历史验收见[隔离通道报告](reports/model-channel-isolation-2026-09-18.md)，当前评分边界见[评分网络调整报告](reports/verifier-network-alignment-2026-09-19.md)，职责和变更范围见[原计划修订](../docs/plans/benchmark-integration-v1.md)。旧缓存会由已有实现摘要失效并重建；不要把历史题目就绪证明视为新通道的验收。
+旧缓存会由已有实现摘要失效并重建；不要把历史题目就绪证明视为新通道的验收。
 
 ## 交接与错误语义
 
@@ -167,7 +165,9 @@ benchmark/jobs/<job>/
 
 适配器通过 `AgentContext.metadata.benchmark_evidence` 发布 version=1 的引用，每项包含 kind、trial 内相对 path、media_type、producer。公共索引检查文件边界、存在性、大小和摘要；Omni 自行解析 Trace，不在公共入口硬编码其目录。
 
-`analysis-index.json` 的 `verifier_artifacts` 完整索引评分目录中的文件，保留路径、存在性、大小和 SHA-256，不解析具体任务包格式。SWE 的 `error.json` 由评分器记录 version、stage、原始异常及可获得的命令/退出码；阶段包括资产校验、工作区校验、补丁应用、执行、报告解析和结果发布。阶段表示失败位置，不表示责任归属，官方分数与 Harbor 异常均保留原样。详见[诊断验收](reports/grading-diagnostics-2026-09-19.md)。
+`analysis-index.json` 的 `verifier_artifacts` 完整索引评分目录中的文件，保留路径、存在性、大小和 SHA-256，不解析具体任务包格式。SWE 的 `error.json` 由评分器记录 version、stage、原始异常及可获得的命令/退出码；阶段包括资产校验、工作区校验、补丁应用、执行、报告解析和结果发布。阶段表示失败位置，不表示责任归属，官方分数与 Harbor 异常均保留原样。
+
+索引的 `completion` 按冻结选题和配置快照中的“题目 × Agent 配置”与 Harbor 原生结果核对，分别标记漏题、重复、执行异常、未评分和已评分；有效零分属于已评分。无法取得选题依据时明确为 unknown，准备任务为 not_applicable。`runs` 列出每个组合的任务 ID、Agent 配置摘要和状态；同题不同 Agent 或模型属于不同执行项。启动器退出 0 不代表任务全部完成，应检查 `completion` 及原始结果。原生结果无效时不发布其中的分数、费用等事实；附加证据声明无效只影响证据状态，保留有效原生评分。
 
 文件存在不代表 Trace 完整，Trace 完整不代表解题成功。缺失、无效、未提供和不完整分别呈现；费用未知不记为零，不用末轮估算 Token 充当整题账单。失败和超时仍保留原始产物，无法取回时明确缺失。
 
@@ -188,9 +188,11 @@ BENCHMARK_TEST_IMAGE=PREPARED_IMAGE_ID \
 
 真实容器测试覆盖残留进程、收集失败、提交校验、网络及文件边界；未提供镜像时明确跳过，不冒充容器验证。SWE 官方评分测试使用 `OMNI_TEST_VERIFIER_IMAGE` 指定预先准备的评分镜像。
 
-完整范围、阶段门槛和历史证据见 [实施计划](../docs/plans/benchmark-integration-v1.md)。
+固定 50 题已完成镜像构建及官方空补丁 0 / 参考补丁 1 对照（2026-10-04），这不是 Agent 50 题通过率。免费夹具覆盖并发、取消和隔离生命周期；真实 Provider 五并发、长期稳定性和新增两阶段启动预检的真实容器验收仍未完成。现阶段适合内部验证，不声明排行榜等价、多语言全覆盖或对抗性多租户安全。
 
-独立联网评分的免费端到端验收见[生命周期报告](reports/public-verifier-lifecycle-2026-09-19.md)。`test_public_verifier_starts_after_sealed_solver_stops` 复用上述容器验收配置，验证作答封存写入拒绝、Docker 停止/启动顺序、交接摘要和评分公网请求。该用例需要评分容器能够访问 example.com；不调用付费 Provider。
+运行证据按 job 保存在忽略目录；实施计划、逐次诊断和机器运维记录不属于运行配置或正式契约。环境证明绑定其源码和镜像版本，不能代替新版本验收。
+
+`test_public_verifier_starts_after_sealed_solver_stops` 复用上述容器验收配置，验证作答封存写入拒绝、Docker 停止/启动顺序、交接摘要和评分公网请求。该用例需要评分容器能够访问 example.com；不调用付费 Provider。
 
 旧 allowlist 探针已随该运行方案移除，历史脚本和结果保留在忽略目录。当前网络验收由真实工具探针 `tasks/execution-contract/probe-network.py` 与生命周期测试共同完成。
 
@@ -318,4 +320,4 @@ benchmark/.venv/bin/python -m unittest benchmark.tests.test_lifecycle_containers
 
 正式 prepare/run 自动在准备前及准备完成/执行前采集容量，写入 invocation.json.capacity 并打印摘要。记录宿主 jobs/task_cache 文件系统、已有所选任务镜像看到的 Docker 根文件系统、题数和并发。共享文件系统不得相加，容器根文件系统不代表所有挂载卷容量。
 
-需求与是否足够明确为未知，不按题数猜测空间，不自动拦截、调整并发或删除资产。完全冷启动没有本地任务镜像时 Docker 空间为 unknown；不额外拉取探测镜像，准备后再次采集。详情和实测见[容量预检报告](reports/capacity-preflight-2026-09-19.md)。
+需求与是否足够明确为未知，不按题数猜测空间，不自动拦截、调整并发或删除资产。完全冷启动没有本地任务镜像时 Docker 空间为 unknown；不额外拉取探测镜像，准备后再次采集。

@@ -85,7 +85,6 @@ def check_images(task):
 def check_environment(task, work, execution):
     """Reuse Harbor startup and healthcheck semantics without starting any Agent."""
     from harbor.environments.factory import EnvironmentFactory
-    from harbor.models.task.config import NetworkPolicy
     from harbor.models.trial.config import EnvironmentConfig
     from harbor.models.trial.paths import TrialPaths, EnvironmentPaths
     from harbor.trial.artifact_handler import ArtifactHandler
@@ -93,6 +92,7 @@ def check_environment(task, work, execution):
     config = check_images(task)
     if config.environment.healthcheck is None:
         raise ValueError("Prepared task must declare an environment healthcheck")
+    runtime = EnvironmentConfig.model_validate(execution.get("environment", {}))
     paths = TrialPaths(work)
     paths.mkdir()
     name = "benchmark-readiness-" + uuid.uuid4().hex
@@ -101,41 +101,53 @@ def check_environment(task, work, execution):
     handler = logging.FileHandler(work / "environment.log")
     logger.addHandler(handler)
     logger.propagate = False
-    environment = EnvironmentFactory.create_environment_from_config(
-        config=EnvironmentConfig.model_validate(execution.get("environment", {})),
-        environment_dir=task / "environment",
-        environment_name=task.name,
-        session_id=name,
-        trial_paths=paths,
-        task_env_config=config.environment,
-        logger=logger,
-        network_policy=NetworkPolicy(network_mode="no-network"),
-    )
 
     async def validate():
-        started = False
-        try:
-            await asyncio.wait_for(
-                environment.start(force_build=False),
-                config.environment.build_timeout_sec,
+        # Use Harbor's resource enforcement for each phase; never guess capacity
+        # or reduce the task's requirements to fit the current machine.
+        phases = [("agent", config.environment, task / "environment", runtime)]
+        if config.verifier.environment_mode == "separate":
+            phases.append(
+                (
+                    "verifier", config.verifier.environment, task / "tests",
+                    runtime.model_copy(update={"extra_docker_compose": []}),
+                )
             )
-            started = True
-            await environment.run_healthcheck()
-        finally:
+        for phase, settings, context, execution_config in phases:
+            phase_paths = paths if phase == "agent" else TrialPaths(work / phase)
+            phase_paths.mkdir()
+            environment = EnvironmentFactory.create_environment_from_config(
+                config=execution_config,
+                environment_dir=context,
+                environment_name=task.name,
+                session_id=name + "-" + phase,
+                trial_paths=phase_paths,
+                task_env_config=settings,
+                logger=logger,
+                network_policy=settings.resolve_baseline(),
+            )
+            started = False
             try:
-                if started:
-                    # Retain declared probe artifacts on both success and healthcheck failure.
-                    await ArtifactHandler(
-                        artifacts=config.artifacts, logger=logger
-                    ).download_artifacts(
-                        environment,
-                        paths.artifacts_dir,
-                        source_artifacts_dir=EnvironmentPaths.for_os(
-                            config.environment.os
-                        ).artifacts_dir,
-                    )
+                await asyncio.wait_for(
+                    environment.start(force_build=False),
+                    settings.build_timeout_sec,
+                )
+                started = True
+                await environment.run_healthcheck()
             finally:
-                await environment.stop(delete=True)
+                try:
+                    if started and phase == "agent":
+                        await ArtifactHandler(
+                            artifacts=config.artifacts, logger=logger
+                        ).download_artifacts(
+                            environment,
+                            paths.artifacts_dir,
+                            source_artifacts_dir=EnvironmentPaths.for_os(
+                                settings.os
+                            ).artifacts_dir,
+                        )
+                finally:
+                    await environment.stop(delete=True)
 
     try:
         asyncio.run(validate())

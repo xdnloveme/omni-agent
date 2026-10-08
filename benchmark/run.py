@@ -38,6 +38,14 @@ def evidence_file(trial, relative):
     return item
 
 
+def agent_identity(value):
+    """Normalize persisted Agent configuration with Harbor's own defaults/redaction."""
+    from harbor.models.trial.config import AgentConfig
+
+    normalized = AgentConfig.model_validate(value).model_dump(mode="json")
+    return hashlib.sha256(json.dumps(normalized, sort_keys=True).encode()).hexdigest()
+
+
 def index_job(job):
     job = Path(job).resolve()
     trials = []
@@ -63,43 +71,66 @@ def index_job(job):
         references = []
         state = "not_provided"
         native = {}
+        agent_id = None
         try:
             # Interpretation must respect the same artifact boundary as indexing.
             if files["harbor_result"]["state"] == "invalid":
                 raise ValueError("Invalid Harbor result artifact")
             native = json.loads((trial / "result.json").read_text())
             if not isinstance(native, dict):
-                native = {}
                 raise ValueError("Harbor result must be an object")
-            declaration = (
-                (native.get("agent_result") or {}).get("metadata") or {}
-            ).get("benchmark_evidence")
-            if declaration is not None:
-                if declaration.get("version") != 1 or not isinstance(
-                    declaration.get("items"), list
+            if native.get("config") is not None:
+                agent_id = agent_identity(native["config"]["agent"])
+            # Validate the consumed native fields before publishing any facts.
+            for key in (
+                "exception_info",
+                "environment_setup", "agent_setup", "agent_execution", "verifier",
+            ):
+                if native.get(key) is not None and not isinstance(native[key], dict):
+                    raise ValueError("Invalid Harbor result field: " + key)
+            if native.get("task_name") is not None and not isinstance(native["task_name"], str):
+                raise ValueError("Invalid Harbor task identity")
+            from harbor.models.agent.context import AgentContext
+            from harbor.models.verifier.result import VerifierResult
+
+            for field, model in (("agent_result", AgentContext), ("verifier_result", VerifierResult)):
+                if native.get(field) is not None:
+                    model.model_validate(native[field])
+        except FileNotFoundError:
+            pass
+        except (ValueError, TypeError, KeyError, OSError):
+            agent_id = None
+            native = {}
+            state = "invalid"
+            files["harbor_result"]["state"] = "invalid"
+        agent_context = native.get("agent_result") or {}
+        declaration = (agent_context.get("metadata") or {}).get("benchmark_evidence")
+        if declaration is not None:
+            try:
+                if (
+                    not isinstance(declaration, dict)
+                    or declaration.get("version") != 1
+                    or not isinstance(declaration.get("items"), list)
                 ):
                     raise ValueError("Invalid evidence declaration")
                 for entry in declaration["items"]:
-                    if set(entry) != {
-                        "kind",
-                        "path",
-                        "media_type",
-                        "producer",
-                    } or not all(isinstance(v, str) for v in entry.values()):
+                    if (
+                        not isinstance(entry, dict)
+                        or set(entry) != {"kind", "path", "media_type", "producer"}
+                        or not all(isinstance(v, str) for v in entry.values())
+                    ):
                         raise ValueError("Invalid evidence reference")
                     references.append({**entry, **evidence_file(trial, entry["path"])})
                 state = "provided"
-        except FileNotFoundError:
-            pass
-        except (ValueError, TypeError, AttributeError, OSError):
-            state = "invalid"
-            files["harbor_result"]["state"] = "invalid"
-        agent_context = native.get("agent_result")
-        if not isinstance(agent_context, dict):
-            agent_context = {}
+            except ValueError:
+                # Extension evidence is independent of the native official score.
+                references = []
+                state = "invalid"
         trials.append(
             {
                 "trial": trial.name,
+                "task_id": native.get("task_name"),
+                "agent_id": agent_id,
                 "artifacts": files,
                 # Taskpacks own file formats and diagnostic semantics. Index every
                 # verifier artifact without interpreting task-specific contents.
@@ -126,10 +157,76 @@ def index_job(job):
                 },
             }
         )
-    result = {"version": 2, "indexed_at": timestamp(), "trials": trials}
+    result = {
+        "version": 2, "indexed_at": timestamp(), "trials": trials,
+        "completion": job_completion(job, trials),
+    }
     job.mkdir(parents=True, exist_ok=True)
     write_json(job / "analysis-index.json", result)
     return result
+
+
+def job_completion(job, trials):
+    """Reconcile frozen selection with native identities, never directory-name guesses."""
+    import yaml
+    from harbor.models.job.config import JobConfig
+
+    invocation = job / "invocation.json"
+    if not invocation.exists():
+        return {"state": "unknown", "reason": "missing_invocation"}
+    try:
+        record = json.loads(invocation.read_text())
+        if record.get("kind") == "preparation":
+            return {"state": "not_applicable"}
+        config = yaml.safe_load((job / record["config_snapshot"]).read_text())
+        agents = [
+            agent_identity(a.model_dump(mode="json"))
+            for a in JobConfig.model_validate(config).agents
+        ]
+        if not agents or len(set(agents)) != len(agents):
+            raise ValueError("Duplicate or missing Agent configurations")
+        expected = record.get("selection", {}).get("task_ids")
+        if expected is None:
+            # This entry accepts local prepared tasks; Harbor names them by directory.
+            expected = [Path(task["path"]).name for task in config["tasks"]]
+        if (
+            not isinstance(expected, list) or not expected
+            or any(not isinstance(t, str) or not t for t in expected)
+            or len(set(expected)) != len(expected)
+        ):
+            raise ValueError("Invalid expected task identities")
+    except (ValueError, TypeError, KeyError, AttributeError, OSError, yaml.YAMLError):
+        return {"state": "unknown", "reason": "invalid_expected_tasks"}
+    expected_runs = [(task, agent) for task in expected for agent in agents]
+    runs = []
+    for task_id, agent_id in expected_runs:
+        matches = [
+            trial for trial in trials
+            if (trial["task_id"], trial["agent_id"]) == (task_id, agent_id)
+        ]
+        if not matches:
+            state = "missing"
+        elif len(matches) != 1:
+            state = "duplicate"
+        elif matches[0]["exception"] is not None:
+            state = "execution_failed"
+        elif not (matches[0]["score"] or {}).get("rewards"):
+            state = "unscored"
+        else:
+            state = "scored"
+        runs.append({
+            "task_id": task_id, "agent_id": agent_id, "state": state,
+            "trials": [t["trial"] for t in matches],
+        })
+    unexpected = [
+        t["trial"] for t in trials
+        if (t["task_id"], t["agent_id"]) not in expected_runs
+    ]
+    return {
+        "state": "complete" if all(r["state"] == "scored" for r in runs) and not unexpected else "incomplete",
+        "expected_count": len(expected_runs), "actual_count": len(trials),
+        "runs": runs, "unexpected_trials": unexpected,
+    }
 
 
 def check_config(config, *, validate_tasks=True):
@@ -319,6 +416,16 @@ def tracked_run(config, jobs_dir, kind, selection=None, *, prepare_only=False):
             )
         )
         write_json(job / "invocation.json", record)
+        if not (selection and "preparation" in selection):
+            from benchmark.preparation import check_environment
+
+            for index, task in enumerate(compiled.get("tasks", [])):
+                path = Path(task["path"])
+                check_environment(
+                    path if path.is_absolute() else ROOT / path,
+                    job / "preparation" / str(index) / "readiness",
+                    compiled,
+                )
         verify_log_mount(job, compiled)
         if prepare_only:
             record.update(state="prepared", exit_code=0)
