@@ -44,11 +44,20 @@ export class ConfigService {
     this.projectPath = resolve(cwd, options.projectFile ?? PROJECT_CONFIG_FILE);
   }
 
-  /** Preserve both input layers; resolution and diagnostics still belong to the normal loader. */
+  /** Validate every exported layer before delivery; model precedence remains with the loader. */
   async snapshot(): Promise<{ global?: string; project?: string }> {
     const read = async (scope: ConfigurationScope) => {
       try {
-        return await readFile(this.path(scope), "utf8");
+        const text = await readFile(this.path(scope), "utf8");
+        let value: unknown;
+        try {
+          value = JSON.parse(text);
+        } catch {
+          // JSON parser diagnostics can quote secret-bearing input.
+          throw new InvalidConfigError(`Cannot export invalid ${scope} configuration`);
+        }
+        assertSecretFreeConfig(value);
+        return text;
       } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
         throw error;
@@ -212,7 +221,8 @@ export class ConfigService {
 
 class InvalidConfigError extends Error {}
 
-function assertSecretFreeConfig(config: OmniConfig): void {
+function assertSecretFreeConfig(config: unknown): void {
+  if (!isRecord(config)) throw new InvalidConfigError("Configuration must be an object");
   const { mcp, ...modelConfig } = config;
   if (containsSecretField(modelConfig) || containsMcpSecrets(mcp)) {
     throw new InvalidConfigError("Secret values are not allowed in model configuration");

@@ -108,3 +108,63 @@ it("preserves absence without inventing a model or requiring project configurati
     await new ConfigService({ cwd: output, globalDirectory: output }).resolveModel("coding"),
   ).toBeNull();
 });
+
+it.each([
+  ["project", "model"],
+  ["global", "model"],
+  ["project", "mcp"],
+  ["global", "mcp"],
+  ["project", "malformed"],
+  ["global", "malformed"],
+] as const)("rejects unsafe %s %s input before publishing any snapshot", async (scope, kind) => {
+  const root = await mkdtemp(join(tmpdir(), "configuration-unsafe-"));
+  roots.push(root);
+  const project = join(root, "project"),
+    global = join(root, "global"),
+    output = join(root, "snapshot");
+  await mkdir(project);
+  await mkdir(global);
+  const secret = "synthetic-export-secret";
+  // A project Agent override must not exempt the unused global layer from export checks.
+  const valid = { model: model("shared"), agents: { coding: { model: model("selected") } } };
+  await writeFile(join(project, "omni.config.json"), JSON.stringify(valid));
+  await writeFile(join(global, "config.json"), JSON.stringify(valid));
+  const unsafe =
+    kind === "malformed"
+      ? `{"password":"${secret}"`
+      : JSON.stringify({
+          ...valid,
+          ...(kind === "model"
+            ? { settings: { apiKey: secret } }
+            : {
+                mcp: {
+                  servers: [
+                    {
+                      id: "private",
+                      transport: "streamable_http",
+                      url: "https://example.invalid/mcp",
+                      headers: { Authorization: secret },
+                    },
+                  ],
+                },
+              }),
+        });
+  await writeFile(
+    scope === "project" ? join(project, "omni.config.json") : join(global, "config.json"),
+    unsafe,
+  );
+  let failure: unknown;
+  try {
+    await captureModelConfiguration({
+      cwd: project,
+      globalDirectory: global,
+      credentialEnvironment: "SNAPSHOT_MISSING_KEY",
+      outputDirectory: output,
+    });
+  } catch (error) {
+    failure = error;
+  }
+  expect(failure).toBeInstanceOf(Error);
+  expect(String(failure)).not.toContain(secret);
+  expect(await readdir(root)).not.toContain("snapshot");
+});

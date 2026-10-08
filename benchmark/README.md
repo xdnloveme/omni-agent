@@ -75,6 +75,8 @@ Optional `config_file` and `providers_file` override the project-layer input fil
 
 `prepare` requires neither model configuration nor credentials. `check` checks adapter option structure without resolving models, validating credentials, or calling a model. Real `run` invokes the formal App/Models validation during Harbor preflight before capacity checks and preparation, then captures and validates again during Agent installation. Both automatic preparation and native `--config` runs use this same adapter path. No model request is made by these checks.
 
+Before any snapshot is written, every configuration layer (including overridden layers and MCP fields) is checked with the existing secret-field policy. Secret-bearing or unparseable input is rejected without quoting its contents; runtime model precedence is unchanged.
+
 Each trial stores its public layered configuration and merged Provider definitions under `agent/configuration/`, with source paths and file hashes in `snapshot.json`. One snapshot feeds both solver configuration and the model service. Provider definitions and credentials go only to the model service; the solver receives the Agent configuration layers. Credentials are transferred through a private temporary file that the model service consumes and deletes. They are absent from the public snapshot. Configuration does not enter the image cache key, so changing only a model does not rebuild images.
 
 - Choose exactly one of `--all`, `--task`, `--first`, or `--sample`. Repeat `--task` for multiple IDs; invalid or duplicate IDs are rejected.
