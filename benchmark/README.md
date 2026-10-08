@@ -8,7 +8,7 @@
 - `adapters/omni/`：组合镜像中的 Omni 安装、启动、输入投影和原生 Trace。
 - `environments/runtime.py`：任务运行时声明、探针和环境准备。
 - `environments/handoff.py`：普通用户进程收尾、产物封存和统一交接校验。
-- `taskpacks/swe/`：上游任务准备、唯一 Git 补丁收集器、官方离线评分。
+- `taskpacks/swe/`：上游任务准备、唯一 Git 补丁收集器、独立官方评分及其网络策略。
 
 复用 Harbor BaseInstalledAgent/BaseAgent、task.toml、AgentContext、collect 和 artifacts。不新增调度器或模型客户端，不修改 Agent 策略。
 
