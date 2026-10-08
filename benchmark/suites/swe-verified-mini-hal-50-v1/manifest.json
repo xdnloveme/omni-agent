@@ -1,7 +1,6 @@
 {
   "schema_version": 1,
   "suite_id": "swe-verified-mini-hal-50-v1",
-  "status": "identity-verified-first-three-runtime-validated",
   "sources": {
     "hal": {
       "repository": "https://github.com/princeton-pli/hal-harness",
@@ -51,19 +50,6 @@
     },
     "languages": ["python"]
   },
-  "first_batch": {
-    "ids": ["django__django-11790", "django__django-12193", "sphinx-doc__sphinx-10323"],
-    "selection_rule": "User reduced the first paid batch to three: HAL zero-based indices [0,12,25], two Django and one Sphinx; integration probe, not a representative score."
-  },
-  "run_policy": {
-    "attempts_per_task": 1,
-    "concurrency": 1,
-    "harbor_retries": 0,
-    "agent_timeout_seconds": 1800,
-    "harbor_timeout_seconds": 1830,
-    "entrypoint": "python -m benchmark.run run",
-    "paid_run_status": "completed"
-  },
   "tasks": [
     {
       "id": "django__django-11790",
@@ -82,7 +68,6 @@
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11790:latest",
       "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "oracle-empty-and-paid-passed",
       "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-11790@sha256:061b5e37b0dfc15512b9604c843618b47aece8e603d08d0926c3990e0e9b3ac4"
     },
     {
@@ -101,8 +86,7 @@
         "environment/Dockerfile": "cbddc26850ee833966f3a5215bd4d522935b974309f1abaedeb1a7b23f903943"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11815:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-11848",
@@ -120,8 +104,7 @@
         "environment/Dockerfile": "6db1ab18194c6865b269abfa8b0a4ddce6cae4f56801b1043d8da8f3046b01ae"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11848:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-11880",
@@ -139,8 +122,7 @@
         "environment/Dockerfile": "a0db2c2b201dba8397c651f37f9786de6d0775abb0d574447a6763f7166d2ac6"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11880:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "django__django-11885",
@@ -159,9 +141,6 @@
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11885:latest",
       "source_difficulty": "1-4 hours",
-      "runtime_validation": "oracle-empty-passed-paid-resolved-timeout",
-      "runtime_validation_protocol": "isolated-swe-v3",
-      "runtime_report": "../../reports/verified-medium2-2026-09-16.md",
       "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-11885@sha256:4a0f8c7fbcfa5101ffa2ba697c2a75aa58174acff3a286a81b0807a8395a46fc"
     },
     {
@@ -180,8 +159,7 @@
         "environment/Dockerfile": "efe232cb0988179d7a7c531a39901bb3704163a90b590a2f82b89aa75a999bd3"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11951:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "django__django-11964",
@@ -199,8 +177,7 @@
         "environment/Dockerfile": "c477b9128da1ce3c4724d486a210c40076fedb344aef012a3e8b9b4f6015dc32"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11964:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "django__django-11999",
@@ -218,8 +195,7 @@
         "environment/Dockerfile": "e146b9c86234997b47f711c9c2d55a7b0d73907a776cb57dabba861d40e1f959"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-11999:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-12039",
@@ -237,8 +213,7 @@
         "environment/Dockerfile": "3a29c536a7beb845786be6382ed3ea8b7c4f674b711c92a08463309a79d6d9d4"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12039:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-12050",
@@ -256,8 +231,7 @@
         "environment/Dockerfile": "c386f3258c79f70fd32aee827a88f6f88e189c69e6e145e4a791755a3755aa0c"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12050:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-12143",
@@ -275,8 +249,7 @@
         "environment/Dockerfile": "9680c91a12f0688ade685996173f04782fec7f5d809b6441326e470157e40789"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12143:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-12155",
@@ -294,8 +267,7 @@
         "environment/Dockerfile": "a3e454a24cbeda5d296585af2f4e91238a63fdf640650002d8990aaad0f2c0f0"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12155:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-12193",
@@ -314,7 +286,6 @@
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12193:latest",
       "source_difficulty": "<15 min fix",
-      "runtime_validation": "oracle-empty-and-paid-passed",
       "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-12193@sha256:f2f0882bb350e6c7b073569444629513f4c0bd6821f3610d243a26b2b4eae26e"
     },
     {
@@ -333,8 +304,7 @@
         "environment/Dockerfile": "86ac7bd6977dd705c8a03b28c17ee99bc2ae4d480bdc7fd7c61ce4a55cde7d0f"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12209:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "django__django-12262",
@@ -352,8 +322,7 @@
         "environment/Dockerfile": "890495da7cf0591f7925d7c9fe4a3f893880709fdcf2c1d4e576cb3cdf6bee56"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12262:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-12273",
@@ -371,8 +340,7 @@
         "environment/Dockerfile": "32f7e4985031c442dea238c1fafd09f5f182746c60be5e91fbf809d53ccc841b"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12273:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-12276",
@@ -390,8 +358,7 @@
         "environment/Dockerfile": "46f3bd2441a3ab2e8a7a9b50948c84f73f35434eb84696b1d97048a0da08101e"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12276:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "django__django-12304",
@@ -409,8 +376,7 @@
         "environment/Dockerfile": "ed70e74b33d86c81147db25e99da112c5fae54e5d952701a4d61161927b7e015"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12304:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "django__django-12308",
@@ -428,8 +394,7 @@
         "environment/Dockerfile": "b3ea91b71cd7e0464c90dd6fd4633731320fa79b62fa401bea955c71fa725fdf"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12308:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "django__django-12325",
@@ -448,9 +413,6 @@
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12325:latest",
       "source_difficulty": "1-4 hours",
-      "runtime_validation": "oracle-empty-passed-paid-unresolved",
-      "runtime_validation_protocol": "isolated-swe-v3",
-      "runtime_report": "../../reports/verified-medium3-2026-09-17.md",
       "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-12325@sha256:9c15847c3fd7d269adf15233bd7034bb9e0491e45fefe87454013d2bdf7a6efe"
     },
     {
@@ -469,8 +431,7 @@
         "environment/Dockerfile": "c01ce689d8cea70c9900de1dd1b670a5224fcfe3796c43367121634a117122a4"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12406:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-12708",
@@ -489,9 +450,6 @@
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12708:latest",
       "source_difficulty": "1-4 hours",
-      "runtime_validation": "oracle-empty-and-paid-passed",
-      "runtime_validation_protocol": "isolated-swe-v3",
-      "runtime_report": "../../reports/verified-medium1-2026-09-16.md",
       "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-12708@sha256:5f920ccf13410e9fbc43b9e3a83e2b876f5a28d6b0db5369b428552320567b7d"
     },
     {
@@ -510,8 +468,7 @@
         "environment/Dockerfile": "843b90318bfda06bc08c43c3a774365315ff7d44ed42a7e1da9b8ba919665ab6"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12713:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-12774",
@@ -529,8 +486,7 @@
         "environment/Dockerfile": "6adabb25e8ec6e61cd575561bbc7e0332d4863c49de64f9c4be3dcb78ebeb6ed"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-12774:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "django__django-9296",
@@ -549,7 +505,6 @@
       },
       "upstream_image": "swebench/sweb.eval.x86_64.django_1776_django-9296:latest",
       "source_difficulty": "<15 min fix",
-      "runtime_validation": "blocked-verifier-offline-contract",
       "pinned_base_image": "swebench/sweb.eval.x86_64.django_1776_django-9296@sha256:c63adb629b6dafbb12aa506778e27b02f06387c64df3f2cebaba47f9b5f26150"
     },
     {
@@ -569,7 +524,6 @@
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10323:latest",
       "source_difficulty": "<15 min fix",
-      "runtime_validation": "oracle-empty-and-paid-passed",
       "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10323@sha256:b27e055730cb8a826e4e2cf0503d03c6770d537ab29cb6df8caa93ef5db51e8f"
     },
     {
@@ -588,8 +542,7 @@
         "environment/Dockerfile": "17021e703a88a4a2b9cff73f7bd5f92385ba941bb952981830097a91b7c5957a"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10435:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "sphinx-doc__sphinx-10466",
@@ -607,8 +560,7 @@
         "environment/Dockerfile": "c8a9d6a61e588655416ae4164f4c1851ca3d34f3199a6428f8063fa3708e3c56"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10466:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "sphinx-doc__sphinx-10673",
@@ -626,8 +578,7 @@
         "environment/Dockerfile": "ab1a463ff7c37a13ed60ae3053517233f78b6696960a146e99e2f54353e63000"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-10673:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "sphinx-doc__sphinx-11510",
@@ -646,9 +597,7 @@
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-11510:latest",
       "source_difficulty": "1-4 hours",
-      "runtime_validation": "oracle-pass-empty-fail-paid-unresolved",
-      "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-11510@sha256:01bf15e77e5d0f6988c8107bf81a5091900228ca0d160bf677d9b07dd17e1a0f",
-      "runtime_report": "benchmark/reports/verified-11510-2026-09-18.md"
+      "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-11510@sha256:01bf15e77e5d0f6988c8107bf81a5091900228ca0d160bf677d9b07dd17e1a0f"
     },
     {
       "id": "sphinx-doc__sphinx-7590",
@@ -667,14 +616,7 @@
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7590:latest",
       "source_difficulty": ">4 hours",
-      "runtime_validation": "oracle-and-empty-patch-passed",
-      "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7590@sha256:5c86dab7120b83b3bdb4af86743a3910da328029ed92183477fe9865ea76cb2f",
-      "paid_result": {
-        "job": "20260915T093224Z-17384e164d83",
-        "resolved": false,
-        "agent_status": "completed",
-        "report": "../../reports/verified-hard1-2026-09-15.md"
-      }
+      "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7590@sha256:5c86dab7120b83b3bdb4af86743a3910da328029ed92183477fe9865ea76cb2f"
     },
     {
       "id": "sphinx-doc__sphinx-7748",
@@ -692,8 +634,7 @@
         "environment/Dockerfile": "a37f34671aba41caab0a64495c266094467ee3c07386c3599e123940e2d903af"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7748:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "sphinx-doc__sphinx-7757",
@@ -711,8 +652,7 @@
         "environment/Dockerfile": "9e4a38e9b51acc6d52c63478e86e0ca5e43d4fa05e1462011b5442f027800666"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7757:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "sphinx-doc__sphinx-7985",
@@ -730,8 +670,7 @@
         "environment/Dockerfile": "fa820981ad89f021c28ea2f9856019317580f11206200bc0050c50d971557f7f"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-7985:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "sphinx-doc__sphinx-8035",
@@ -749,8 +688,7 @@
         "environment/Dockerfile": "2054778958c73b733f716780d02aaa3da1fced1116d76cc89d32fe610e63ad8d"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8035:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "sphinx-doc__sphinx-8056",
@@ -768,8 +706,7 @@
         "environment/Dockerfile": "3758bb992e7df53b4507b22c56d178ddb01eb5fe68ab1af45422ec125b1069a7"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8056:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "sphinx-doc__sphinx-8265",
@@ -787,8 +724,7 @@
         "environment/Dockerfile": "e4fa35002bf6937a9cc84e22c05caecdc017ec223670d9e0f68e9ef7803c8275"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8265:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "sphinx-doc__sphinx-8269",
@@ -806,8 +742,7 @@
         "environment/Dockerfile": "815d9f1af83c801d3e34438cacaa0d4f170ceda53457a6fac00e3af044502293"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8269:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "sphinx-doc__sphinx-8475",
@@ -825,8 +760,7 @@
         "environment/Dockerfile": "5812cf099c12dfabb11b143ba8232560f9da5319a8998dc935ca61ac07f5c597"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8475:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "sphinx-doc__sphinx-8548",
@@ -845,9 +779,6 @@
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8548:latest",
       "source_difficulty": "1-4 hours",
-      "runtime_validation": "oracle-empty-and-paid-passed",
-      "runtime_validation_protocol": "isolated-swe-v3",
-      "runtime_report": "../../reports/verified-medium4-2026-09-17.md",
       "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8548@sha256:2a068d5390185b7b54da95f749fab5fc9e3bcfc4c182a4132d6cf57207d6385a"
     },
     {
@@ -866,8 +797,7 @@
         "environment/Dockerfile": "d9e5007beaaf21661b2bbd7505d0f1385e58fe9a0ed3c86287745774d7d86eb0"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8551:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "sphinx-doc__sphinx-8638",
@@ -885,8 +815,7 @@
         "environment/Dockerfile": "7da1ee99ee2401317df20611a5d5e9fce2baec565859d744f1b6405a61d68b63"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8638:latest",
-      "source_difficulty": "15 min - 1 hour",
-      "runtime_validation": "pending"
+      "source_difficulty": "15 min - 1 hour"
     },
     {
       "id": "sphinx-doc__sphinx-8721",
@@ -904,8 +833,7 @@
         "environment/Dockerfile": "020b8ee2fc69a6a63173ae10bf0e65e080034174e5a6a3ee7d055e05dc000667"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-8721:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "sphinx-doc__sphinx-9229",
@@ -923,8 +851,7 @@
         "environment/Dockerfile": "c96bb191a8c90b23bcbc58d78f8e53b7ef5a8b2b0b72db145b3c0d5e62c6bc7e"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9229:latest",
-      "source_difficulty": "1-4 hours",
-      "runtime_validation": "pending"
+      "source_difficulty": "1-4 hours"
     },
     {
       "id": "sphinx-doc__sphinx-9230",
@@ -942,8 +869,7 @@
         "environment/Dockerfile": "9bd2b22d35be5d31d79a97deb9b7671d2b8585e1866357aeb0e7c27e7bc8bec7"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9230:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "sphinx-doc__sphinx-9281",
@@ -961,8 +887,7 @@
         "environment/Dockerfile": "beab72cabe6682576d22e8fdd7b250210ebd6fdbb5bd544316089f16ca6a1841"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9281:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "sphinx-doc__sphinx-9320",
@@ -980,8 +905,7 @@
         "environment/Dockerfile": "07d810968f67226e5a421eb903d0de8a70aef326d0f677e99af4595bb190721f"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9320:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "sphinx-doc__sphinx-9367",
@@ -999,8 +923,7 @@
         "environment/Dockerfile": "f51dbaec65a9add7fb20f453cee4455a06823cdd315cb2710a6f5c3b32e9aafa"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9367:latest",
-      "source_difficulty": "<15 min fix",
-      "runtime_validation": "pending"
+      "source_difficulty": "<15 min fix"
     },
     {
       "id": "sphinx-doc__sphinx-9461",
@@ -1018,8 +941,7 @@
         "environment/Dockerfile": "cd861b71ab629adf9400546e926ec435edb01d1deffdaa5598a82304606b6515"
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9461:latest",
-      "source_difficulty": "1-4 hours",
-      "runtime_validation": "pending"
+      "source_difficulty": "1-4 hours"
     },
     {
       "id": "sphinx-doc__sphinx-9698",
@@ -1038,16 +960,7 @@
       },
       "upstream_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9698:latest",
       "source_difficulty": "<15 min fix",
-      "runtime_validation": "blocked-verifier-offline-contract",
       "pinned_base_image": "swebench/sweb.eval.x86_64.sphinx-doc_1776_sphinx-9698@sha256:38120cc331db6bb9d962101a6795a515d56c8a4ace9983f17afede39fd926d5b"
     }
-  ],
-  "execution_readiness": {
-    "status": "first-three-validated",
-    "scope": ["django__django-11790", "django__django-12193", "sphinx-doc__sphinx-10323"],
-    "report": "../../reports/verified-first3-2026-09-15.md",
-    "oracle_job": "20260915T080308Z-d0f595399ae3",
-    "paid_job": "20260915T081424Z-6708b9afbd0c",
-    "paid_resolved": 3
-  }
+  ]
 }

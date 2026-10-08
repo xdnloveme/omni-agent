@@ -7,7 +7,7 @@ import os
 import subprocess
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 
 from benchmark.preparation import prepare_selected
 from benchmark.run import tracked_run, index_job
@@ -183,6 +183,40 @@ class PreparationTest(unittest.TestCase):
             next((self.root / "jobs").glob("*/invocation.json")).read_text()
         )
         self.assertEqual(record["state"], "prepared")
+
+
+class ReadinessPhasesTest(unittest.TestCase):
+    def test_both_phases_use_harbor_resource_settings_and_cleanup_before_failure(self):
+        from harbor.models.task.config import TaskConfig
+        from benchmark.preparation import check_environment
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            task = TaskConfig.model_validate({
+                "environment": {"cpus": 1, "healthcheck": {"command": "true"}, "network_mode": "no-network"},
+                "verifier": {"environment_mode": "separate", "environment": {"cpus": 4, "network_mode": "public"}},
+            })
+            events = []
+            def factory(**kwargs):
+                cpus = kwargs["task_env_config"].cpus
+                async def start(**unused):
+                    events.append(("start", cpus))
+                    if cpus > 2:
+                        raise RuntimeError("only 2 CPUs available")
+                async def stop(**unused):
+                    events.append(("stop", cpus))
+                from types import SimpleNamespace
+                return SimpleNamespace(start=start, stop=stop, run_healthcheck=AsyncMock())
+            with (
+                patch("benchmark.preparation.check_images", return_value=task),
+                patch("harbor.environments.factory.EnvironmentFactory.create_environment_from_config", side_effect=factory) as create,
+                patch("harbor.trial.artifact_handler.ArtifactHandler.download_artifacts", new_callable=AsyncMock),
+            ):
+                with self.assertRaisesRegex(RuntimeError, "only 2 CPUs"):
+                    check_environment(root, root / "readiness", {"environment": {"type": "docker"}})
+            self.assertEqual(events, [("start", 1), ("stop", 1), ("start", 4), ("stop", 4)])
+            self.assertEqual(create.call_args_list[1].kwargs["environment_dir"], root / "tests")
+            self.assertEqual(create.call_args_list[1].kwargs["network_policy"].network_mode, "public")
+            self.assertEqual(task.verifier.environment.cpus, 4)
 
 
 class SourceSnapshotTest(unittest.TestCase):

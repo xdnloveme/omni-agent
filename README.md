@@ -697,7 +697,7 @@ omni-agent/
 
 ## Documentation
 
-[Benchmark integration](benchmark/README.md) evaluates the production Agent with an offline solver, an isolated model execution service, and per-run Trace evidence. After submission is frozen and the solver stops, independent verification uses the taskpack network policy. See the benchmark reports for verified scope and remaining limits.
+[Benchmark integration](benchmark/README.md) evaluates the production Agent with an offline solver, an isolated model execution service, and per-run Trace evidence. After submission is frozen and the solver stops, independent verification uses the taskpack network policy. The benchmark README records verified scope and remaining limits.
 
 | Document                                                                                           | Contents                                                               |
 | -------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------- |
