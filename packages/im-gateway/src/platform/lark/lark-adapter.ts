@@ -1,3 +1,4 @@
+import { createAbortError, OperationDeadlineSupervisor, throwIfAborted } from "@omni-agent/core";
 import { EventDispatcher, LoggerLevel, WSClient } from "@larksuiteoapi/node-sdk";
 import type { InboundMessage, PlatformMessageTarget } from "../../contracts";
 import type { PlatformAdapterPort } from "../platform-port";
@@ -16,17 +17,13 @@ export class LarkAdapter implements PlatformAdapterPort {
   readonly #messages: LarkMessageClient;
   readonly #websocket: WSClient;
   readonly #dispatcher: EventDispatcher;
-  readonly #ready: Promise<void>;
-  #resolveReady!: () => void;
-  #rejectReady!: (error: Error) => void;
+  readonly #startup = new OperationDeadlineSupervisor();
+  #resolveReady?: () => void;
+  #rejectReady?: (error: Error) => void;
   #handler?: (message: InboundMessage) => Promise<void>;
   #connection?: Promise<void>;
 
   constructor(private readonly options: LarkAdapterOptions) {
-    this.#ready = new Promise<void>((resolve, reject) => {
-      this.#resolveReady = resolve;
-      this.#rejectReady = reject;
-    });
     this.#messages = new LarkMessageClient(options.appId, options.appSecret);
     this.#websocket = new WSClient({
       appId: options.appId,
@@ -35,8 +32,8 @@ export class LarkAdapter implements PlatformAdapterPort {
       handshakeTimeoutMs: 10_000,
       wsConfig: { pingTimeout: 10 },
       loggerLevel: LoggerLevel.warn,
-      onReady: () => this.#resolveReady(),
-      onError: (error) => this.#rejectReady(error),
+      onReady: () => this.#resolveReady?.(),
+      onError: (error) => this.#rejectReady?.(error),
     });
     this.#dispatcher = new EventDispatcher({
       verificationToken: options.verificationToken,
@@ -67,21 +64,46 @@ export class LarkAdapter implements PlatformAdapterPort {
     });
   }
 
-  async start(handler: (message: InboundMessage) => Promise<void>): Promise<void> {
+  async start(
+    handler: (message: InboundMessage) => Promise<void>,
+    signal: AbortSignal,
+  ): Promise<void> {
+    throwIfAborted(signal);
+    const ready = new Promise<void>((resolve, reject) => {
+      this.#resolveReady = resolve;
+      this.#rejectReady = reject;
+    });
     this.#handler = handler;
-    this.#connection = this.#websocket.start({ eventDispatcher: this.#dispatcher });
     try {
-      await withTimeout(
-        this.#connection.then(() => this.#ready),
-        30_000,
-        "Lark connection did not become ready",
-      );
+      await this.#startup.run({
+        operationName: "Lark connection startup",
+        externalSignal: signal,
+        timeoutMs: 30_000,
+        createTimeoutError: () => new Error("Lark connection did not become ready"),
+        execute: async (startupSignal) => {
+          const onAbort = () => {
+            this.#websocket.close({ force: true });
+            this.#rejectReady?.(createAbortError(startupSignal));
+          };
+          startupSignal.addEventListener("abort", onAbort, { once: true });
+          try {
+            this.#connection = Promise.resolve().then(() => {
+              throwIfAborted(startupSignal);
+              return this.#websocket.start({ eventDispatcher: this.#dispatcher });
+            });
+            await Promise.all([this.#connection, ready]);
+            throwIfAborted(startupSignal);
+          } finally {
+            startupSignal.removeEventListener("abort", onAbort);
+          }
+        },
+      });
     } catch (error) {
-      this.#handler = undefined;
-      this.#websocket.close({ force: true });
-      await this.#connection.catch(() => undefined);
-      this.#connection = undefined;
+      await this.stop();
       throw error;
+    } finally {
+      this.#resolveReady = undefined;
+      this.#rejectReady = undefined;
     }
   }
 
@@ -99,27 +121,9 @@ export class LarkAdapter implements PlatformAdapterPort {
 
   async stop(): Promise<void> {
     this.#handler = undefined;
+    this.#rejectReady?.(createAbortError());
     this.#websocket.close({ force: true });
     await this.#connection?.catch(() => undefined);
     this.#connection = undefined;
-  }
-}
-
-async function withTimeout<T>(
-  operation: Promise<T>,
-  timeoutMs: number,
-  message: string,
-): Promise<T> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  try {
-    return await Promise.race([
-      operation,
-      new Promise<never>((_, reject) => {
-        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
-        timer.unref?.();
-      }),
-    ]);
-  } finally {
-    if (timer) clearTimeout(timer);
   }
 }

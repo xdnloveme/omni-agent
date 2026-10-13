@@ -1,3 +1,4 @@
+import { createAbortError, throwIfAborted } from "@omni-agent/core";
 import type { InboundMessage, PlatformMessageTarget, TaskRecord } from "../contracts";
 import type { AgentLinkPort } from "../agent-link/agent-link-port";
 import type { GatewayBotConfig } from "../config/gateway-config";
@@ -16,6 +17,10 @@ export class BotRuntime {
   readonly #dispatcher: TaskDispatcher;
   readonly #receives = new Set<Promise<void>>();
   #started = false;
+  readonly #shutdown = new AbortController();
+  #starting?: Promise<void>;
+  #stopping?: Promise<void>;
+  #cleanup?: Promise<void>;
 
   get started(): boolean {
     return this.#started;
@@ -33,40 +38,61 @@ export class BotRuntime {
     this.#dispatcher = new TaskDispatcher(link, router, store, policy);
   }
 
-  async dispose(): Promise<void> {
-    try {
-      await this.link.dispose();
-    } finally {
-      await this.#waitForReceives(500);
-    }
+  start(): Promise<void> {
+    if (this.#shutdown.signal.aborted)
+      return Promise.reject(createAbortError(this.#shutdown.signal));
+    this.#starting ??= this.#start();
+    return this.#starting;
   }
 
-  async start(): Promise<void> {
-    if (this.#started) return;
-    this.#started = true;
+  async #start(): Promise<void> {
     try {
       const agents = await this.link.listAgents();
+      throwIfAborted(this.#shutdown.signal);
       if (!agents.some((agent) => agent.id === this.config.agentId)) {
         throw new Error(`Configured Agent is unavailable: ${this.config.agentId}`);
       }
-      await this.adapter.start((message) => this.#accept(message));
+      await this.adapter.start((message) => this.#accept(message), this.#shutdown.signal);
+      throwIfAborted(this.#shutdown.signal);
+      this.#started = true;
     } catch (error) {
-      this.#started = false;
-      await this.adapter.stop().catch(() => undefined);
-      await this.link.dispose().catch(() => undefined);
+      try {
+        await this.#closeResources();
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "Failed to start and clean up IM bot");
+      }
       throw error;
     }
   }
 
-  async stop(): Promise<void> {
-    if (!this.#started) return;
+  stop(): Promise<void> {
     this.#started = false;
+    this.#shutdown.abort();
+    this.#dispatcher.shutdown();
+    this.#stopping ??= this.#stop();
+    return this.#stopping;
+  }
+
+  async #stop(): Promise<void> {
     try {
-      await this.adapter.stop();
+      await this.#closeResources();
     } finally {
-      this.#dispatcher.shutdown();
-      await this.#waitForReceives(2_000);
+      await this.#starting?.catch(() => undefined);
     }
+  }
+
+  #closeResources(): Promise<void> {
+    this.#cleanup ??= this.#releaseResources();
+    return this.#cleanup;
+  }
+
+  async #releaseResources(): Promise<void> {
+    const failures: unknown[] = [];
+    await this.adapter.stop().catch((error) => failures.push(error));
+    this.#dispatcher.shutdown();
+    await this.#waitForReceives(2_000);
+    await this.link.dispose().catch((error) => failures.push(error));
+    if (failures.length > 0) throw new AggregateError(failures, "Failed to close IM bot resources");
   }
 
   async presentRecoveredTask(task: TaskRecord): Promise<void> {

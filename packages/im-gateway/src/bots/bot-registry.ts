@@ -60,16 +60,7 @@ export class BotRegistry {
   }
 
   async stop(): Promise<void> {
-    const results = await Promise.allSettled(
-      [...this.#bots.values()].map(async (bot) => {
-        const failures: unknown[] = [];
-        await bot.stop().catch((error) => failures.push(error));
-        await bot.dispose().catch((error) => failures.push(error));
-        if (failures.length > 0) {
-          throw new AggregateError(failures, `Failed to stop IM bot ${bot.config.id}`);
-        }
-      }),
-    );
+    const results = await Promise.allSettled([...this.#bots.values()].map((bot) => bot.stop()));
     const failures = results.filter((result) => result.status === "rejected");
     if (failures.length > 0) {
       throw new AggregateError(

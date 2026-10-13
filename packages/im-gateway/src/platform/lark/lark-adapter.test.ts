@@ -45,7 +45,7 @@ describe("LarkAdapter", () => {
     const adapter = createAdapter();
     let settled = false;
     const start = adapter
-      .start(async () => undefined)
+      .start(async () => undefined, new AbortController().signal)
       .then(() => {
         settled = true;
       });
@@ -57,9 +57,21 @@ describe("LarkAdapter", () => {
     expect(settled).toBe(true);
   });
 
+  it("closes the SDK and settles startup when stopped before ready", async () => {
+    const adapter = createAdapter();
+    const controller = new AbortController();
+    const starting = adapter.start(async () => undefined, controller.signal);
+    const rejected = expect(starting).rejects.toMatchObject({ name: "AbortError" });
+    controller.abort();
+    await adapter.stop();
+    await rejected;
+    sdk.options?.onReady?.();
+    expect(sdk.closed).toBe(true);
+  });
+
   it("fails startup when the SDK reports a terminal initial connection error", async () => {
     const adapter = createAdapter();
-    const start = adapter.start(async () => undefined);
+    const start = adapter.start(async () => undefined, new AbortController().signal);
     sdk.options?.onError?.(new Error("authentication failed"));
 
     await expect(start).rejects.toThrow("authentication failed");

@@ -230,15 +230,17 @@ export class GatewayStateStore {
     const cutoff = Date.now() - this.eventRetentionMs;
     const retainedTasks = Object.fromEntries(
       Object.entries(state.tasks).filter(
-        ([, task]) => !isTerminal(task.state) || Date.parse(task.updatedAt) >= cutoff,
+        ([, task]) =>
+          !isTerminal(task.state) ||
+          task.recoveryNoticePending === true ||
+          Date.parse(task.updatedAt) >= cutoff,
       ),
     );
     return {
       ...state,
       events: Object.fromEntries(
         Object.entries(state.events).filter(
-          ([, event]) =>
-            Date.parse(event.acceptedAt) >= cutoff && retainedTasks[event.requestId] !== undefined,
+          ([, event]) => retainedTasks[event.requestId] !== undefined,
         ),
       ),
       tasks: retainedTasks,

@@ -66,9 +66,18 @@ external process manager.
 Conversation records persist the actual Session UUID returned by `create_session`. Duplicate Lark
 messages are persisted before dispatch. Tasks left accepted, queued, or running across a gateway
 restart become `unknown` and are never replayed automatically. Recovery records retain enough
-message-target information to notify the originating conversation. Deduplication events and terminal
-task records expire together after seven days. Recovery notices remain pending and are retried after
-restart until presentation succeeds.
+message-target information to notify the originating conversation. Completed terminal records without a pending recovery notice expire after seven days; their
+associated deduplication events expire with them. Unfinished tasks and pending recovery notices
+retain their deduplication events. Recovery notices remain pending and are retried after restart
+until presentation succeeds, even beyond seven days. Once delivered, the original terminal-record
+retention deadline applies; delivery does not start a new retention period.
+
+A persisted conversation must match the bot's configured Agent id. A mismatch fails explicitly
+without opening the old Agent or replacing its Session. Restore the original Agent binding or use
+a new bot id for a separate conversation mapping.
+
+Shutdown interrupts Host and Lark startup as well as active operation. A stopped gateway cannot be
+started again; create a new instance. Concurrent start or stop calls share their completion.
 
 ## Interaction
 

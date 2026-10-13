@@ -50,7 +50,6 @@ describe("BotRuntime recovery presentation", () => {
       expect(create).not.toHaveBeenCalled();
     } finally {
       await runtime.stop();
-      await runtime.dispose();
       await rm(directory, { recursive: true, force: true });
     }
   });

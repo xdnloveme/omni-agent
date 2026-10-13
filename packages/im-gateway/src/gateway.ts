@@ -1,3 +1,4 @@
+import { createAbortError, throwIfAborted } from "@omni-agent/core";
 import { HostProcessLink } from "./agent-link/host-process-link";
 import { HostProcessSupervisor } from "./agent-link/host-process-supervisor";
 import { realpath } from "node:fs/promises";
@@ -20,8 +21,10 @@ export interface ImGatewayStartResult {
 export class ImGateway {
   readonly #registry = new BotRegistry();
   readonly #store: GatewayStateStore;
-  #started = false;
-  #assembled = false;
+  readonly #shutdown = new AbortController();
+  #starting?: Promise<ImGatewayStartResult>;
+  #stopping?: Promise<void>;
+  #cleanup?: Promise<void>;
 
   private constructor(
     private readonly config: GatewayConfig,
@@ -49,37 +52,60 @@ export class ImGateway {
     return new ImGateway(config, { managedHostEntryPath });
   }
 
-  async start(): Promise<ImGatewayStartResult> {
-    if (this.#started) return { activeBots: this.#registry.activeSize };
-    this.#assembleBots();
-    const recovered = await this.#store.recoverUnknown();
+  start(): Promise<ImGatewayStartResult> {
+    if (this.#shutdown.signal.aborted)
+      return Promise.reject(createAbortError(this.#shutdown.signal));
+    this.#starting ??= this.#start();
+    return this.#starting;
+  }
+
+  async #start(): Promise<ImGatewayStartResult> {
     try {
+      this.#assembleBots();
+      const recovered = await this.#store.recoverUnknown();
+      throwIfAborted(this.#shutdown.signal);
       const activeBots = await this.#registry.start();
+      throwIfAborted(this.#shutdown.signal);
       if (activeBots === 0) throw new Error("IM gateway has no active bots");
       const presented = await this.#registry.presentRecoveredTasks(recovered);
       for (const task of recovered) {
         if (!presented.has(task.requestId)) continue;
         await this.#store.markRecoveryNoticePresented(task.requestId);
       }
-      this.#started = true;
+      throwIfAborted(this.#shutdown.signal);
       return { activeBots };
     } catch (error) {
-      await this.#registry.stop().catch(() => undefined);
+      try {
+        await this.#closeBots();
+      } catch (cleanupError) {
+        throw new AggregateError([error, cleanupError], "Failed to start and clean up IM gateway");
+      }
+      throwIfAborted(this.#shutdown.signal);
       throw error;
     }
   }
 
-  async stop(): Promise<void> {
-    if (!this.#started) return;
-    this.#started = false;
-    const failures: unknown[] = [];
-    await this.#registry.stop().catch((error) => failures.push(error));
-    if (failures.length > 0) throw new AggregateError(failures, "Failed to stop IM gateway");
+  stop(): Promise<void> {
+    this.#shutdown.abort();
+    this.#stopping ??= this.#stop();
+    return this.#stopping;
+  }
+
+  async #stop(): Promise<void> {
+    try {
+      await this.#closeBots();
+    } finally {
+      // Closing bots interrupts startup; waiting first would leave startup blocked.
+      await this.#starting?.catch(() => undefined);
+    }
+  }
+
+  #closeBots(): Promise<void> {
+    this.#cleanup ??= this.#registry.stop();
+    return this.#cleanup;
   }
 
   #assembleBots(): void {
-    if (this.#assembled) return;
-    this.#assembled = true;
     const failures: unknown[] = [];
     for (const botConfig of this.config.bots) {
       try {

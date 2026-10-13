@@ -1,3 +1,4 @@
+import { isAbortError, throwIfAborted } from "@omni-agent/core";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { ImGateway, loadGatewayConfig } from "@omni-agent/im-gateway";
@@ -5,7 +6,6 @@ import { ProcessTerminationController, registerProcessSignals } from "./process-
 
 const termination = new ProcessTerminationController();
 const signals = registerProcessSignals((result) => termination.terminate(result), 10_000);
-let gateway: ImGateway | undefined;
 
 void run()
   .catch((error) => {
@@ -20,15 +20,27 @@ async function run(): Promise<void> {
   const configPath =
     process.env.OMNI_IM_CONFIG ?? join(homedir(), ".omni-agent", "im", "config.json");
   const config = await loadGatewayConfig(configPath);
-  gateway = await ImGateway.create(config, {
+  const gateway = await ImGateway.create(config, {
     managedHostEntryPath: managedHostEntryPath(import.meta.filename),
   });
-  const { activeBots } = await gateway.start();
-  process.stdout.write(
-    `${JSON.stringify({ type: "im_gateway_ready", version: 1, bots: activeBots })}\n`,
-  );
-  await waitForAbort(termination.signal);
-  await gateway.stop();
+  const unsubscribe = termination.subscribe(() => {
+    // The finally block awaits the same stop promise and reports cleanup failures.
+    void gateway.stop().catch(() => undefined);
+  });
+  try {
+    throwIfAborted(termination.signal);
+    const { activeBots } = await gateway.start();
+    throwIfAborted(termination.signal);
+    process.stdout.write(
+      `${JSON.stringify({ type: "im_gateway_ready", version: 1, bots: activeBots })}\n`,
+    );
+    await waitForAbort(termination.signal);
+  } catch (error) {
+    if (!isAbortError(error, termination.signal)) throw error;
+  } finally {
+    unsubscribe();
+    await gateway.stop();
+  }
 }
 
 function managedHostEntryPath(entryPath: string): string {

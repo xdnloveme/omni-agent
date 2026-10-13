@@ -25,6 +25,11 @@ export class ConversationRouter {
     const persisted = await this.store.getConversation(storageKey);
     let handle: AgentConversationHandle;
     if (persisted) {
+      if (persisted.agentId !== this.agentId) {
+        throw new Error(
+          `Conversation Agent binding mismatch: stored ${persisted.agentId}, configured ${this.agentId}. Restore the original binding or configure a new bot id; the existing Session is unchanged.`,
+        );
+      }
       handle = await this.link.openConversation(persisted.agentId, persisted.sessionId);
     } else {
       handle = await this.link.createConversation(this.agentId);

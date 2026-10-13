@@ -44,6 +44,25 @@ describe("GatewayStateStore", () => {
     await expect(store.recoverUnknown()).resolves.toEqual([]);
   });
 
+  it("retains unfinished recovery and deduplication until the notice is delivered", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
+    const store = await createStore(1_000);
+    const first = await store.accept(message());
+    await store.transitionTask(first.task.requestId, "running");
+    vi.advanceTimersByTime(1_001);
+    expect((await store.accept(message())).duplicate).toBe(true);
+    await store.recoverUnknown();
+    vi.advanceTimersByTime(1_001);
+    await store.accept({ ...message(), messageId: "om_other", eventId: "event_other" });
+    expect((await store.accept(message())).duplicate).toBe(true);
+    await expect(store.recoverUnknown()).resolves.toContainEqual(
+      expect.objectContaining({ requestId: first.task.requestId, recoveryNoticePending: true }),
+    );
+    await store.markRecoveryNoticePresented(first.task.requestId);
+    expect((await store.accept(message())).duplicate).toBe(false);
+  });
+
   it("expires terminal tasks together with their deduplication keys", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-01-01T00:00:00.000Z"));
