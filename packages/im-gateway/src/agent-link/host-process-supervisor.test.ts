@@ -2,7 +2,8 @@ import { createRequire } from "node:module";
 import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
+import { WebSocketServer } from "ws";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HostProcessSupervisor } from "./host-process-supervisor";
 
 const directories: string[] = [];
@@ -15,6 +16,100 @@ afterEach(async () => {
 });
 
 describe("HostProcessSupervisor", () => {
+  it("waits for an in-flight attached connection to close during disposal", async () => {
+    const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP address");
+    let connectionClosed!: Promise<void>;
+    const hello = new Promise<void>((resolve) =>
+      server.once("connection", (socket) => {
+        connectionClosed = new Promise<void>((closed) => socket.once("close", () => closed()));
+        socket.once("message", () => resolve());
+      }),
+    );
+    const supervisor = new HostProcessSupervisor({
+      mode: "attached",
+      port: address.port,
+      token: "x".repeat(40),
+    });
+    try {
+      const starting = supervisor.getClient();
+      const rejected = expect(starting).rejects.toThrow();
+      await hello;
+      const closing = supervisor.dispose();
+      expect(supervisor.dispose()).toBe(closing);
+      await closing;
+      await rejected;
+      await connectionClosed;
+      await expect(supervisor.getClient()).rejects.toThrow("closing");
+    } finally {
+      await supervisor.dispose();
+      for (const socket of server.clients) socket.terminate();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+
+  it("reaps a managed child when disposed before its ready record", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "omni-im-start-stop-"));
+    directories.push(directory);
+    const entryPath = join(directory, "waiting-host.mjs");
+    const observationPath = join(directory, "pid.txt");
+    await writeFile(
+      entryPath,
+      `import { writeFileSync } from "node:fs"; writeFileSync(${JSON.stringify(observationPath)}, String(process.pid)); setInterval(() => {}, 1000);`,
+    );
+    const supervisor = new HostProcessSupervisor({
+      mode: "managed",
+      entryPath,
+      projectDirectory: directory,
+      stateDirectory: join(directory, "state"),
+      agentId: "coding",
+    });
+    const starting = supervisor.getClient();
+    const rejected = expect(starting).rejects.toThrow();
+    try {
+      let pid = 0;
+      await vi.waitFor(async () => {
+        pid = Number(await readFile(observationPath, "utf8"));
+        expect(pid).toBeGreaterThan(0);
+      });
+      await supervisor.dispose();
+      await rejected;
+      await waitForProcessExit(pid);
+    } finally {
+      await supervisor.dispose();
+    }
+  });
+
+  it("cancels restart backoff without spawning another child", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "omni-im-backoff-"));
+    directories.push(directory);
+    const entryPath = join(directory, "crashing-host.mjs");
+    const launchesPath = join(directory, "launches.txt");
+    await writeFile(
+      entryPath,
+      `import { appendFileSync } from "node:fs"; appendFileSync(${JSON.stringify(launchesPath)}, "launch\\n"); process.exit(1);`,
+    );
+    const supervisor = new HostProcessSupervisor({
+      mode: "managed",
+      entryPath,
+      projectDirectory: directory,
+      stateDirectory: join(directory, "state"),
+      agentId: "coding",
+    });
+    try {
+      await expect(supervisor.getClient()).rejects.toThrow("exited before ready");
+      const restarting = supervisor.getClient();
+      const rejected = expect(restarting).rejects.toThrow();
+      await supervisor.dispose();
+      await rejected;
+      expect(await readFile(launchesPath, "utf8")).toBe("launch\n");
+    } finally {
+      await supervisor.dispose();
+    }
+  });
+
   it("starts an authenticated managed Host without leaking gateway secrets or leaving a child", async () => {
     const directory = await mkdtemp(join(tmpdir(), "omni-im-supervisor-"));
     directories.push(directory);

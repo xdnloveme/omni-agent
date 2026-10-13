@@ -20,6 +20,89 @@ afterEach(async () => {
 });
 
 describe("AgentHostProtocolClient", () => {
+  it("does not submit a Run cancelled during authentication", async () => {
+    const server = new WebSocketServer({ host: "127.0.0.1", port: 0 });
+    servers.push(server);
+    await new Promise<void>((resolve) => server.once("listening", resolve));
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("Expected TCP address");
+    const received: string[] = [];
+    let releaseReady!: () => void;
+    const hello = new Promise<void>((resolve) => {
+      server.on("connection", (socket) =>
+        socket.on("message", (data) => {
+          const message = JSON.parse(data.toString());
+          received.push(message.type);
+          if (message.type === "hello") {
+            releaseReady = () =>
+              socket.send(JSON.stringify({ v: 2, type: "ready", connectionId: "delayed" }));
+            resolve();
+          } else if (message.type === "list_agents") {
+            socket.send(
+              JSON.stringify({
+                v: 2,
+                type: "result",
+                id: message.id,
+                result: { kind: "agents", agents: [] },
+              }),
+            );
+          }
+        }),
+      );
+    });
+    const client = new AgentHostProtocolClient(
+      `ws://127.0.0.1:${address.port}`,
+      randomBytes(32).toString("base64url"),
+    );
+    clients.push(client);
+    const controller = new AbortController();
+    const iterator = client
+      .stream(
+        {
+          v: 2,
+          id: "cancel-before-ready",
+          type: "run",
+          agentId: "coding",
+          sessionId: "s1",
+          text: "work",
+        },
+        controller.signal,
+      )
+      [Symbol.asyncIterator]();
+    const first = iterator.next();
+    const rejected = expect(first).rejects.toMatchObject({ name: "AbortError" });
+    await hello;
+    controller.abort();
+    const barrier = client.request({ v: 2, id: "barrier", type: "list_agents" });
+    releaseReady();
+    await rejected;
+    await barrier;
+    expect(received).toEqual(["hello", "list_agents"]);
+  });
+
+  it("does not submit a Run cancelled before its queued send executes", async () => {
+    const { client } = await connect();
+    const controller = new AbortController();
+    const iterator = client
+      .stream(
+        {
+          v: 2,
+          id: "queued-cancel",
+          type: "run",
+          agentId: "coding",
+          sessionId: "s1",
+          text: "work",
+        },
+        controller.signal,
+      )
+      [Symbol.asyncIterator]();
+    const first = iterator.next();
+    // Allow start() to queue its write, but cancel before the write queue runs.
+    await Promise.resolve();
+    controller.abort();
+    await expect(first).rejects.toMatchObject({ name: "AbortError" });
+  });
+
   it("correlates cancellation and accepts one terminal Run event", async () => {
     const { client, messages } = await connect();
     const controller = new AbortController();

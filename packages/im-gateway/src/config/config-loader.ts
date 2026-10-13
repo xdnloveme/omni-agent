@@ -1,5 +1,5 @@
 import { lstat, readFile, realpath } from "node:fs/promises";
-import { basename, dirname, isAbsolute, join, relative, resolve } from "node:path";
+import { basename, dirname, isAbsolute, sep, join, relative, resolve } from "node:path";
 import Ajv from "ajv";
 import { gatewayConfigSchema, type GatewayBotConfig, type GatewayConfig } from "./gateway-config";
 
@@ -64,11 +64,7 @@ function validateFilesystemIsolation(
   ] as const;
   for (const workspaceBot of bots) {
     for (const [kind, path] of protectedPaths) {
-      const pathFromWorkspace = relative(workspaceBot.projectDirectory, path);
-      if (
-        pathFromWorkspace === "" ||
-        (!pathFromWorkspace.startsWith("..") && !isAbsolute(pathFromWorkspace))
-      ) {
+      if (containsPath(workspaceBot.projectDirectory, path)) {
         throw new Error(
           `${kind} must be outside the Agent-writable workspace for bot ${workspaceBot.id}`,
         );
@@ -160,7 +156,12 @@ async function canonicalizePotentialPath(path: string): Promise<string> {
 
 function containsPath(parent: string, child: string): boolean {
   const pathFromParent = relative(parent, child);
-  return pathFromParent === "" || (!pathFromParent.startsWith("..") && !isAbsolute(pathFromParent));
+  return (
+    pathFromParent === "" ||
+    (pathFromParent !== ".." &&
+      !pathFromParent.startsWith(`..${sep}`) &&
+      !isAbsolute(pathFromParent))
+  );
 }
 
 function requiredEnvironment(name: string, botId: string, environment: NodeJS.ProcessEnv): string {

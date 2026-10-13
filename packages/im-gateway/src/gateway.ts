@@ -1,7 +1,7 @@
 import { HostProcessLink } from "./agent-link/host-process-link";
 import { HostProcessSupervisor } from "./agent-link/host-process-supervisor";
 import { realpath } from "node:fs/promises";
-import { isAbsolute, relative } from "node:path";
+import { isAbsolute, sep, relative } from "node:path";
 import { BotRegistry } from "./bots/bot-registry";
 import { BotRuntime } from "./bots/bot-runtime";
 import { readBotEnvironment, type GatewayBotEnvironment } from "./config/config-loader";
@@ -37,7 +37,9 @@ export class ImGateway {
       const pathFromWorkspace = relative(projectDirectory, managedHostEntryPath);
       if (
         pathFromWorkspace === "" ||
-        (!pathFromWorkspace.startsWith("..") && !isAbsolute(pathFromWorkspace))
+        (pathFromWorkspace !== ".." &&
+          !pathFromWorkspace.startsWith(`..${sep}`) &&
+          !isAbsolute(pathFromWorkspace))
       ) {
         throw new Error(
           `Managed IM Agent Host entry must be outside the Agent-writable workspace for bot ${bot.id}`,

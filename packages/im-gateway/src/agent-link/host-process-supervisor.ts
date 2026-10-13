@@ -1,3 +1,5 @@
+import { setTimeout as delay } from "node:timers/promises";
+import { createAbortError, throwIfAborted } from "@omni-agent/core";
 import { randomBytes } from "node:crypto";
 import { spawn, type ChildProcessByStdio } from "node:child_process";
 import { createInterface } from "node:readline";
@@ -26,13 +28,15 @@ export class HostProcessSupervisor {
   #client?: AgentHostProtocolClient;
   #child?: ManagedChild;
   #starting?: Promise<AgentHostProtocolClient>;
-  #closing = false;
+  readonly #shutdown = new AbortController();
+  #disposePromise?: Promise<void>;
   readonly #crashes: number[] = [];
 
   constructor(private readonly options: HostProcessSupervisorOptions) {}
 
   getClient(): Promise<AgentHostProtocolClient> {
-    if (this.#closing) return Promise.reject(new Error("Agent Host supervisor is closing"));
+    if (this.#shutdown.signal.aborted)
+      return Promise.reject(new Error("Agent Host supervisor is closing"));
     if (this.#client) return Promise.resolve(this.#client);
     this.#starting ??= this.#start().finally(() => {
       this.#starting = undefined;
@@ -40,15 +44,45 @@ export class HostProcessSupervisor {
     return this.#starting;
   }
 
-  async dispose(): Promise<void> {
-    if (this.#closing) return;
-    this.#closing = true;
-    await this.#client?.close().catch(() => undefined);
-    this.#client = undefined;
+  dispose(): Promise<void> {
+    if (this.#disposePromise) return this.#disposePromise;
+    this.#shutdown.abort();
+    this.#disposePromise = this.#dispose();
+    return this.#disposePromise;
+  }
+
+  async #dispose(): Promise<void> {
+    // Startup owns its provisional resources and must settle before disposal returns.
+    await this.#starting?.catch(() => undefined);
+    const client = this.#client;
     const child = this.#child;
+    this.#client = undefined;
     this.#child = undefined;
-    if (!child || child.exitCode !== null || child.signalCode !== null) return;
-    await terminateChild(child);
+    try {
+      await client?.close();
+    } finally {
+      if (child) await terminateChild(child);
+    }
+  }
+
+  async #connect(client: AgentHostProtocolClient): Promise<AgentHostProtocolClient> {
+    const signal = this.#shutdown.signal;
+    const onAbort = () => {
+      void client.close().catch(() => undefined);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+    try {
+      throwIfAborted(signal);
+      await client.connect();
+      throwIfAborted(signal);
+      this.#client = client;
+      return client;
+    } catch (error) {
+      await client.close();
+      throw error;
+    } finally {
+      signal.removeEventListener("abort", onAbort);
+    }
   }
 
   async #start(): Promise<AgentHostProtocolClient> {
@@ -57,14 +91,15 @@ export class HostProcessSupervisor {
         `ws://127.0.0.1:${this.options.port}`,
         this.options.token,
       );
-      await client.connect();
-      this.#client = client;
-      return client;
+      return this.#connect(client);
     }
     this.#assertRestartBudget();
     if (this.#crashes.length > 0) {
-      await delay(Math.min(2_000, 250 * 2 ** (this.#crashes.length - 1)));
+      await delay(Math.min(2_000, 250 * 2 ** (this.#crashes.length - 1)), undefined, {
+        signal: this.#shutdown.signal,
+      });
     }
+    throwIfAborted(this.#shutdown.signal);
     const token = randomBytes(32).toString("base64url");
     const entryPath = resolve(this.options.entryPath);
     const arguments_ = [...(entryPath.endsWith(".ts") ? ["--import", "tsx"] : []), entryPath];
@@ -81,25 +116,19 @@ export class HostProcessSupervisor {
         this.#client = undefined;
         void client.close().catch(() => undefined);
       }
-      if (!this.#closing) this.#recordCrash();
+      if (!this.#shutdown.signal.aborted) this.#recordCrash();
     });
     child.stderr.pipe(process.stderr);
-    let ready: { host: string; port: number };
     try {
-      ready = await waitForReady(child);
+      const ready = await waitForReady(child, this.#shutdown.signal);
+      return await this.#connect(
+        new AgentHostProtocolClient(`ws://${ready.host}:${ready.port}`, token),
+      );
     } catch (error) {
       await terminateChild(child);
+      if (this.#child === child) this.#child = undefined;
       throw error;
     }
-    const client = new AgentHostProtocolClient(`ws://${ready.host}:${ready.port}`, token);
-    try {
-      await client.connect();
-    } catch (error) {
-      await terminateChild(child);
-      throw error;
-    }
-    this.#client = client;
-    return client;
   }
 
   #recordCrash(): void {
@@ -138,7 +167,11 @@ function createAgentHostEnvironment(options: ManagedHostOptions, token: string):
   return Object.fromEntries(Object.entries(environment).filter(([, value]) => value !== undefined));
 }
 
-async function waitForReady(child: ManagedChild): Promise<{ host: string; port: number }> {
+async function waitForReady(
+  child: ManagedChild,
+  signal: AbortSignal,
+): Promise<{ host: string; port: number }> {
+  throwIfAborted(signal);
   const lines = createInterface({ input: child.stdout });
   return new Promise((resolvePromise, reject) => {
     const timer = setTimeout(() => {
@@ -151,6 +184,7 @@ async function waitForReady(child: ManagedChild): Promise<{ host: string; port: 
       lines.close();
       child.off("exit", onExit);
       child.off("error", onError);
+      signal.removeEventListener("abort", onAbort);
     };
     const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
       cleanup();
@@ -160,6 +194,11 @@ async function waitForReady(child: ManagedChild): Promise<{ host: string; port: 
       cleanup();
       reject(error);
     };
+    const onAbort = () => {
+      cleanup();
+      reject(createAbortError(signal));
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
     child.once("exit", onExit);
     child.once("error", onError);
     lines.on("line", (line) => {
@@ -189,18 +228,12 @@ async function waitForReady(child: ManagedChild): Promise<{ host: string; port: 
 }
 
 async function terminateChild(child: ManagedChild): Promise<void> {
-  const exited =
-    child.exitCode !== null || child.signalCode !== null
-      ? Promise.resolve()
-      : new Promise<void>((resolvePromise) => child.once("exit", () => resolvePromise()));
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  const exited = new Promise<void>((resolvePromise) => child.once("exit", () => resolvePromise()));
   child.kill("SIGTERM");
   await Promise.race([exited, delay(2_000)]);
   if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL");
   await exited;
-}
-
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolvePromise) => setTimeout(resolvePromise, milliseconds));
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

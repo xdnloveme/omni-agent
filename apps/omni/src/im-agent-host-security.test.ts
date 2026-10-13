@@ -18,21 +18,25 @@ afterEach(async () => {
 });
 
 describe("prepareImAgentHostSecurityProfile", () => {
-  it("rejects a state-directory symbolic link into the workspace", async () => {
-    const root = await createDirectory();
-    const projectDirectory = join(root, "project");
-    const stateLink = join(root, "state");
-    await mkdir(projectDirectory);
-    await symlink(projectDirectory, stateLink);
+  it.each(["symlink", "..private"])(
+    "rejects a workspace-owned state directory: %s",
+    async (kind) => {
+      const root = await createDirectory();
+      const projectDirectory = join(root, "project");
+      const stateLink =
+        kind === "symlink" ? join(root, "state") : join(projectDirectory, "..private");
+      await mkdir(projectDirectory);
+      if (kind === "symlink") await symlink(projectDirectory, stateLink);
 
-    await expect(
-      prepareImAgentHostSecurityProfile({
-        projectDirectory,
-        stateDirectory: stateLink,
-        agentId: "coding",
-      }),
-    ).rejects.toThrow("must resolve outside the Agent-writable workspace");
-  });
+      await expect(
+        prepareImAgentHostSecurityProfile({
+          projectDirectory,
+          stateDirectory: stateLink,
+          agentId: "coding",
+        }),
+      ).rejects.toThrow("must resolve outside the Agent-writable workspace");
+    },
+  );
 
   it("converges persisted execution settings to the fixed IM safety profile", async () => {
     const root = await createDirectory();

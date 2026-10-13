@@ -40,6 +40,7 @@ export class AgentHostProtocolClient {
   #connectPromise?: Promise<void>;
   #sendTail = Promise.resolve();
   #closed = false;
+  #closePromise?: Promise<void>;
 
   constructor(
     readonly url: string,
@@ -52,6 +53,7 @@ export class AgentHostProtocolClient {
         new AgentHostProtocolError("client_closed", "Agent Host client closed"),
       );
     }
+    if (this.#connectPromise) return this.#connectPromise;
     if (this.#socket?.readyState === WebSocket.OPEN) return Promise.resolve();
     this.#connectPromise ??= this.#open().finally(() => {
       this.#connectPromise = undefined;
@@ -75,6 +77,7 @@ export class AgentHostProtocolClient {
 
   stream(request: Extract<AgentHostRequest, { type: "run" }>, signal?: AbortSignal) {
     const stream = new AsyncEventStream();
+    let submitted = false;
     const start = async () => {
       throwIfAborted(signal);
       await this.connect();
@@ -83,7 +86,10 @@ export class AgentHostProtocolClient {
       }
       this.#pendingRuns.set(request.id, { stream });
       try {
-        await this.#send(request);
+        await this.#send(request, () => {
+          throwIfAborted(signal);
+          submitted = true;
+        });
       } catch (error) {
         this.#pendingRuns.delete(request.id);
         throw error;
@@ -91,8 +97,8 @@ export class AgentHostProtocolClient {
     };
     let started = false;
     const onAbort = () => {
-      if (!started) {
-        stream.fail(createAbortError());
+      if (!submitted) {
+        stream.fail(createAbortError(signal));
         return;
       }
       void this.cancel(request.id).catch(() => undefined);
@@ -142,9 +148,14 @@ export class AgentHostProtocolClient {
     }
   }
 
-  async close(): Promise<void> {
-    if (this.#closed) return;
+  close(): Promise<void> {
+    if (this.#closePromise) return this.#closePromise;
     this.#closed = true;
+    this.#closePromise = this.#close();
+    return this.#closePromise;
+  }
+
+  async #close(): Promise<void> {
     const socket = this.#socket;
     this.#socket = undefined;
     this.#failPending("client_closed", "Agent Host client closed");
@@ -296,7 +307,7 @@ export class AgentHostProtocolClient {
     }
   }
 
-  #send(message: object): Promise<void> {
+  #send(message: object, beforeSend?: () => void): Promise<void> {
     let payload: string;
     try {
       payload = JSON.stringify(message);
@@ -323,6 +334,7 @@ export class AgentHostProtocolClient {
           true,
         );
       }
+      beforeSend?.();
       return new Promise<void>((resolve, reject) =>
         socket.send(payload, (error) => (error ? reject(error) : resolve())),
       );

@@ -120,10 +120,18 @@ export class BotRuntime {
       return;
     }
 
-    const response = await this.adapter.sendCard(target, "处理中…");
-    await this.store.transitionTask(task.requestId, "accepted", {
-      responseMessageId: response.messageId,
-    });
+    let response: { messageId: string };
+    try {
+      response = await this.adapter.sendCard(target, "处理中…");
+      await this.store.transitionTask(task.requestId, "accepted", {
+        responseMessageId: response.messageId,
+      });
+    } catch (error) {
+      await this.store.transitionTask(task.requestId, "failed", {
+        failureCode: "presentation_setup_failed",
+      });
+      throw error;
+    }
     const cardPresenter = new CardStreamPresenter(response.messageId, target, this.adapter);
     const aggregator = new StreamAggregator({
       update: (text) => cardPresenter.update(text),

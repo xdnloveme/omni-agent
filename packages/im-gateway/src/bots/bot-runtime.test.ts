@@ -1,4 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { GatewayStateStore } from "../persistence/gateway-state-store";
+import { describe, expect, it, vi } from "vitest";
 import type { AgentLinkPort } from "../agent-link/agent-link-port";
 import type { TaskRecord } from "../contracts";
 import type { GatewayBotConfig } from "../config/gateway-config";
@@ -6,6 +10,51 @@ import type { PlatformAdapterPort } from "../platform/platform-port";
 import { BotRuntime } from "./bot-runtime";
 
 describe("BotRuntime recovery presentation", () => {
+  it("persists a pre-dispatch failure when the first card fails and deduplicates redelivery", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "omni-card-failure-"));
+    const statePath = join(directory, "state.json");
+    const store = new GatewayStateStore(statePath);
+    let receive!: (message: import("../contracts").InboundMessage) => Promise<void>;
+    const sendCard = vi.fn(async (): Promise<{ messageId: string }> => {
+      throw new Error("Lark unavailable");
+    });
+    const adapter: PlatformAdapterPort = {
+      start: async (handler) => {
+        receive = handler;
+      },
+      stop: async () => {},
+      sendCard,
+      sendText: async () => ({ messageId: "notice" }),
+      updateCard: async () => {},
+    };
+    const link = unusedLink();
+    const create = vi.spyOn(link, "createConversation");
+    const runtime = new BotRuntime(config, adapter, link, store);
+    try {
+      await runtime.start();
+      const message = {
+        messageId: "om_failure",
+        senderId: "ou_allowed",
+        conversation: task().conversation,
+        text: "work",
+      };
+      await receive(message);
+      await vi.waitFor(async () => {
+        const state = JSON.parse(await readFile(statePath, "utf8"));
+        expect(Object.values(state.tasks)).toEqual([
+          expect.objectContaining({ state: "failed", failureCode: "presentation_setup_failed" }),
+        ]);
+      });
+      await receive(message);
+      expect(sendCard).toHaveBeenCalledTimes(1);
+      expect(create).not.toHaveBeenCalled();
+    } finally {
+      await runtime.stop();
+      await runtime.dispose();
+      await rm(directory, { recursive: true, force: true });
+    }
+  });
+
   it("sends a recovery notice when the original response card was not persisted", async () => {
     const adapter = new RecordingAdapter();
     const runtime = new BotRuntime(config, adapter, unusedLink(), {} as never);

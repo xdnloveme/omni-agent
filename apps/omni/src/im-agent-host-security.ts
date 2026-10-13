@@ -1,5 +1,5 @@
 import { mkdir, realpath } from "node:fs/promises";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { isAbsolute, sep, join, relative, resolve } from "node:path";
 import {
   ExecutionSettingsRepository,
   ExecutionSettingsService,
@@ -33,7 +33,9 @@ export async function prepareImAgentHostSecurityProfile(input: {
   const stateFromWorkspace = relative(workspaceRoot, stateDirectory);
   if (
     stateFromWorkspace === "" ||
-    (!stateFromWorkspace.startsWith("..") && !isAbsolute(stateFromWorkspace))
+    (stateFromWorkspace !== ".." &&
+      !stateFromWorkspace.startsWith(`..${sep}`) &&
+      !isAbsolute(stateFromWorkspace))
   ) {
     throw new Error("OMNI_IM_STATE_DIRECTORY must resolve outside the Agent-writable workspace");
   }

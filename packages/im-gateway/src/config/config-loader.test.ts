@@ -27,6 +27,25 @@ describe("loadGatewayConfig", () => {
     );
   });
 
+  it.each(["config", "state", "bot"])(
+    "rejects %s inside a two-dot-prefixed workspace directory",
+    async (kind) => {
+      const root = await createDirectory();
+      const workspace = join(root, "workspace");
+      const hidden = join(workspace, "..private");
+      await mkdir(hidden, { recursive: true });
+      const path = await writeConfig(
+        kind === "config" ? hidden : root,
+        workspace,
+        kind === "bot" ? join(hidden, "bot") : join(root, "bot"),
+        kind === "state" ? { stateFile: join(hidden, "state.json") } : {},
+      );
+      await expect(loadGatewayConfig(path)).rejects.toThrow(
+        "must be outside the Agent-writable workspace",
+      );
+    },
+  );
+
   it("loads valid bots independently of runtime credentials", async () => {
     const root = await createDirectory();
     const workspace = join(root, "workspace");
