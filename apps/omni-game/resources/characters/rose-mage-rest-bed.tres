@@ -1,7 +1,7 @@
 [gd_resource type="Resource" script_class="CharacterRestAppearance" load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://src/presentation/character_rest_appearance.gd" id="1"]
-[ext_resource type="Texture2D" path="res://assets/characters/world/rose-mage-v1/rest-bed.png" id="2"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/rose-mage/rest-bed.png" id="2"]
 
 [resource]
 script = ExtResource("1")

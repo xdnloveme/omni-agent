@@ -3,7 +3,7 @@
 [ext_resource type="Script" path="res://src/presentation/character_animation_set.gd" id="1"]
 [ext_resource type="SpriteFrames" path="res://resources/characters/coding-mage-animations.tres" id="2"]
 [ext_resource type="SpriteFrames" path="res://resources/characters/coding-work-animations.tres" id="3"]
-[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage-v1/amber-staff.png" id="4"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/amber-staff.png" id="4"]
 
 [resource]
 script = ExtResource("1")

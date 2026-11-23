@@ -12,28 +12,28 @@ from PIL import Image, ImageDraw, ImageFilter
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIR = ROOT / "scripts/workshop-layer-sources"
 ASSET_DIR = ROOT / "apps/omni-game/assets/environment/workshop"
-BACKGROUND_SOURCE = ASSET_DIR / "workshop-backplate-stylized-v1.png"
+BACKGROUND_SOURCE = ASSET_DIR / "workshop-backplate-stylized.png"
 ROPE_REFERENCE = SOURCE_DIR / "workshop-palette-and-rope-reference.png"
-NATIVE_BRIDGE = SOURCE_DIR / "workshop-stylized-bridge-chroma-v1.png"
+NATIVE_BRIDGE = SOURCE_DIR / "workshop-stylized-bridge-chroma.png"
 NATIVE_HANGER_EXTENSION = (
-    SOURCE_DIR / "workshop-native-hanger-extension-chroma-v1.png"
+    SOURCE_DIR / "workshop-native-hanger-extension-chroma.png"
 )
-OUTPUT = ASSET_DIR / "workshop-rails-stylized-v1.png"
-BRIDGE_OUTPUT = ASSET_DIR / "workshop-bridge-stylized-v1.png"
-DECORATION_OUTPUT = ASSET_DIR / "workshop-bridge-decoration-v1.png"
+OUTPUT = ASSET_DIR / "workshop-rails-stylized.png"
+BRIDGE_OUTPUT = ASSET_DIR / "workshop-bridge-stylized.png"
+DECORATION_OUTPUT = ASSET_DIR / "workshop-bridge-decoration.png"
 # Each module owns one continuous rail span. The bed opening and bridge gap are
 # structural gaps, not transparent holes cut out of a larger sprite.
 RAIL_MODULES = (
     (
-        SOURCE_DIR / "workshop-native-rail-left-outer-chroma-v1.png",
+        SOURCE_DIR / "workshop-native-rail-left-outer-chroma.png",
         (112, 216, 442, 300),
     ),
     (
-        SOURCE_DIR / "workshop-native-rail-left-inner-chroma-v1.png",
+        SOURCE_DIR / "workshop-native-rail-left-inner-chroma.png",
         (570, 214, 960, 300),
     ),
     (
-        SOURCE_DIR / "workshop-native-rail-right-chroma-v6.png",
+        SOURCE_DIR / "workshop-native-rail-right-chroma.png",
         (1234, 214, 1774, 300),
     ),
 )
@@ -146,7 +146,7 @@ def build_rails() -> Image.Image:
         module = trim_alpha(chroma_to_alpha(Image.open(path)))
         width, height = target[2] - target[0], target[3] - target[1]
         module = module.resize((width, height), Image.Resampling.LANCZOS)
-        if rail_modules and path.name == "workshop-native-rail-right-chroma-v6.png":
+        if rail_modules and path.name == "workshop-native-rail-right-chroma.png":
             module = match_wood_palette(module, rail_modules[1])
         foreground.alpha_composite(module, (target[0], target[1]))
         rail_modules.append(module)

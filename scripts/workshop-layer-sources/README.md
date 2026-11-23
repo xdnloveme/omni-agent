@@ -18,25 +18,19 @@ It writes only the three derived production layers; the former composite-preview
 
 The six offline inputs in this directory:
 
-- `workshop-stylized-bridge-chroma-v1.png`: approved refined bridge source.
+- `workshop-stylized-bridge-chroma.png`: approved refined bridge source.
 - `workshop-palette-and-rope-reference.png`: preserved decorative rope reference;
   this is not an alternate runtime foreground.
-- `workshop-native-rail-left-outer-chroma-v1.png`,
-  `workshop-native-rail-left-inner-chroma-v1.png`, and
-  `workshop-native-rail-right-chroma-v6.png`: approved continuous rail spans.
-- `workshop-native-hanger-extension-chroma-v1.png`: painted ceiling-rope extension.
+- `workshop-native-rail-left-outer-chroma.png`,
+  `workshop-native-rail-left-inner-chroma.png`, and
+  `workshop-native-rail-right-chroma.png`: approved continuous rail spans.
+- `workshop-native-hanger-extension-chroma.png`: painted ceiling-rope extension.
 
-The former `workshop-stylized-backplate-v1.png` source copy was pixel-identical to the
-runtime `workshop-backplate-stylized-v1.png`. Only the runtime master is retained.
-
-Historical geometry references `workshop-clean-backplate-base.png` and
-`workshop-native-bridge-v1.png` were removed after confirming the builder does not read them.
-They remain recoverable from commit `2da60f5d`. The current palette reference comes from the
-approved stylized backplate itself.
+Source paths are stable; Git history records revisions. The approved runtime backplate is
+the only palette master, without a duplicate source copy.
 
 The remaining runtime textures (edge foliage, sky mask, clouds, ladders, character atlases,
 portraits and UI icons) are approved standalone assets, not outputs of this builder.
-The obsolete semantic-difference and layered-V6 export pipelines are no longer maintained.
 
 Run `pnpm verify:game --visual` after rebuilding; it imports Godot textures before running the
 harnesses and captures the actual Main scene through its normal character-selection flow,

@@ -1,6 +1,6 @@
 [gd_resource type="AtlasTexture" load_steps=2 format=3]
 
-[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage-v1/down45_walk_aligned_idle-frame-0.png" id="1"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_aligned_idle-frame-0.png" id="1"]
 
 [resource]
 atlas = ExtResource("1")
