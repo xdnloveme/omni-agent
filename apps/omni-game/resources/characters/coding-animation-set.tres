@@ -1,0 +1,27 @@
+[gd_resource type="Resource" script_class="CharacterAnimationSet" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://src/presentation/character_animation_set.gd" id="1"]
+[ext_resource type="SpriteFrames" path="res://resources/characters/coding-mage-animations.tres" id="2"]
+[ext_resource type="SpriteFrames" path="res://resources/characters/coding-work-animations.tres" id="3"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/amber-staff.png" id="4"]
+
+[resource]
+script = ExtResource("1")
+frames = ExtResource("2")
+work_frames = ExtResource("3")
+back_equipment = ExtResource("4")
+inspection_animation = &"idle"
+source_size = Vector2i(512, 512)
+foot_anchor = Vector2(256, 464)
+visual_scale = Vector2(0.34, 0.34)
+walk_stride_pixels = 136.0
+climb_stride_pixels = 120.0
+climb_finish_height = 18.0
+climb_top_hand_heights = PackedFloat32Array(314, 280, 251, 215, 176, 130, 108, 48, 10)
+climb_top_start_height = 374.0
+climb_top_equipment_poses = PackedVector3Array(252, 303, -28, 252, 300, -28, 252, 307, -28, 252, 277, -32, 252, 308, -36, 252, 341, -44, 252, 357, -48, 252, 377, -55, 252, 402, -68)
+climb_stand_equipment_poses = PackedVector3Array(252, 406, -68, 252, 403, -65, 252, 368, -44, 252, 350, -28)
+airborne_phase_frames = Vector3i(0, 1, 2)
+landing_frame = 3
+landing_duration = 0.1
+foot_contact_region = Rect2(160, 432, 192, 32)

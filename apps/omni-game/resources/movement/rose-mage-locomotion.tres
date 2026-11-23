@@ -1,0 +1,9 @@
+[gd_resource type="Resource" script_class="PartnerLocomotionConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/world/partner_locomotion_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+walk_speed = 128.0
+work_approach_speed = 128.0
+jump_preparation_duration = 0.12

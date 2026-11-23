@@ -1,0 +1,126 @@
+[gd_resource type="SpriteFrames" load_steps=39 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_aligned_idle-frame-0.png" id="1"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_keys-frame-0.png" id="2"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_keys-frame-1.png" id="3"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_keys-frame-2.png" id="4"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_keys-frame-3.png" id="5"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_jump-frame-2.png" id="6"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/up_climb_keys-frame-0.png" id="7"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/up_climb_transfer-frame-0.png" id="8"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/up_climb_keys-frame-2.png" id="9"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/up_climb_transfer-frame-1.png" id="10"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_aligned_idle-frame-1.png" id="11"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_aligned_idle-frame-2.png" id="12"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_aligned_idle-frame-3.png" id="13"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_aligned_idle-frame-4.png" id="14"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_aligned_idle-frame-5.png" id="15"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_aligned_idle-frame-6.png" id="16"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_walk_aligned_idle-frame-7.png" id="17"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_jump-frame-4.png" id="18"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_jump-frame-5.png" id="19"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/down45_jump-frame-6.png" id="20"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/climb-finish.png" id="21"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/climb-top.png" id="22"]
+
+[sub_resource type="AtlasTexture" id="Finish0"]
+atlas = ExtResource("21")
+region = Rect2(0, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Finish1"]
+atlas = ExtResource("21")
+region = Rect2(512, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Finish2"]
+atlas = ExtResource("21")
+region = Rect2(1024, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top0"]
+atlas = ExtResource("22")
+region = Rect2(512, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top1"]
+atlas = ExtResource("22")
+region = Rect2(1024, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top2"]
+atlas = ExtResource("22")
+region = Rect2(1536, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top3"]
+atlas = ExtResource("22")
+region = Rect2(0, 512, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top4"]
+atlas = ExtResource("22")
+region = Rect2(512, 512, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top5"]
+atlas = ExtResource("22")
+region = Rect2(2048, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top6"]
+atlas = ExtResource("22")
+region = Rect2(2560, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top7"]
+atlas = ExtResource("22")
+region = Rect2(3072, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top8"]
+atlas = ExtResource("22")
+region = Rect2(0, 1024, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top9"]
+atlas = ExtResource("22")
+region = Rect2(512, 1024, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top10"]
+atlas = ExtResource("22")
+region = Rect2(0, 1536, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top11"]
+atlas = ExtResource("22")
+region = Rect2(512, 1536, 512, 512)
+
+[sub_resource type="AtlasTexture" id="Top12"]
+atlas = ExtResource("22")
+region = Rect2(1024, 1536, 512, 512)
+
+[resource]
+animations = [{"frames": [{"duration": 0.55, "texture": ExtResource("1")},
+{"duration": 0.55, "texture": ExtResource("11")},
+{"duration": 0.55, "texture": ExtResource("12")},
+{"duration": 0.55, "texture": ExtResource("13")},
+{"duration": 0.55, "texture": ExtResource("14")},
+{"duration": 0.12, "texture": ExtResource("15")},
+{"duration": 0.55, "texture": ExtResource("16")},
+{"duration": 0.58, "texture": ExtResource("17")}], "loop": true, "name": &"idle", "speed": 1.0},
+{"frames": [{"duration": 1.0, "texture": ExtResource("2")},
+{"duration": 1.0, "texture": ExtResource("3")},
+{"duration": 1.0, "texture": ExtResource("4")},
+{"duration": 1.0, "texture": ExtResource("5")}], "loop": true, "name": &"walk", "speed": 4.0},
+{"frames": [{"duration": 1.0, "texture": ExtResource("6")},
+{"duration": 1.0, "texture": ExtResource("18")},
+{"duration": 1.0, "texture": ExtResource("19")},
+{"duration": 1.0, "texture": ExtResource("20")}], "loop": false, "name": &"jump", "speed": 4.0},
+{"frames": [{"duration": 1.0, "texture": ExtResource("7")},
+{"duration": 1.0, "texture": ExtResource("8")},
+{"duration": 1.0, "texture": ExtResource("9")},
+{"duration": 1.0, "texture": ExtResource("10")}], "loop": true, "name": &"climb", "speed": 4.0},
+{"frames": [{"duration": 1.0, "texture": SubResource("Finish0")},
+{"duration": 1.0, "texture": SubResource("Finish1")},
+{"duration": 1.0, "texture": SubResource("Finish2")}], "loop": false, "name": &"climb_finish", "speed": 4.0},
+{"frames": [{"duration": 1.0, "texture": SubResource("Top0")},
+{"duration": 1.0, "texture": SubResource("Top1")},
+{"duration": 1.0, "texture": SubResource("Top2")},
+{"duration": 1.0, "texture": SubResource("Top3")},
+{"duration": 1.0, "texture": SubResource("Top4")},
+{"duration": 1.0, "texture": SubResource("Top5")},
+{"duration": 1.0, "texture": SubResource("Top6")},
+{"duration": 1.0, "texture": SubResource("Top7")},
+{"duration": 1.0, "texture": SubResource("Top8")}], "loop": false, "name": &"climb_top", "speed": 10.0},
+{"frames": [{"duration": 1.0, "texture": SubResource("Top9")},
+{"duration": 1.0, "texture": SubResource("Top10")},
+{"duration": 1.0, "texture": SubResource("Top11")},
+{"duration": 1.0, "texture": SubResource("Top12")}], "loop": false, "name": &"climb_top_stand", "speed": 16.0}]

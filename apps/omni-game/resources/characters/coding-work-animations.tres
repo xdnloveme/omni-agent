@@ -1,0 +1,38 @@
+[gd_resource type="SpriteFrames" load_steps=10 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage/work-atlas.png" id="1"]
+
+[sub_resource type="AtlasTexture" id="work_0"]
+atlas = ExtResource("1")
+region = Rect2(0, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="work_1"]
+atlas = ExtResource("1")
+region = Rect2(512, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="work_2"]
+atlas = ExtResource("1")
+region = Rect2(1024, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="work_3"]
+atlas = ExtResource("1")
+region = Rect2(1536, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="work_4"]
+atlas = ExtResource("1")
+region = Rect2(2048, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="work_5"]
+atlas = ExtResource("1")
+region = Rect2(2560, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="work_6"]
+atlas = ExtResource("1")
+region = Rect2(3072, 0, 512, 512)
+
+[sub_resource type="AtlasTexture" id="work_7"]
+atlas = ExtResource("1")
+region = Rect2(3584, 0, 512, 512)
+
+[resource]
+animations = [{"frames": [{"duration": 0.25, "texture": SubResource("work_0")}, {"duration": 0.25, "texture": SubResource("work_1")}, {"duration": 0.25, "texture": SubResource("work_2")}, {"duration": 0.25, "texture": SubResource("work_3")}, {"duration": 0.25, "texture": SubResource("work_4")}, {"duration": 0.25, "texture": SubResource("work_5")}, {"duration": 0.25, "texture": SubResource("work_6")}, {"duration": 0.25, "texture": SubResource("work_7")}], "loop": true, "name": &"work", "speed": 1.0}]
