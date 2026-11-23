@@ -11,10 +11,9 @@ from PIL import Image, ImageDraw, ImageFilter
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE_DIR = ROOT / "scripts/workshop-layer-sources"
-BACKGROUND_SOURCE = SOURCE_DIR / "workshop-stylized-backplate-v1.png"
 ASSET_DIR = ROOT / "apps/omni-game/assets/environment/workshop"
-BACKGROUND_OUTPUT = ASSET_DIR / "workshop-backplate-stylized-v1.png"
-V6_FOREGROUND = SOURCE_DIR / "workshop-palette-and-rope-reference.png"
+BACKGROUND_SOURCE = ASSET_DIR / "workshop-backplate-stylized-v1.png"
+ROPE_REFERENCE = SOURCE_DIR / "workshop-palette-and-rope-reference.png"
 NATIVE_BRIDGE = SOURCE_DIR / "workshop-stylized-bridge-chroma-v1.png"
 NATIVE_HANGER_EXTENSION = (
     SOURCE_DIR / "workshop-native-hanger-extension-chroma-v1.png"
@@ -69,8 +68,8 @@ def trim_alpha(image: Image.Image) -> Image.Image:
     return image.crop((int(xs.min()), int(ys.min()), int(xs.max()) + 1, int(ys.max()) + 1))
 
 
-def isolated_v6_pixels(strokes: tuple[tuple[list[tuple[int, int]], int], ...]) -> Image.Image:
-    source = Image.open(V6_FOREGROUND).convert("RGBA")
+def extract_rope_pixels(strokes: tuple[tuple[list[tuple[int, int]], int], ...]) -> Image.Image:
+    source = Image.open(ROPE_REFERENCE).convert("RGBA")
     matte = Image.new("L", source.size, 0)
     draw = ImageDraw.Draw(matte)
     for points, width in strokes:
@@ -84,7 +83,7 @@ def isolated_v6_pixels(strokes: tuple[tuple[list[tuple[int, int]], int], ...]) -
 
 
 def bridge_background_decoration() -> Image.Image:
-    return isolated_v6_pixels(
+    return extract_rope_pixels(
         (
             (
                 [(994, 242), (1030, 251), (1070, 263), (1110, 270), (1150, 271), (1190, 263), (1240, 241)],
@@ -158,8 +157,6 @@ def main() -> None:
     background = Image.open(BACKGROUND_SOURCE).convert("RGBA")
     if background.size != (1983, 793):
         raise RuntimeError("approved background dimensions changed; review scene registration")
-    BACKGROUND_OUTPUT.parent.mkdir(parents=True, exist_ok=True)
-    background.save(BACKGROUND_OUTPUT, optimize=True)
 
     # Exact palette and scale used by the accepted whole-map candidate.
     timber = background.crop((92, 239, 904, 271))
@@ -182,7 +179,6 @@ def main() -> None:
     foreground.save(OUTPUT, optimize=True)
     bridge.save(BRIDGE_OUTPUT, optimize=True)
     decoration.save(DECORATION_OUTPUT, optimize=True)
-    print(f"background={BACKGROUND_OUTPUT}")
     print(f"foreground={OUTPUT}")
     print(f"bridge={BRIDGE_OUTPUT}")
     print(f"decoration={DECORATION_OUTPUT}")
