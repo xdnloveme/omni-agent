@@ -1,15 +1,16 @@
 [gd_resource type="Resource" script_class="CharacterPresentation" load_steps=5 format=3]
 
 [ext_resource type="Script" path="res://src/presentation/character_presentation.gd" id="1"]
-[ext_resource type="Texture2D" path="res://assets/characters/portraits/fallback-companion.png" id="2"]
-[ext_resource type="Resource" path="res://resources/characters/fallback-animation-set.tres" id="3"]
+[ext_resource type="Texture2D" path="res://resources/characters/coding-portrait.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/characters/coding-animation-set.tres" id="3"]
 [ext_resource type="Resource" path="res://resources/movement/partner-locomotion-config.tres" id="4_motion"]
 
 [resource]
 script = ExtResource("1")
 agent_id = ""
 role_title = "伙伴"
+selection_frame_height = 358.4
 portrait = ExtResource("2")
 animation_set = ExtResource("3")
 locomotion_config = ExtResource("4_motion")
-accent_color = Color(0.416, 0.663, 0.655, 1)
+accent_color = Color(0.937, 0.478, 0.196, 1)

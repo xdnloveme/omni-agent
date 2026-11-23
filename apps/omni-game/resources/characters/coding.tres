@@ -1,16 +1,12 @@
-[gd_resource type="Resource" script_class="CharacterPresentation" load_steps=9 format=3]
+[gd_resource type="Resource" script_class="CharacterPresentation" load_steps=8 format=3]
 
 [ext_resource type="Script" path="res://src/presentation/character_presentation.gd" id="1"]
-[ext_resource type="Texture2D" path="res://assets/characters/world/coding-mage-v1/down45_walk_aligned_idle-frame-0.png" id="2"]
+[ext_resource type="Texture2D" path="res://resources/characters/coding-portrait.tres" id="2"]
 [ext_resource type="Resource" path="res://resources/characters/coding-animation-set.tres" id="4"]
 [ext_resource type="Resource" path="res://resources/characters/coding-rest-bed.tres" id="5_sleep"]
 [ext_resource type="Resource" path="res://resources/characters/coding-rest-upper_bed.tres" id="6_upper_sleep"]
 [ext_resource type="Resource" path="res://resources/characters/coding-rest-sofa.tres" id="7_sofa"]
 [ext_resource type="Resource" path="res://resources/movement/partner-locomotion-config.tres" id="8_motion"]
-
-[sub_resource type="AtlasTexture" id="MagePortrait"]
-atlas = ExtResource("2")
-region = Rect2(130, 5, 250, 280)
 
 [resource]
 script = ExtResource("1")
@@ -19,7 +15,7 @@ display_name = "橘子"
 role_title = "编程伙伴"
 selection_description = "陪你读懂代码，把想法变成作品。"
 selection_frame_height = 358.4
-portrait = SubResource("MagePortrait")
+portrait = ExtResource("2")
 animation_set = ExtResource("4")
 locomotion_config = ExtResource("8_motion")
 rest_appearances = {&"bed": ExtResource("5_sleep"), &"upper_bed": ExtResource("6_upper_sleep"), &"sofa": ExtResource("7_sofa")}
