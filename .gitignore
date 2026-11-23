@@ -110,6 +110,8 @@ dist
 artifacts/
 /sandbox/target/
 /apps/omni-game/.godot/
+/apps/omni-game/tests/evidence/*
+!/apps/omni-game/tests/evidence/.gdignore
 
 # Gatsby files
 .cache/

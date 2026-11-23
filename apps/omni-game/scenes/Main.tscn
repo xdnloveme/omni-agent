@@ -1,14 +1,47 @@
-[gd_scene load_steps=7 format=3]
+[gd_scene load_steps=14 format=3]
 
 [ext_resource type="Script" path="res://src/bootstrap/game_root.gd" id="1_root"]
 [ext_resource type="Script" path="res://src/client/agent_host_client.gd" id="2_client"]
 [ext_resource type="Script" path="res://src/features/character_workspace_controller.gd" id="3_controller"]
 [ext_resource type="PackedScene" path="res://scenes/CharacterSelectionPanel.tscn" id="4_characters"]
 [ext_resource type="PackedScene" path="res://scenes/TaskPanel.tscn" id="5_task"]
-[ext_resource type="PackedScene" path="res://scenes/PermissionPanel.tscn" id="6_permission"]
+[ext_resource type="PackedScene" path="res://scenes/WorkshopWorld.tscn" id="6_world"]
+[ext_resource type="PackedScene" path="res://scenes/WorkshopMenu.tscn" id="7_menu"]
+[ext_resource type="PackedScene" path="res://scenes/CharacterInfoPanel.tscn" id="8_info"]
+[ext_resource type="Resource" path="res://resources/characters/catalog.tres" id="9_catalog"]
+[ext_resource type="Script" path="res://src/presentation/game_display.gd" id="10_display"]
+
+[ext_resource type="PackedScene" path="res://scenes/PermissionPanel.tscn" id="11_permission"]
+
+[sub_resource type="StyleBoxFlat" id="PartnerHudPanel"]
+bg_color = Color(0.09, 0.065, 0.05, 0.76)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.77, 0.63, 0.43, 0.9)
+corner_radius_top_left = 14
+corner_radius_top_right = 14
+corner_radius_bottom_right = 14
+corner_radius_bottom_left = 14
+shadow_color = Color(0.08, 0.05, 0.04, 0.35)
+shadow_size = 5
+
+[sub_resource type="StyleBoxFlat" id="ConnectionBadgePanel"]
+bg_color = Color(0.953, 0.902, 0.784, 0.94)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.659, 0.435, 0.243, 0.9)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
 
 [node name="Main" type="Node"]
 script = ExtResource("1_root")
+character_presentations = ExtResource("9_catalog")
 
 [node name="AgentHostClient" type="Node" parent="."]
 script = ExtResource("2_client")
@@ -16,46 +49,173 @@ script = ExtResource("2_client")
 [node name="CharacterWorkspaceController" type="Node" parent="."]
 script = ExtResource("3_controller")
 
-[node name="Background" type="ColorRect" parent="."]
-offset_right = 1440.0
-offset_bottom = 900.0
-color = Color(0.055, 0.067, 0.082, 1)
+[node name="GameDisplay" type="Node" parent="."]
+script = ExtResource("10_display")
 
-[node name="Layout" type="MarginContainer" parent="."]
-offset_right = 1440.0
-offset_bottom = 900.0
-theme_override_constants/margin_left = 48
-theme_override_constants/margin_top = 32
-theme_override_constants/margin_right = 48
-theme_override_constants/margin_bottom = 38
+[node name="WorldRoot" type="Node2D" parent="."]
 
-[node name="Content" type="VBoxContainer" parent="Layout"]
-theme_override_constants/separation = 18
-
-[node name="TopBar" type="HBoxContainer" parent="Layout/Content"]
-
-[node name="GameTitle" type="Label" parent="Layout/Content/TopBar"]
-size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 34
-text = "Omni Agent Workshop"
-
-[node name="ConnectionStatus" type="Label" parent="Layout/Content/TopBar"]
+[node name="WorkshopWorld" parent="WorldRoot" instance=ExtResource("6_world")]
 unique_name_in_owner = true
+visible = false
+
+[node name="UIRoot" type="CanvasLayer" parent="."]
+
+[node name="SelectionLayer" type="Control" parent="UIRoot"]
+unique_name_in_owner = true
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="CharacterSelectionPanel" parent="UIRoot/SelectionLayer" instance=ExtResource("4_characters")]
+unique_name_in_owner = true
+layout_mode = 1
+
+[node name="PartnerHud" type="PanelContainer" parent="UIRoot"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 0
+offset_left = 24.0
+offset_top = 18.0
+offset_right = 366.0
+offset_bottom = 126.0
+theme_override_styles/panel = SubResource("PartnerHudPanel")
+
+[node name="Margin" type="MarginContainer" parent="UIRoot/PartnerHud"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 12
+
+[node name="Row" type="HBoxContainer" parent="UIRoot/PartnerHud/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PartnerButton" type="TextureButton" parent="UIRoot/PartnerHud/Margin/Row"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 72)
+layout_mode = 2
+size_flags_vertical = 4
+ignore_texture_size = true
+stretch_mode = 5
+tooltip_text = "人物信息（P）"
+
+[node name="PartnerText" type="VBoxContainer" parent="UIRoot/PartnerHud/Margin/Row"]
+layout_mode = 2
+size_flags_horizontal = 3
+alignment = 1
+
+[node name="PartnerName" type="Label" parent="UIRoot/PartnerHud/Margin/Row/PartnerText"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.949, 0.82, 1)
+theme_override_colors/font_shadow_color = Color(0.12, 0.08, 0.06, 1)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_font_sizes/font_size = 24
+text = "伙伴"
+
+[node name="PartnerRole" type="Label" parent="UIRoot/PartnerHud/Margin/Row/PartnerText"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.91, 0.76, 0.55, 1)
+theme_override_font_sizes/font_size = 18
+text = "伙伴 · P 人物信息"
+
+[node name="ConnectionBadge" type="PanelContainer" parent="UIRoot"]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -622.0
+offset_top = 28.0
+offset_right = -24.0
+offset_bottom = 78.0
+theme_override_styles/panel = SubResource("ConnectionBadgePanel")
+
+[node name="Margin" type="MarginContainer" parent="UIRoot/ConnectionBadge"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 8
+
+[node name="ConnectionStatus" type="Label" parent="UIRoot/ConnectionBadge/Margin"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.29, 0.188, 0.149, 1)
+theme_override_font_sizes/font_size = 20
 text = "准备连接……"
+horizontal_alignment = 1
+vertical_alignment = 1
 
-[node name="CharacterSelectionPanel" parent="Layout/Content" instance=ExtResource("4_characters")]
-unique_name_in_owner = true
-size_flags_horizontal = 3
-size_flags_vertical = 3
-
-[node name="TaskPanel" parent="Layout/Content" instance=ExtResource("5_task")]
+[node name="ContextMessage" type="Label" parent="UIRoot"]
 unique_name_in_owner = true
 visible = false
-size_flags_horizontal = 3
-size_flags_vertical = 3
+layout_mode = 1
+anchor_left = 0.5
+anchor_right = 0.5
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = -250.0
+offset_top = -110.0
+offset_right = 250.0
+offset_bottom = -58.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(1, 0.94, 0.8, 1)
+theme_override_colors/font_outline_color = Color(0.11, 0.07, 0.04, 0.92)
+theme_override_constants/outline_size = 7
+theme_override_font_sizes/font_size = 22
+text = "环境互动"
+horizontal_alignment = 1
+vertical_alignment = 1
 
-[node name="PermissionPanel" parent="Layout/Content" instance=ExtResource("6_permission")]
+[node name="ContextMessageTimer" type="Timer" parent="UIRoot"]
+unique_name_in_owner = true
+wait_time = 2.4
+one_shot = true
+
+[node name="TaskOverlay" type="Control" parent="UIRoot"]
 unique_name_in_owner = true
 visible = false
-size_flags_horizontal = 3
-size_flags_vertical = 3
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+
+[node name="TaskPanel" parent="UIRoot/TaskOverlay" instance=ExtResource("5_task")]
+unique_name_in_owner = true
+layout_mode = 0
+
+[node name="WorkshopMenu" parent="UIRoot" instance=ExtResource("7_menu")]
+unique_name_in_owner = true
+visible = false
+
+[node name="CharacterInfoPanel" parent="UIRoot" instance=ExtResource("8_info")]
+unique_name_in_owner = true
+visible = false
+
+[node name="PermissionOverlay" type="Control" parent="UIRoot"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 0
+
+[node name="PermissionPanel" parent="UIRoot/PermissionOverlay" instance=ExtResource("11_permission")]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 300.0
+offset_top = 180.0
+offset_right = 1140.0
+offset_bottom = 720.0

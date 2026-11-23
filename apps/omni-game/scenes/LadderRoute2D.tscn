@@ -1,0 +1,27 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://src/world/traversal/ladder_route_2d.gd" id="1_route"]
+[ext_resource type="Shader" path="res://src/world/traversal/workshop_ladder_grade.gdshader" id="2_grade"]
+
+[sub_resource type="RectangleShape2D" id="Rectangle_route"]
+resource_local_to_scene = true
+size = Vector2(90, 200)
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_grade"]
+shader = ExtResource("2_grade")
+
+[node name="LadderRoute2D" type="Area2D"]
+collision_layer = 0
+collision_mask = 1
+monitoring = true
+monitorable = false
+script = ExtResource("1_route")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="."]
+shape = SubResource("Rectangle_route")
+
+[node name="LadderVisual" type="Sprite2D" parent="."]
+centered = true
+texture_filter = 2
+z_index = -5
+material = SubResource("ShaderMaterial_grade")

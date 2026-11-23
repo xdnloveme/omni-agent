@@ -1,0 +1,199 @@
+[gd_scene load_steps=22 format=3]
+
+[ext_resource type="Script" path="res://src/world/workshop_world.gd" id="1_world"]
+[ext_resource type="PackedScene" path="res://scenes/PartnerActor.tscn" id="2_actor"]
+[ext_resource type="PackedScene" path="res://scenes/WorkshopInteractionPoint.tscn" id="3_interaction"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop/workshop-backplate-stylized.png" id="4_environment"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop/workshop-edge-foliage-foreground.png" id="5_edge_foreground"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop/workshop-clouds.png" id="7_cloud_band"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop/workshop-sky-mask.png" id="8_sky_mask"]
+[ext_resource type="Shader" path="res://src/world/cloud-layer.gdshader" id="9_cloud_shader"]
+[ext_resource type="PackedScene" path="res://scenes/WorkshopTraversalMap.tscn" id="10_traversal"]
+[ext_resource type="PackedScene" path="res://scenes/WorkshopCameraRig.tscn" id="11_camera"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop/workshop-rails-stylized.png" id="12_upper_foreground"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop/workshop-bridge-stylized.png" id="13_bridge"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop/workshop-bridge-decoration.png" id="14_decoration"]
+[ext_resource type="PackedScene" path="res://scenes/WorkshopWorkstation.tscn" id="15_workstation"]
+[ext_resource type="Script" path="res://src/world/workshop_rest_spot.gd" id="16_rest"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop/workshop-bed-empty.png" id="17_empty_bed"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop/workshop-bedroom-detail.png" id="18_bedroom"]
+[ext_resource type="Shader" path="res://src/world/workshop_bedroom_detail.gdshader" id="19_bedroom_shader"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop/workshop-upper-bed-empty.png" id="20_upper_empty"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_bedroom"]
+shader = ExtResource("19_bedroom_shader")
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_clouds"]
+shader = ExtResource("9_cloud_shader")
+shader_parameter/horizontal_tiles = 1.5625
+shader_parameter/horizontal_speed = 0.00833333333
+shader_parameter/vertical_scale = 1.25
+shader_parameter/vertical_offset = 0.05
+shader_parameter/opacity = 0.6
+shader_parameter/cloud_texture = ExtResource("7_cloud_band")
+shader_parameter/visibility_mask = ExtResource("8_sky_mask")
+
+[node name="WorkshopWorld" type="Node2D"]
+script = ExtResource("1_world")
+
+[node name="Visual" type="Node2D" parent="."]
+
+[node name="Bed" type="Node2D" parent="Visual"]
+unique_name_in_owner = true
+position = Vector2(357.0348, 466.0782)
+scale = Vector2(1.210287443, 1.210592686)
+script = ExtResource("16_rest")
+interaction_id = &"bed"
+standing_contact_path = NodePath("../../BedStandingContact")
+fixed_outline = PackedVector2Array(43,146,44,128,51,122,53,106,57,101,69,95,127,82,130,77,130,51,134,47,140,47,143,50,163,44,173,43,190,43,203,46,227,54,228,48,232,44,240,45,244,48,244,138,242,142,230,142,224,137,164,146,163,154,148,156,146,148,56,145,55,153,44,153)
+empty_texture = ExtResource("17_empty_bed")
+
+[node name="UpperBed" type="Node2D" parent="Visual"]
+unique_name_in_owner = true
+position = Vector2(411.49773, 169.482976)
+scale = Vector2(1.210287443, 1.210592686)
+script = ExtResource("16_rest")
+interaction_id = &"upper_bed"
+standing_contact_path = NodePath("../../UpperBedStandingContact")
+source_size = Vector2(240, 125)
+fixed_outline = PackedVector2Array(10,97,10,46,12,43,20,42,25,46,32,45,45,44,55,46,64,49,69,55,78,51,85,51,120,57,151,63,165,68,167,63,172,61,180,62,180,69,187,72,191,78,191,97)
+empty_texture = ExtResource("20_upper_empty")
+focus_bounds = Rect2(0, 10, 205, 108)
+
+[node name="Sofa" type="Node2D" parent="Visual"]
+unique_name_in_owner = true
+position = Vector2(690.30116, 475.092174)
+scale = Vector2(0.411153856, 0.411426968)
+script = ExtResource("16_rest")
+interaction_id = &"sofa"
+idle_prompt = "坐下休息"
+resting_prompt = "起身"
+standing_contact_path = NodePath("../../SofaStandingContact")
+source_size = Vector2(530, 440)
+focus_bounds = Rect2(0, 55, 530, 360)
+snore_enabled = false
+
+[node name="BedStandingContact" type="Marker2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(470, 669)
+
+[node name="UpperBedStandingContact" type="Marker2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(520, 295)
+
+[node name="SofaStandingContact" type="Marker2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(800, 669)
+
+[node name="Environment" type="Sprite2D" parent="Visual"]
+scale = Vector2(1.210287443, 1.210592686)
+texture = ExtResource("4_environment")
+centered = false
+texture_filter = 2
+z_index = -20
+
+[node name="BedroomDetail" type="Sprite2D" parent="Visual"]
+position = Vector2(344.9319, 320.8071)
+scale = Vector2(0.411153856, 0.411426968)
+texture = ExtResource("18_bedroom")
+material = SubResource("ShaderMaterial_bedroom")
+centered = false
+texture_filter = 2
+z_index = -18
+
+[node name="CloudLayer" type="TextureRect" parent="Visual"]
+unique_name_in_owner = true
+material = SubResource("ShaderMaterial_clouds")
+offset_right = 2400.0
+offset_bottom = 960.0
+texture = ExtResource("8_sky_mask")
+expand_mode = 1
+stretch_mode = 0
+mouse_filter = 2
+texture_filter = 2
+z_index = -19
+
+[node name="WorkbenchChairBack" type="Polygon2D" parent="Visual"]
+scale = Vector2(1.210287443, 1.210592686)
+texture_filter = 2
+texture = ExtResource("4_environment")
+polygon = PackedVector2Array(1133, 476, 1138, 471, 1159, 471, 1165, 475, 1168, 482, 1166, 493, 1161, 499, 1140, 500, 1134, 496, 1131, 489, 1131, 481)
+uv = PackedVector2Array(1133, 476, 1138, 471, 1159, 471, 1165, 475, 1168, 482, 1166, 493, 1161, 499, 1140, 500, 1134, 496, 1131, 489, 1131, 481)
+
+[node name="BridgeDecoration" type="Sprite2D" parent="Visual"]
+texture = ExtResource("14_decoration")
+centered = false
+texture_filter = 2
+z_index = -18
+
+[node name="UpperForeground" type="Sprite2D" parent="Visual"]
+unique_name_in_owner = true
+texture = ExtResource("12_upper_foreground")
+centered = false
+texture_filter = 2
+z_index = 5
+
+[node name="BridgeDeck" type="Sprite2D" parent="Visual"]
+position = Vector2(1087, 278)
+scale = Vector2(0.25, 0.25)
+texture = ExtResource("13_bridge")
+centered = false
+texture_filter = 2
+z_index = 5
+
+[node name="EdgeFoliageForeground" type="Sprite2D" parent="Visual"]
+texture = ExtResource("5_edge_foreground")
+centered = false
+texture_filter = 2
+z_index = 10
+
+[node name="TraversalMap" parent="." instance=ExtResource("10_traversal")]
+unique_name_in_owner = true
+
+[node name="WorkshopCameraRig" parent="." instance=ExtResource("11_camera")]
+unique_name_in_owner = true
+
+[node name="InteractionPoints" type="Node2D" parent="."]
+
+[node name="Workbench" parent="." instance=ExtResource("15_workstation")]
+unique_name_in_owner = true
+position = Vector2(1378, 643)
+
+[node name="BedInteraction" parent="InteractionPoints" instance=ExtResource("3_interaction")]
+unique_name_in_owner = true
+position = Vector2(470, 664)
+interaction_id = &"bed"
+prompt_text = "睡觉"
+prompt_offset = Vector2(0, -190)
+
+[node name="SofaInteraction" parent="InteractionPoints" instance=ExtResource("3_interaction")]
+unique_name_in_owner = true
+position = Vector2(800, 664)
+interaction_id = &"sofa"
+prompt_text = "坐下休息"
+prompt_offset = Vector2(0, -200)
+
+[node name="UpperBedInteraction" parent="InteractionPoints" instance=ExtResource("3_interaction")]
+unique_name_in_owner = true
+position = Vector2(520, 290)
+interaction_id = &"upper_bed"
+prompt_text = "睡觉"
+prompt_offset = Vector2(0, -155)
+
+[node name="WorkbenchInteraction" parent="InteractionPoints" instance=ExtResource("3_interaction")]
+unique_name_in_owner = true
+position = Vector2(1460, 650)
+interaction_id = &"workbench"
+prompt_text = "做事情"
+prompt_offset = Vector2(0, -215)
+
+[node name="DoorInteraction" parent="InteractionPoints" instance=ExtResource("3_interaction")]
+unique_name_in_owner = true
+position = Vector2(2040, 650)
+interaction_id = &"door"
+prompt_text = "离开工坊"
+prompt_offset = Vector2(0, -260)
+
+[node name="PartnerActor" parent="." instance=ExtResource("2_actor")]
+unique_name_in_owner = true
+position = Vector2(860, 669)

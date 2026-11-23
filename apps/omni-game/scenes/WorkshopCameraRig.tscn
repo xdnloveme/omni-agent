@@ -1,0 +1,14 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/world/workshop_camera_rig.gd" id="1_camera"]
+
+[node name="WorkshopCameraRig" type="Node2D"]
+unique_name_in_owner = true
+script = ExtResource("1_camera")
+
+[node name="Camera2D" type="Camera2D" parent="."]
+limit_left = 0
+limit_top = 0
+limit_right = 2400
+limit_bottom = 960
+position_smoothing_enabled = false

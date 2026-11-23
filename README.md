@@ -115,15 +115,20 @@ omni --version, -v      # CLI version
 ```
 
 The distribution also includes `omni-host`, a loopback-only WebSocket companion process. The Godot
-4.7.2 graybox client connects to it directly during development. Its parent process owns the
+4.7.2 side-scrolling workshop client connects to it directly during development. Its parent process owns the
 ephemeral authentication Token and child-process lifecycle; developers can run `pnpm verify:host`
 without creating or copying a Token. Model configuration must already exist for actual Runs. See
 [`docs/agent-host.md`](docs/agent-host.md) for the machine-readable startup and Protocol v2 contract.
 
-With Godot 4.7.2 installed, run `pnpm game` to start both the Host and game without handling a Token.
-Run `pnpm run verify:game` for the headless protocol, Client lifecycle, and real Session harnesses. See
+With Godot 4.7.2 installed, run `pnpm game` to start both the Host and side-scrolling workshop
+without handling a Token. Select a partner, move with A/D or the arrow keys, jump with Space, climb
+with W/S, press P or click the partner for real character/Session information, and press E near the
+workbench to open the real task overlay; the bed, sofa, and right-side door expose bounded
+presentation interactions without inventing Agent work. Run `pnpm run verify:game` for the
+headless protocol, world behavior, Client lifecycle, and real Session harnesses. See
 [`docs/godot-agent-host-client.md`](docs/godot-agent-host-client.md) for setup, ownership, and the
-manual streaming Smoke test.
+manual streaming Smoke test, and [`docs/godot-workshop-environment.md`](docs/godot-workshop-environment.md)
+for environment controls and boundaries.
 
 `omni doctor` never mutates state. It reports eight checks: Node.js version, resolved workspace
 root and ID, global directory accessibility, configuration validity, coding Agent package
@@ -577,7 +582,7 @@ graph TD
     AGENTS["agents/*<br/>coding, financial-analysis"]
     APP["packages/app<br/>Catalog, Service, lifecycle, sessions"]
     AGENT_HOST["packages/agent-host<br/>WebSocket Protocol v2 adapter"]
-    GAME["apps/omni-game<br/>Godot character + task UI"]
+    GAME["apps/omni-game<br/>Godot workshop + task UI"]
     MODELS["packages/models<br/>runtime, vendor plugins, credentials"]
     TOOLS["packages/tools<br/>fs, shell, search, web"]
     UI["packages/ui<br/>browser + terminal presentation"]
@@ -588,7 +593,7 @@ graph TD
     HOST --> APP
     HOST --> AGENT_HOST
     AGENT_HOST --> APP
-    GAME -. "WebSocket v1" .-> AGENT_HOST
+    GAME -. "WebSocket v2" .-> AGENT_HOST
     CLI --> AGENTS
     CLI --> APP
     CLI --> TOOLS
@@ -604,18 +609,18 @@ graph TD
     TOOLS --> CORE
 ```
 
-| Package               | Responsibility                                                                             |
-| --------------------- | ------------------------------------------------------------------------------------------ |
-| `packages/core`       | Agent execution kernel: loop, tool coordination, access planning, context, events, ports   |
-| `packages/models`     | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence       |
-| `packages/app`        | Package Catalog, Agent Service, application lifecycle, extensions, sessions, configuration |
-| `packages/agent-host` | Loopback WebSocket Protocol v2, authentication, streaming, and transport cancellation      |
-| `packages/tools`      | Domain-neutral filesystem, shell, search, and web tools                                    |
-| `packages/ui`         | Browser and terminal interaction, presentation, adapters, formatting, and delivery         |
-| `packages/cli`        | Commands, Agent creation/use-case orchestration, sessions, and onboarding workflow         |
-| `apps/omni`           | Binary entry, CLI/UI composition, signals, Trace preview lifecycle, and process exit       |
-| `apps/omni-game`      | Godot character selection, Session transitions, task interaction, and presentation         |
-| `agents/*`            | Independently packaged business agents                                                     |
+| Package               | Responsibility                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------- |
+| `packages/core`       | Agent execution kernel: loop, tool coordination, access planning, context, events, ports    |
+| `packages/models`     | Model runtime, vendor plugins, catalogs, protocol conversion, credential persistence        |
+| `packages/app`        | Package Catalog, Agent Service, application lifecycle, extensions, sessions, configuration  |
+| `packages/agent-host` | Loopback WebSocket Protocol v2, authentication, streaming, and transport cancellation       |
+| `packages/tools`      | Domain-neutral filesystem, shell, search, and web tools                                     |
+| `packages/ui`         | Browser and terminal interaction, presentation, adapters, formatting, and delivery          |
+| `packages/cli`        | Commands, Agent creation/use-case orchestration, sessions, and onboarding workflow          |
+| `apps/omni`           | Binary entry, CLI/UI composition, signals, Trace preview lifecycle, and process exit        |
+| `apps/omni-game`      | Godot character selection, workshop interaction, Session transitions, and task presentation |
+| `agents/*`            | Independently packaged business agents                                                      |
 
 ### Dependency direction
 
@@ -684,7 +689,7 @@ omni-agent/
 │   └── cli/      Arg parsing, commands, Agent run and onboarding orchestration
 ├── apps/
 │   ├── omni/     `omni`/`omni-host`/game entries, composition, signals, process lifecycle
-│   └── omni-game/ Godot character, Session, and task graybox UI
+│   └── omni-game/ Godot side-scrolling workshop, animated character, Session, and task UI
 ├── agents/
 │   ├── coding/              Default coding agent (skills, fs, shell, search, web)
 │   └── financial-analysis/  Read-only deterministic indicator agent
@@ -704,8 +709,10 @@ omni-agent/
 | [`docs/architecture.md`](docs/architecture.md)                                                     | Layers, dependency rules, contracts, composition, and subsystem design |
 | [`docs/agent-package.md`](docs/agent-package.md)                                                   | Manifest v2, Blueprint, composition, package loading, and ownership    |
 | [`docs/agent-service.md`](docs/agent-service.md)                                                   | Host-neutral discovery, Session/Run lifecycle, failures, and adapters  |
-| [`docs/agent-host.md`](docs/agent-host.md)                                                         | WebSocket v1, authentication, cancellation, and companion process      |
+| [`docs/agent-host.md`](docs/agent-host.md)                                                         | WebSocket v2, authentication, cancellation, and companion process      |
 | [`docs/godot-agent-host-client.md`](docs/godot-agent-host-client.md)                               | Godot setup, concrete Client, Session interaction, and verification    |
+| [`docs/godot-workshop-environment.md`](docs/godot-workshop-environment.md)                         | Workshop movement, interaction, overlays, and ownership boundaries     |
+| [`docs/character-info-ux.md`](docs/character-info-ux.md)                                           | Character information UX, visual direction, and asset contract         |
 | [`docs/build-an-agent-in-five-minutes.md`](docs/build-an-agent-in-five-minutes.md)                 | Executable minimal Agent tutorial and dynamic YAML assembly            |
 | [`docs/tracing.md`](docs/tracing.md)                                                               | Runtime Observation, Assembly Evidence, local Trace, and replay        |
 | [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | Authoritative Tool access, execution, cancellation, sandbox            |
@@ -725,8 +732,8 @@ pnpm dev                           # coding agent (default)
 pnpm run dev:coding                # coding agent, explicitly
 pnpm run dev:financial-analysis    # read-only financial analysis agent
 pnpm run verify:host               # verify the local WebSocket companion; no manual Token
-pnpm game                          # start omni-host and the Godot 4.7.2 graybox client
-pnpm run verify:game               # protocol, Run/Cancel/shutdown, and real Session harnesses
+pnpm game                          # start omni-host and the Godot 4.7.2 workshop
+pnpm run verify:game               # protocol, workshop, Run/Cancel, and Session harnesses
 pnpm run dev -- run <agent-id>     # any installed agent package
 pnpm run dev -- agent describe coding
 pnpm run dev -- agent validate coding

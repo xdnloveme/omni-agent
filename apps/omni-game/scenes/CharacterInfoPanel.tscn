@@ -1,0 +1,613 @@
+[gd_scene load_steps=28 format=3]
+[ext_resource type="Script" path="res://src/ui/character_info_panel.gd" id="1"]
+[ext_resource type="Theme" path="res://resources/characters/character-info-theme.tres" id="2"]
+[ext_resource type="Texture2D" path="res://assets/ui/character-info/dossier-frame.png" id="3"]
+[ext_resource type="Texture2D" path="res://assets/ui/character-info/character-alcove.png" id="4"]
+[ext_resource type="Script" path="res://src/ui/character_preview.gd" id="5"]
+[ext_resource type="Texture2D" path="res://assets/ui/character-info/status-ready.png" id="6"]
+[ext_resource type="Texture2D" path="res://assets/ui/character-info/status-working.png" id="7"]
+[ext_resource type="Texture2D" path="res://assets/ui/character-info/profile-book.png" id="8"]
+
+[ext_resource type="Texture2D" path="res://assets/ui/character-info/status-sprout.png" id="9"]
+[ext_resource type="Texture2D" path="res://assets/ui/character-info/name-plaque.png" id="10"]
+[ext_resource type="Texture2D" path="res://assets/ui/character-info/close-tile.png" id="11"]
+
+[ext_resource type="FontFile" path="res://assets/fonts/NotoSansSC.ttf" id="12"]
+
+[sub_resource type="StyleBoxTexture" id="Frame"]
+texture = ExtResource("3")
+texture_margin_left = 64.0
+texture_margin_top = 64.0
+texture_margin_right = 64.0
+texture_margin_bottom = 64.0
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+
+[sub_resource type="StyleBoxFlat" id="Inset"]
+bg_color = Color(1, 0.97, 0.88, 0.35)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.68, 0.53, 0.34, 0.5)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_left = 8
+corner_radius_bottom_right = 8
+content_margin_left = 24.0
+content_margin_top = 24.0
+content_margin_right = 22.0
+content_margin_bottom = 16.0
+
+[sub_resource type="StyleBoxFlat" id="StateInset"]
+bg_color = Color(1, 0.97, 0.88, 0.35)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.68, 0.53, 0.34, 0.5)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_left = 8
+corner_radius_bottom_right = 8
+content_margin_left = 24.0
+content_margin_top = 20.0
+content_margin_right = 18.0
+content_margin_bottom = 12.0
+
+[sub_resource type="FontVariation" id="HeadingFont"]
+base_font = ExtResource("12")
+variation_opentype = {2003265652: 700.0}
+
+[sub_resource type="StyleBoxFlat" id="PortraitFrame"]
+bg_color = Color(0.98, 0.94, 0.83, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.65, 0.48, 0.29, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_left = 12
+corner_radius_bottom_right = 12
+content_margin_left = 5.0
+content_margin_top = 5.0
+content_margin_right = 5.0
+content_margin_bottom = 5.0
+shadow_color = Color(0.30, 0.20, 0.10, 0.18)
+shadow_size = 2
+
+[sub_resource type="StyleBoxTexture" id="Plaque"]
+texture = ExtResource("10")
+content_margin_left = 16.0
+content_margin_top = 6.0
+content_margin_right = 16.0
+content_margin_bottom = 6.0
+
+[sub_resource type="Shader" id="FrameClip"]
+code = "shader_type canvas_item;
+// The generated paper is opaque; clip only its outside rounded corners.
+// Texture-space coordinates also preserve the shape under nine-slice resizing.
+// The current 1413px source has an 18px outer radius; scale with import resolution.
+void fragment() {
+    vec2 extent = 1.0 / TEXTURE_PIXEL_SIZE;
+    float radius = extent.x * (18.0 / 1413.0);
+    vec2 q = abs(UV * extent - extent * 0.5) - (extent * 0.5 - vec2(radius + 1.0));
+    float distance_to_corner = length(max(q, vec2(0.0))) + min(max(q.x, q.y), 0.0) - radius;
+    COLOR.a *= 1.0 - smoothstep(-0.5, 0.5, distance_to_corner);
+}
+"
+
+[sub_resource type="ShaderMaterial" id="FrameMaterial"]
+shader = SubResource("FrameClip")
+
+[sub_resource type="StyleBoxTexture" id="Close"]
+texture = ExtResource("11")
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+
+[sub_resource type="StyleBoxTexture" id="ClosePressed"]
+texture = ExtResource("11")
+modulate_color = Color(0.84, 0.77, 0.65, 1)
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+
+[sub_resource type="StyleBoxEmpty" id="Technical"]
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 24.0
+content_margin_bottom = 0.0
+
+[sub_resource type="ButtonGroup" id="Tabs"]
+
+[sub_resource type="StyleBoxFlat" id="TabNormal"]
+bg_color = Color(0.90, 0.83, 0.69, 0.6)
+border_color = Color(0.63, 0.49, 0.31, 0.7)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+content_margin_left = 12.0
+content_margin_right = 12.0
+content_margin_top = 6.0
+content_margin_bottom = 6.0
+
+[sub_resource type="StyleBoxFlat" id="TabSelected"]
+bg_color = Color(0.37, 0.43, 0.22, 1)
+border_color = Color(0.28, 0.33, 0.16, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+content_margin_left = 12.0
+content_margin_right = 12.0
+content_margin_top = 6.0
+content_margin_bottom = 6.0
+
+[sub_resource type="StyleBoxFlat" id="TabDisabled"]
+bg_color = Color(0.90, 0.83, 0.69, 0.35)
+border_color = Color(0.63, 0.49, 0.31, 0.4)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+content_margin_left = 12.0
+content_margin_right = 12.0
+content_margin_top = 6.0
+content_margin_bottom = 6.0
+
+[node name="CharacterInfoPanel" type="PanelContainer"]
+texture_filter = 2
+material = SubResource("FrameMaterial")
+layout_mode = 2
+custom_minimum_size = Vector2(750, 690)
+offset_left = 70.0
+offset_top = 90.0
+offset_right = 820.0
+offset_bottom = 780.0
+theme = ExtResource("2")
+theme_override_styles/panel = SubResource("Frame")
+script = ExtResource("1")
+ready_icon = ExtResource("6")
+working_icon = ExtResource("7")
+
+[node name="Content" type="Control" parent="."]
+layout_mode = 2
+mouse_filter = 2
+
+[node name="TitleBar" type="Control" parent="Content"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 24.0
+offset_top = 24.0
+offset_right = 726.0
+offset_bottom = 160.0
+mouse_filter = 0
+
+[node name="PortraitFrame" type="PanelContainer" parent="Content/TitleBar"]
+layout_mode = 0
+offset_left = 10.0
+offset_top = 10.0
+offset_right = 106.0
+offset_bottom = 108.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("PortraitFrame")
+
+[node name="TitlePortrait" type="TextureRect" parent="Content/TitleBar/PortraitFrame"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="TitleText" type="VBoxContainer" parent="Content/TitleBar"]
+layout_mode = 0
+offset_left = 122.0
+offset_top = 18.0
+offset_right = 522.0
+offset_bottom = 86.0
+mouse_filter = 2
+theme_override_constants/separation = 2
+
+[node name="DisplayName" type="Label" parent="Content/TitleBar/TitleText"]
+theme_override_fonts/font = SubResource("HeadingFont")
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 30
+text_overrun_behavior = 3
+text = "伙伴"
+
+[node name="RoleTitle" type="Label" parent="Content/TitleBar/TitleText"]
+theme_override_fonts/font = SubResource("HeadingFont")
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+text_overrun_behavior = 3
+text = "伙伴"
+
+[node name="CloseButton" type="Button" parent="Content/TitleBar"]
+theme_override_fonts/font = SubResource("HeadingFont")
+unique_name_in_owner = true
+theme_override_styles/normal = SubResource("Close")
+theme_override_styles/hover = SubResource("Close")
+theme_override_styles/pressed = SubResource("ClosePressed")
+layout_mode = 0
+offset_left = 654.0
+offset_top = 9.0
+offset_right = 698.0
+offset_bottom = 53.0
+theme_override_font_sizes/font_size = 30
+text = "×"
+tooltip_text = "关闭（P / Esc）"
+
+[node name="DragGrip" type="Label" parent="Content/TitleBar"]
+layout_mode = 0
+offset_left = 330.0
+offset_top = 0.0
+offset_right = 374.0
+offset_bottom = 24.0
+mouse_filter = 2
+text = "⠿⠿"
+theme_override_colors/font_color = Color(0.61, 0.49, 0.32, 1)
+horizontal_alignment = 1
+
+[node name="Tabs" type="HBoxContainer" parent="Content"]
+layout_mode = 0
+offset_left = 256.0
+offset_top = 117.0
+offset_right = 721.0
+offset_bottom = 161.0
+theme_override_constants/separation = 8
+
+[node name="ProfileTab" type="Button" parent="Content/Tabs"]
+theme_override_fonts/font = SubResource("HeadingFont")
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("TabNormal")
+theme_override_styles/hover = SubResource("TabNormal")
+theme_override_styles/pressed = SubResource("TabSelected")
+theme_override_styles/hover_pressed = SubResource("TabSelected")
+theme_override_styles/disabled = SubResource("TabDisabled")
+text = "档案"
+toggle_mode = true
+button_group = SubResource("Tabs")
+
+[node name="StatusTab" type="Button" parent="Content/Tabs"]
+theme_override_fonts/font = SubResource("HeadingFont")
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("TabNormal")
+theme_override_styles/hover = SubResource("TabNormal")
+theme_override_styles/pressed = SubResource("TabSelected")
+theme_override_styles/hover_pressed = SubResource("TabSelected")
+theme_override_styles/disabled = SubResource("TabDisabled")
+text = "状态"
+toggle_mode = true
+button_group = SubResource("Tabs")
+
+[node name="BuildTab" type="Button" parent="Content/Tabs"]
+theme_override_fonts/font = SubResource("HeadingFont")
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/normal = SubResource("TabNormal")
+theme_override_styles/hover = SubResource("TabNormal")
+theme_override_styles/pressed = SubResource("TabSelected")
+theme_override_styles/hover_pressed = SubResource("TabSelected")
+theme_override_styles/disabled = SubResource("TabDisabled")
+text = "构筑"
+disabled = true
+tooltip_text = "尚未开放：未来用于模型、技能、工具与工作方式配置"
+
+[node name="HeaderDivider" type="HSeparator" parent="Content"]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 160.0
+offset_right = 726.0
+offset_bottom = 162.0
+mouse_filter = 2
+
+[node name="CharacterPreview" type="Panel" parent="Content"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 31.0
+offset_top = 174.0
+offset_right = 359.0
+offset_bottom = 542.0
+clip_children = 2
+clip_contents = true
+theme_override_styles/panel = SubResource("PortraitFrame")
+mouse_filter = 2
+script = ExtResource("5")
+
+[node name="Alcove" type="TextureRect" parent="Content/CharacterPreview"]
+layout_mode = 0
+texture = ExtResource("4")
+expand_mode = 1
+stretch_mode = 0
+mouse_filter = 2
+
+[node name="Sprite" type="AnimatedSprite2D" parent="Content/CharacterPreview"]
+texture_filter = 1
+
+[node name="NamePlaque" type="PanelContainer" parent="Content"]
+layout_mode = 0
+offset_left = 114.0
+offset_top = 514.0
+offset_right = 270.0
+offset_bottom = 560.0
+mouse_filter = 2
+theme_override_styles/panel = SubResource("Plaque")
+
+[node name="PlaqueName" type="Label" parent="Content/NamePlaque"]
+theme_override_fonts/font = SubResource("HeadingFont")
+unique_name_in_owner = true
+layout_mode = 2
+horizontal_alignment = 1
+text_overrun_behavior = 3
+text = "伙伴"
+theme_override_font_sizes/font_size = 24
+
+[node name="Summary" type="HBoxContainer" parent="Content"]
+layout_mode = 0
+offset_left = 100.0
+offset_top = 574.0
+offset_right = 288.0
+offset_bottom = 606.0
+alignment = 1
+theme_override_constants/separation = 8
+
+[node name="StatusIcon" type="TextureRect" parent="Content/Summary"]
+unique_name_in_owner = true
+layout_mode = 2
+custom_minimum_size = Vector2(18, 18)
+size_flags_vertical = 4
+expand_mode = 1
+stretch_mode = 5
+
+[node name="StatusSummary" type="Label" parent="Content/Summary"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.34, 0.43, 0.22, 1)
+text = "已准备好"
+
+[node name="Pages" type="Control" parent="Content"]
+layout_mode = 0
+offset_left = 373.0
+offset_top = 180.0
+offset_right = 723.0
+offset_bottom = 534.0
+mouse_filter = 2
+
+[node name="ProfileContent" type="Control" parent="Content/Pages"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 350.0
+offset_bottom = 354.0
+mouse_filter = 2
+
+[node name="IntroCard" type="PanelContainer" parent="Content/Pages/ProfileContent"]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 350.0
+offset_bottom = 164.0
+theme_override_styles/panel = SubResource("Inset")
+
+[node name="Body" type="VBoxContainer" parent="Content/Pages/ProfileContent/IntroCard"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Heading" type="HBoxContainer" parent="Content/Pages/ProfileContent/IntroCard/Body"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Icon" type="TextureRect" parent="Content/Pages/ProfileContent/IntroCard/Body/Heading"]
+texture_filter = 2
+layout_mode = 2
+custom_minimum_size = Vector2(34, 34)
+texture = ExtResource("8")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Label" type="Label" parent="Content/Pages/ProfileContent/IntroCard/Body/Heading"]
+theme_override_fonts/font = SubResource("HeadingFont")
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "伙伴介绍"
+
+[node name="DescriptionScroll" type="ScrollContainer" parent="Content/Pages/ProfileContent/IntroCard/Body"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Description" type="Label" parent="Content/Pages/ProfileContent/IntroCard/Body/DescriptionScroll"]
+theme_override_font_sizes/font_size = 21
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+autowrap_mode = 2
+text = "伙伴介绍"
+
+[node name="StateCard" type="PanelContainer" parent="Content/Pages/ProfileContent"]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 176.0
+offset_right = 350.0
+offset_bottom = 354.0
+theme_override_styles/panel = SubResource("StateInset")
+
+[node name="Body" type="VBoxContainer" parent="Content/Pages/ProfileContent/StateCard"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="StateSummary" type="VBoxContainer" parent="Content/Pages/ProfileContent/StateCard/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
+theme_override_constants/separation = 8
+
+[node name="Heading" type="HBoxContainer" parent="Content/Pages/ProfileContent/StateCard/Body/StateSummary"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Sprout" type="TextureRect" parent="Content/Pages/ProfileContent/StateCard/Body/StateSummary/Heading"]
+texture_filter = 2
+layout_mode = 2
+custom_minimum_size = Vector2(34, 34)
+texture = ExtResource("9")
+expand_mode = 1
+stretch_mode = 5
+mouse_filter = 2
+
+[node name="StateHeading" type="Label" parent="Content/Pages/ProfileContent/StateCard/Body/StateSummary/Heading"]
+theme_override_fonts/font = SubResource("HeadingFont")
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "当前状态"
+
+[node name="ProfileRuntimeStatus" type="Label" parent="Content/Pages/ProfileContent/StateCard/Body/StateSummary"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.34, 0.43, 0.22, 1)
+autowrap_mode = 2
+
+[node name="StateSpacer" type="Control" parent="Content/Pages/ProfileContent/StateCard/Body/StateSummary"]
+layout_mode = 2
+size_flags_vertical = 3
+mouse_filter = 2
+
+[node name="StateDivider" type="HSeparator" parent="Content/Pages/ProfileContent/StateCard/Body/StateSummary"]
+layout_mode = 2
+
+[node name="TechnicalToggle" type="Button" parent="Content/Pages/ProfileContent/StateCard/Body"]
+unique_name_in_owner = true
+theme_override_styles/normal = SubResource("Technical")
+theme_override_styles/hover = SubResource("Technical")
+theme_override_styles/pressed = SubResource("Technical")
+theme_override_styles/hover_pressed = SubResource("Technical")
+layout_mode = 2
+custom_minimum_size = Vector2(0, 42)
+toggle_mode = true
+flat = true
+theme_override_colors/font_pressed_color = Color(0.27, 0.18, 0.11, 1)
+theme_override_colors/font_hover_pressed_color = Color(0.27, 0.18, 0.11, 1)
+alignment = 0
+text = "技术信息"
+
+[node name="TechnicalArrow" type="Label" parent="Content/Pages/ProfileContent/StateCard/Body/TechnicalToggle"]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -24.0
+mouse_filter = 2
+horizontal_alignment = 1
+vertical_alignment = 1
+text = "›"
+theme_override_font_sizes/font_size = 26
+
+[node name="TechnicalDetails" type="ScrollContainer" parent="Content/Pages/ProfileContent/StateCard/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+visible = false
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="Fields" type="VBoxContainer" parent="Content/Pages/ProfileContent/StateCard/Body/TechnicalDetails"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 8
+
+[node name="PackageName" type="Label" parent="Content/Pages/ProfileContent/StateCard/Body/TechnicalDetails/Fields"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text_overrun_behavior = 3
+
+[node name="PackageVersion" type="Label" parent="Content/Pages/ProfileContent/StateCard/Body/TechnicalDetails/Fields"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+text_overrun_behavior = 3
+
+[node name="StatusContent" type="PanelContainer" parent="Content/Pages"]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 0.0
+offset_top = 0.0
+offset_right = 350.0
+offset_bottom = 354.0
+visible = false
+theme_override_styles/panel = SubResource("Inset")
+
+[node name="Body" type="VBoxContainer" parent="Content/Pages/StatusContent"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="RuntimeHeading" type="Label" parent="Content/Pages/StatusContent/Body"]
+theme_override_fonts/font = SubResource("HeadingFont")
+layout_mode = 2
+text = "伙伴状态"
+
+[node name="RuntimeStatus" type="Label" parent="Content/Pages/StatusContent/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2
+
+[node name="Separator" type="HSeparator" parent="Content/Pages/StatusContent/Body"]
+layout_mode = 2
+
+[node name="SessionHeading" type="Label" parent="Content/Pages/StatusContent/Body"]
+layout_mode = 2
+text = "当前 Session"
+
+[node name="SessionId" type="Label" parent="Content/Pages/StatusContent/Body"]
+unique_name_in_owner = true
+layout_mode = 2
+autowrap_mode = 2
+
+[node name="BuildNotice" type="Label" parent="Content"]
+layout_mode = 0
+offset_left = 373.0
+offset_top = 572.0
+offset_right = 723.0
+offset_bottom = 608.0
+horizontal_alignment = 1
+theme_override_colors/font_color = Color(0.47, 0.38, 0.26, 1)
+text = "—  构筑入口预留  —"
+tooltip_text = "构筑功能尚未开放"
+
+[node name="FooterDivider" type="HSeparator" parent="Content"]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 626.0
+offset_right = 726.0
+offset_bottom = 628.0
+mouse_filter = 2
+
+[node name="Help" type="Label" parent="Content"]
+layout_mode = 0
+offset_left = 24.0
+offset_top = 636.0
+offset_right = 726.0
+offset_bottom = 674.0
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 16
+theme_override_colors/font_color = Color(0.47, 0.38, 0.26, 1)
+text = "P / Esc 关闭 · 拖动标题栏移动"

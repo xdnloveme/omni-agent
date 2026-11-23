@@ -12,7 +12,7 @@ packages/tools  Domain-neutral tool implementations
 packages/ui     User interaction and presentation surfaces
 packages/cli    Commands and Agent use-case orchestration
 apps/omni       Binary entry and composition root
-apps/omni-game  Godot character, Session, and task UI
+apps/omni-game  Godot character, workshop, Session, and task UI
 agents/*        Independently packaged business agents
 ```
 
@@ -51,6 +51,34 @@ and transport shutdown. `CharacterWorkspaceController` owns character, Session t
 foreground Run, transcript, and screen state. Godot UI scenes depend on that Controller and never
 access WebSocket or JSON. The game imports no Workspace package and does not create a Gateway Port,
 Agent runtime, Session repository, or Tool path.
+
+`WorkshopWorld`, `PartnerActor`, `WorkshopCameraRig`, and spatial interaction nodes own only world
+activation, movement, ladder state, camera composition, proximity, inspection intent, and explicit
+gameplay geometry. The raster background, masked clouds, and transparent foreground are
+visual-only and contain no collision.
+`WorkshopTraversalMap` is the single route composition: three `WalkSurface2D` point sets derive
+their own one-way collision, including the bounded upper bridge sag, while two `LadderRoute2D`
+nodes own their visuals, endpoints, and connected surfaces. Visible blockers,
+authored spawn, and out-of-bounds recovery also belong to the map. `PartnerActor` is the only physical-position
+authority and only ignores a ladder's connected surfaces during traversal. `PartnerAnimator`
+consumes real motion through a `CharacterAnimationSet`; it cannot mutate physics. World nodes never
+access the Controller or Client.
+The upper-floor front handrail occludes the actor through one pixel-registered transparent RGBA
+foreground generated offline from the background master. It is rendered directly at a fixed
+foreground z-order; there is no runtime matte replay or image analysis. A separate edge-foliage
+foreground retains only organic silhouettes and may not use rectangular cut boundaries.
+Actor-specific z fixes are prohibited. TraversalMap surfaces and visible endpoint blockers remain
+the sole gameplay source regardless of visual layer.
+Ambient cloud motion is a presentation-only shader over a cloudless background and a static sky
+mask. It owns no process loop, physics, interaction, or game state. The world-owned camera reads
+the actor as a target and cannot mutate movement.
+`GameRoot` owns one menu/task/character-info/permission overlay state and the corresponding input lock.
+The permission panel queues correlated presentations; resolving the last request restores the prior
+overlay. Cancellation and disconnect clear pending presentations through the same lifecycle.
+`CharacterPresentationCatalog` maps Agent IDs to decoration only and must fall back for unknown IDs;
+it is not an Agent allowlist. `CharacterInfoPanel` renders Controller snapshots without owning or
+mutating Agent, Session, or Run state. Closing either information or task UI preserves the current
+Session and world position; only the Controller's explicit return transition closes the Session.
 
 `apps/omni/src/game/GameBootstrap` is the parent process owner for development. It generates the
 ephemeral Token, starts `omni-host` with the developer's original working directory, then starts the

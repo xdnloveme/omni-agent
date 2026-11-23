@@ -1,0 +1,11 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://tests/workshop_camera_harness.gd" id="1_harness"]
+[ext_resource type="PackedScene" path="res://scenes/WorkshopCameraRig.tscn" id="2_camera"]
+
+[node name="WorkshopCameraHarness" type="Node"]
+script = ExtResource("1_harness")
+
+[node name="Target" type="Node2D" parent="."]
+
+[node name="WorkshopCameraRig" parent="." instance=ExtResource("2_camera")]

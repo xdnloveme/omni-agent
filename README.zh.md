@@ -111,15 +111,17 @@ omni --help, -h         # 用法说明
 omni --version, -v      # CLI 版本
 ```
 
-分发包同时包含 `omni-host`，它是仅监听本机回环地址的 WebSocket 伴随进程。Godot 4.7.2 灰盒客户端在
+分发包同时包含 `omni-host`，它是仅监听本机回环地址的 WebSocket 伴随进程。Godot 4.7.2 横版工作间客户端在
 开发模式下直接连接该 Host。
 临时认证 Token 和子进程生命周期由父进程管理；开发者运行 `pnpm verify:host` 即可，不需要生成或复制
 Token。真正执行 Run 前仍需完成模型配置。机器可读启动协议和 Protocol v2 见
 [`docs/agent-host.md`](docs/agent-host.md)。
 
-安装 Godot 4.7.2 后，运行 `pnpm game` 可同时启动 Host 与游戏，无需处理 Token；运行
-`pnpm run verify:game` 可执行无界面的协议、Run/Cancel/关闭和真实 Session 生命周期验证。安装、职责
-边界和人工模型 Smoke 见 [`docs/godot-agent-host-client.md`](docs/godot-agent-host-client.md)。
+安装 Godot 4.7.2 后，运行 `pnpm game` 可同时启动 Host 与横版工作间，无需处理 Token。选择伙伴后，
+使用 A/D 或方向键移动、空格跳跃、W/S 攀爬，按 P 或点击伙伴查看真实角色与 Session 信息，并在工作台附近按 E 打开真实任务面板；床、沙发和右侧门提供边界明确的表现层互动，不会伪造 Agent 任务。运行
+`pnpm run verify:game` 可执行无界面的协议、环境行为、Run/Cancel、关闭和真实 Session 生命周期验证。
+安装、职责边界和人工模型 Smoke 见 [`docs/godot-agent-host-client.md`](docs/godot-agent-host-client.md)，
+环境控制和边界见 [`docs/godot-workshop-environment.md`](docs/godot-workshop-environment.md)。
 
 `omni doctor` 绝不修改任何状态。它会报告八项检查：Node.js 版本、解析出的工作区根目录与 ID、全局目录
 可访问性、配置有效性、Coding Agent Package 可用性，以及 `keytar`、`tree-sitter`、
@@ -536,7 +538,7 @@ graph TD
     AGENTS["agents/*<br/>coding、financial-analysis"]
     APP["packages/app<br/>Catalog、Service、生命周期、会话"]
     AGENT_HOST["packages/agent-host<br/>WebSocket Protocol v2 Adapter"]
-    GAME["apps/omni-game<br/>Godot 角色与任务 UI"]
+    GAME["apps/omni-game<br/>Godot 工作间与任务 UI"]
     MODELS["packages/models<br/>运行时、Vendor 插件、凭证"]
     TOOLS["packages/tools<br/>文件、Shell、搜索、Web"]
     UI["packages/ui<br/>浏览器与终端展示"]
@@ -547,7 +549,7 @@ graph TD
     HOST --> APP
     HOST --> AGENT_HOST
     AGENT_HOST --> APP
-    GAME -. "WebSocket v1" .-> AGENT_HOST
+    GAME -. "WebSocket v2" .-> AGENT_HOST
     CLI --> AGENTS
     CLI --> APP
     CLI --> TOOLS
@@ -573,7 +575,7 @@ graph TD
 | `packages/ui`         | 浏览器与终端交互、展示投影、适配器、格式化与交付                 |
 | `packages/cli`        | 命令、Agent 创建与用例编排、会话及初始引导流程                   |
 | `apps/omni`           | 二进制入口、CLI/UI 组装、信号、Trace 预览生命周期和退出码        |
-| `apps/omni-game`      | Godot 角色选择、Session 切换、任务交互与展示                     |
+| `apps/omni-game`      | Godot 角色选择、横版工作间、Session 切换、任务交互与展示         |
 | `agents/*`            | 独立打包的业务 Agent                                             |
 
 ### 依赖方向
@@ -641,7 +643,7 @@ omni-agent/
 │   └── cli/      参数解析、命令、Agent 运行与初始引导编排
 ├── apps/
 │   ├── omni/     `omni`/`omni-host`/game 入口、组装、信号与进程生命周期
-│   └── omni-game/ Godot 角色、Session 与任务灰盒 UI
+│   └── omni-game/ Godot 横版工作间、动画角色、Session 与任务 UI
 ├── agents/
 │   ├── coding/              默认编码 Agent（技能、文件、Shell、搜索、Web）
 │   └── financial-analysis/  只读的确定性指标计算 Agent
@@ -659,8 +661,10 @@ omni-agent/
 | [`docs/architecture.md`](docs/architecture.md)                                                     | 分层、依赖规则、契约、组装流程与子系统设计                |
 | [`docs/agent-package.md`](docs/agent-package.md)                                                   | Manifest v2、Blueprint、组合、Package 加载与所有权        |
 | [`docs/agent-service.md`](docs/agent-service.md)                                                   | 宿主无关发现、Session/Run 生命周期、失败投影与 Adapter    |
-| [`docs/agent-host.md`](docs/agent-host.md)                                                         | WebSocket v1、认证、取消与伴随进程契约                    |
+| [`docs/agent-host.md`](docs/agent-host.md)                                                         | WebSocket v2、认证、取消与伴随进程契约                    |
 | [`docs/godot-agent-host-client.md`](docs/godot-agent-host-client.md)                               | Godot 安装、具体 Client、Session 交互与验证               |
+| [`docs/godot-workshop-environment.md`](docs/godot-workshop-environment.md)                         | 工作间移动、交互、覆盖层与职责边界                        |
+| [`docs/character-info-ux.md`](docs/character-info-ux.md)                                           | 人物信息窗交互、视觉方向与资源规范                        |
 | [`docs/build-an-agent-in-five-minutes.md`](docs/build-an-agent-in-five-minutes.md)                 | 可执行的最小 Agent 教程与动态 YAML 组装                   |
 | [`docs/tracing.md`](docs/tracing.md)                                                               | Runtime Observation、Assembly Evidence、本地 Trace 与回放 |
 | [`docs/tool-call-runtime.md`](docs/tool-call-runtime.md)                                           | 工具访问、执行、取消与沙箱边界的权威契约                  |
@@ -680,8 +684,8 @@ pnpm dev                           # 编码 Agent（默认）
 pnpm run dev:coding                # 显式启动编码 Agent
 pnpm run dev:financial-analysis    # 只读金融分析 Agent
 pnpm run verify:host               # 自动验证本地 WebSocket 伴随进程，无需手动 Token
-pnpm game                          # 启动 omni-host 和 Godot 4.7.2 灰盒客户端
-pnpm run verify:game               # 协议、Run/Cancel/关闭与真实 Session 验证
+pnpm game                          # 启动 omni-host 和 Godot 4.7.2 横版工作间
+pnpm run verify:game               # 协议、环境、Run/Cancel、关闭与真实 Session 验证
 pnpm run dev -- run <agent-id>     # 任意已安装的 Agent 包
 pnpm run dev -- agent describe coding
 pnpm run dev -- agent validate coding
