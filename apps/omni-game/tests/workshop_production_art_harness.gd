@@ -12,6 +12,12 @@ var _failed := false
 var _presentation: CharacterPresentation
 
 func _ready() -> void:
+	# This isolated capture process drives movement with Input.action_press and
+	# UI gestures with Viewport.push_input. Shared-desktop keys must not change
+	# an activity between the scripted action and its assertion.
+	for action: StringName in InputMap.get_actions():
+		InputMap.action_erase_events(action)
+		Input.action_release(action)
 	get_tree().create_timer(60.0).timeout.connect(func() -> void: _fail("Production artwork verification timed out"))
 	_controller.agents_changed.connect(func(agents: Array) -> void:
 		if agents.size() != 1 or agents[0]["id"] not in ["coding", "financial-analysis"]:
@@ -240,6 +246,9 @@ func _verify_sleep() -> void:
 	get_window().size = Vector2i(1440, 900)
 	await get_tree().process_frame
 	await get_tree().process_frame
+	if _actor.rest_spot() != _world.get_node("Visual/Bed") or not _actor.global_position.is_equal_approx(contact):
+		_fail("Fullscreen roundtrip changed bed occupancy or standing contact before the wake click")
+		return
 	await _click_prompt(_world.get_node("InteractionPoints/BedInteraction/Marker"))
 	await get_tree().create_timer(0.7).timeout
 	if _actor.activity_phase() != PartnerActor.ActivityPhase.NONE or not _actor.global_position.is_equal_approx(contact) or not _actor.get_node("CharacterVisual").visible:
@@ -273,9 +282,12 @@ func _verify_rest_and_exit() -> void:
 		get_window().size = Vector2i(1440, 900)
 		await get_tree().process_frame
 		await get_tree().process_frame
+		if _actor.rest_spot() != spot or not _actor.global_position.is_equal_approx(contact):
+			_fail("Fullscreen roundtrip changed furniture occupancy or standing contact before the wake click: " + spot_name)
+			return
 		await _click_prompt(_world.get_node("InteractionPoints/" + spot_name + "Interaction/Marker"))
 		await get_tree().create_timer(0.4).timeout
-		if _actor.rest_spot() != null or not _actor.get_node("CharacterVisual").visible:
+		if _actor.rest_spot() != null or not _actor.global_position.is_equal_approx(contact) or not _actor.get_node("CharacterVisual").visible:
 			_fail("Main furniture wake failed: " + spot_name)
 			return
 	var menu: WorkshopMenu = $Main/UIRoot/WorkshopMenu

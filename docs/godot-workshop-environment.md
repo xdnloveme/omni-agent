@@ -133,6 +133,9 @@ both ladders and their interruption cases, and native idle/blink playback.
 an authenticated local Host with a deterministic Run fixture. Screenshots are disposable output
 under the ignored `tests/evidence/` directory. The final check uses the real Host and AgentService
 to open/create/close Sessions in an isolated workspace; it never calls a remote model.
+The Main capture process clears physical action bindings and uses scripted actions/clicks so
+shared-desktop keys cannot change the scenario. It checks that fullscreen preserves furniture
+occupancy and contact before one wake click. Other harnesses and normal gameplay retain their bindings.
 
 For native F11/menu fullscreen and window-restoration checks, run `DisplayHarness.tscn` with a
 graphical Godot display. Its standard headless run checks layout only. Main and the retained
