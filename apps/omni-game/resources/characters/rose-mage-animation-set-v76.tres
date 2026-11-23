@@ -1,0 +1,33 @@
+[gd_resource type="Resource" script_class="CharacterAnimationSet" load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://src/presentation/character_animation_set.gd" id="1"]
+[ext_resource type="SpriteFrames" path="res://resources/characters/rose-mage-animations-v76.tres" id="2"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/rose-mage-v1/star-staff.png" id="3_staff"]
+
+[resource]
+script = ExtResource("1")
+frames = ExtResource("2")
+work_frames = ExtResource("2")
+back_equipment = ExtResource("3_staff")
+back_equipment_mount = Vector2(205, 330)
+back_equipment_scale = 0.7
+back_equipment_angle = -28.0
+climb_equipment_mount = Vector2(240, 315)
+climb_equipment_angle = -34.0
+climb_top_equipment_poses = PackedVector3Array(240, 315, -34, 240, 315, -34, 240, 315, -34, 240, 285, -36, 240, 303, -38, 240, 347, -44, 240, 359, -48, 246, 365, -55, 252, 386, -62)
+climb_stand_equipment_poses = PackedVector3Array(252, 386, -62, 252, 374, -58, 246, 322, -38, 240, 315, -34)
+jump_equipment_poses = PackedVector3Array(205, 330, -28, 205.18, 337.35, -28, 205.35, 344.7, -28, 205.53, 352.05, -28, 205.7, 359.4, -28, 205.88, 366.75, -28, 206.05, 374.1, -28, 207.1, 346.27, -28, 208.15, 318.45, -28, 210.25, 315.2, -28, 209.2, 303.0, -28, 205.0, 311.25, -28, 207.1, 325.2, -28, 207.1, 330.2, -28, 205.7, 340.45, -28, 204.3, 345.7, -28, 202.9, 344.95, -28, 202.9, 342.18, -28, 202.9, 335.4, -28, 205.0, 331.5, -28, 205.0, 327.9, -28, 205.53, 353.62, -28, 206.05, 379.35, -28, 205.7, 364.3, -28, 205.35, 349.25, -28, 205.0, 334.2, -28, 205.0, 332.8, -28, 205.0, 331.4, -28, 205, 330, -28, 205, 330, -28, 205, 330, -28, 205, 330, -28, 205, 330, -28)
+inspection_animation = &"idle"
+source_size = Vector2i(512, 512)
+foot_anchor = Vector2(256, 464)
+visual_scale = Vector2(0.34, 0.34)
+walk_stride_pixels = 80.64
+climb_stride_pixels = 120.0
+climb_finish_height = 18.0
+climb_top_hand_heights = PackedFloat32Array(300, 264, 236, 194, 166, 108, 94, 38, 10)
+climb_top_start_height = 374.0
+climb_top_entry_frame = 14
+airborne_phase_frames = Vector3i(9, 13, 16)
+landing_frame = 20
+landing_duration = 0.24
+foot_contact_region = Rect2(160, 432, 192, 32)

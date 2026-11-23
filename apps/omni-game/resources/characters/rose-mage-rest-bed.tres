@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="CharacterRestAppearance" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/presentation/character_rest_appearance.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/rose-mage-v1/rest-bed.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+texture = ExtResource("2")
+occupied_outline = PackedVector2Array(146.348, 79.036, 146.174, 74.490, 147.048, 72.216, 145.474, 65.922, 148.097, 62.075, 151.419, 59.627, 149.496, 56.479, 154.042, 54.206, 153.167, 52.108, 155.440, 48.611, 162.260, 42.840, 171.002, 38.469, 179.395, 36.196, 184.465, 36.720, 186.738, 39.168, 186.564, 43.365, 189.536, 41.966, 193.208, 42.316, 196.180, 44.764, 197.404, 48.086, 196.180, 51.408, 198.978, 54.381, 204.223, 61.200, 205.797, 66.971, 205.098, 71.692, 202.300, 75.539, 195.656, 79.910, 191.634, 82.183, 195.481, 84.806, 196.355, 88.129, 194.082, 90.926, 189.711, 92.150, 181.843, 91.451, 174.674, 87.254, 168.030, 82.883, 158.763, 79.735)
+snore_origin = Vector2(180.094, 85.331)

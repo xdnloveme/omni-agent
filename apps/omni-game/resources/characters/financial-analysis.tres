@@ -1,0 +1,26 @@
+[gd_resource type="Resource" script_class="CharacterPresentation" load_steps=9 format=3]
+
+[ext_resource type="Script" path="res://src/presentation/character_presentation.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/characters/world/rose-mage-v1/portrait-source.png" id="2"]
+[ext_resource type="Resource" path="res://resources/characters/rose-mage-animation-set-v76.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/characters/rose-mage-rest-bed.tres" id="4"]
+[ext_resource type="Resource" path="res://resources/characters/rose-mage-rest-upper-bed.tres" id="5"]
+[ext_resource type="Resource" path="res://resources/characters/rose-mage-rest-sofa.tres" id="6"]
+[ext_resource type="Resource" path="res://resources/movement/rose-mage-locomotion-v76.tres" id="7_motion"]
+
+[sub_resource type="AtlasTexture" id="Portrait"]
+atlas = ExtResource("2")
+region = Rect2(140, 40, 232, 230)
+
+[resource]
+script = ExtResource("1")
+agent_id = "financial-analysis"
+display_name = "小澜"
+role_title = "分析伙伴"
+selection_description = "陪你梳理行情与指标，专注只读分析。"
+selection_frame_height = 358.4
+portrait = SubResource("Portrait")
+animation_set = ExtResource("3")
+locomotion_config = ExtResource("7_motion")
+rest_appearances = {&"bed": ExtResource("4"), &"upper_bed": ExtResource("5"), &"sofa": ExtResource("6")}
+accent_color = Color(0.82, 0.43, 0.49, 1)

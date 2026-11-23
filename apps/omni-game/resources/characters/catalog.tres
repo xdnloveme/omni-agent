@@ -1,0 +1,11 @@
+[gd_resource type="Resource" script_class="CharacterPresentationCatalog" load_steps=5 format=3]
+
+[ext_resource type="Script" path="res://src/presentation/character_presentation_catalog.gd" id="1"]
+[ext_resource type="Resource" path="res://resources/characters/coding.tres" id="2"]
+[ext_resource type="Resource" path="res://resources/characters/financial-analysis.tres" id="3"]
+[ext_resource type="Resource" path="res://resources/characters/fallback.tres" id="4"]
+
+[resource]
+script = ExtResource("1")
+entries = [ExtResource("2"), ExtResource("3")]
+fallback = ExtResource("4")

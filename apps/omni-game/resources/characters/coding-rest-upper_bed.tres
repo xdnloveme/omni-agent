@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="CharacterRestAppearance" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/presentation/character_rest_appearance.gd" id="1"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop/workshop-upper-bed-sleep-mage-v1.png" id="2"]
+
+[resource]
+script = ExtResource("1")
+texture = ExtResource("2")
+occupied_outline = PackedVector2Array(44.21,68.78,43.52,61.74,38.41,57.04,37.17,50.69,34.27,45.17,37.03,45.58,36.75,39.5,36.2,33.29,41.04,33.56,43.66,29.7,42.83,27.76,49.6,24.45,52.37,24.59,52.92,19.75,58.03,16.57,65.22,16.71,67.84,19.34,62.59,19.48,60.38,23.48,68.95,22.24,75.3,24.17,79.17,24.31,78.2,26.8,85.66,28.04,86.22,32.18,84.56,34.25,88.98,37.85,88.7,42.54,90.78,46.13,90.22,49.59,86.36,53.18,80.83,55.8,75.58,58.56,66.74,62.71,58.86,66.99,53.61,68.78)
+snore_origin = Vector2(62, 60)

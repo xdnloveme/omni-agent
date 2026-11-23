@@ -1,0 +1,21 @@
+[gd_resource type="Resource" script_class="PartnerLocomotionConfig" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://src/world/partner_locomotion_config.gd" id="1"]
+
+[resource]
+script = ExtResource("1")
+walk_speed = 165.0
+ground_acceleration = 720.0
+ground_deceleration = 900.0
+turn_deceleration = 1100.0
+gravity = 1800.0
+maximum_fall_speed = 720.0
+jump_speed = -560.0
+ladder_jump_horizontal_speed = 180.0
+coyote_time = 0.1
+jump_buffer_time = 0.12
+jump_cut_multiplier = 0.45
+climb_speed = 145.0
+traversal_epsilon = 2.0
+floor_snap_distance = 8.0
+facing_deadzone = 12.0
