@@ -6,11 +6,12 @@ import {
   createModelService,
   resolveWorkspaceContext,
   type AgentServicePort,
+  type ExtensionSourceLoader,
   type AgentModelService,
   type ModelServiceDiagnostic,
 } from "@omni-agent/app";
 import { createDefaultAgentPackageCatalog } from "@omni-agent/cli";
-import { RejectingInteractionSurface } from "@omni-agent/core";
+import { DenyAccessConsentBroker, RejectingInteractionSurface } from "@omni-agent/core";
 import { createNetworkRuntime } from "@omni-agent/network";
 import { createProcessExecutionRuntime, type HostRuntimeEnvironment } from "@omni-agent/tools";
 
@@ -23,6 +24,8 @@ export interface AgentServiceCompositionOptions {
   readonly resolutionBase: string;
   readonly agentPackagesDirectory: string;
   readonly hostRuntime: HostRuntimeEnvironment;
+  readonly extensionSourceLoader?: ExtensionSourceLoader;
+  readonly interactivePermissions?: boolean;
 }
 
 export interface AgentServiceComposition {
@@ -51,16 +54,18 @@ export async function createAgentServiceComposition(
       agentPackagesDirectory: options.agentPackagesDirectory,
     });
     const processExecution = createProcessExecutionRuntime(options.hostRuntime);
-    const permissions = new AgentServiceAccessConsentBroker();
+    const permissions =
+      options.interactivePermissions === false ? undefined : new AgentServiceAccessConsentBroker();
     const factory = new AgentFactory({
       workspace,
       globalDirectory: options.globalDirectory,
       configService,
       modelService,
+      extensionSourceLoader: options.extensionSourceLoader,
       host: {
         traceEnabled: options.traceEnabled,
         interactionSurface: new RejectingInteractionSurface(),
-        accessConsentBroker: permissions,
+        accessConsentBroker: permissions ?? new DenyAccessConsentBroker(),
         processRouter: processExecution.router,
         processPlanner: processExecution.planner,
         hostRuntime: processExecution.hostRuntime,
@@ -69,7 +74,9 @@ export async function createAgentServiceComposition(
         reservedCommandNames: [],
       },
     });
-    const service = new AgentService({ catalog, factory, permissions });
+    const service = permissions
+      ? new AgentService({ catalog, factory, permissions })
+      : new AgentService({ catalog, factory });
     let disposePromise: Promise<void> | undefined;
     return {
       service,

@@ -8,6 +8,7 @@ packages/network Target-scoped gateway, DNS policy, and authenticated loopback p
 packages/models Model runtime, vendor catalog, provider plugins, and credentials
 packages/app    Application lifecycle and extension host
 packages/agent-host WebSocket Protocol v2 adapter for AgentServicePort
+packages/im-gateway IM platform adapters, admission, routing, scheduling, and Agent Host clients
 packages/tools  Domain-neutral tool implementations
 packages/ui     User interaction and presentation surfaces
 packages/cli    Commands and Agent use-case orchestration
@@ -24,10 +25,11 @@ network -> core
 models -> core
 app -> core, models
 agent-host -> app
+im-gateway -> agent-host, core
 agents/* -> app, core, tools
 ui -> app, core
 cli -> app, core, tools, agents/*
-apps/omni -> network, agent-host, app, core, tools, cli, ui
+apps/omni -> network, agent-host, im-gateway, app, core, tools, cli, ui
 apps/omni-game -> WebSocket Protocol v2 only
 ```
 
@@ -44,6 +46,11 @@ validation, request correlation, bounded writes, heartbeat, and connection-creat
 `AgentServicePort` is its only business interface. Catalog, Factory, Session, model, Tool, and
 concrete Agent dependencies remain outside the package. `apps/omni` is the process owner that
 composes those dependencies for the standalone `omni-host` entry.
+
+`packages/im-gateway` owns IM platform connections, admission, durable event and task state,
+conversation routing, concurrency policy, presentation throttling, and the Protocol v2 client.
+It does not assemble Agents or import a concrete Agent. `apps/omni` composes the IM-only Host
+profile with isolated configuration, controlled execution settings, and local extensions disabled.
 
 `apps/omni-game` is a separate Godot application. Its concrete `AgentHostClient` connects directly
 to Protocol v2 and owns only Socket, authentication, strict response parsing, request correlation,

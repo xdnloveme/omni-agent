@@ -19,6 +19,7 @@ packages/network Target-scoped gateway, DNS policy, and authenticated loopback p
 packages/models Model runtime, vendor plugins, catalogs, and credentials
 packages/app    Agent package Catalog, Host-neutral Service, lifecycle, extensions, and sessions
 packages/agent-host WebSocket Protocol v2 adapter for AgentServicePort
+packages/im-gateway IM platform adapters, admission, routing, scheduling, and Agent Host clients
 packages/tools  Domain-neutral filesystem, shell, search, and web tools
 packages/ui     Interaction hosts, views, presentation models, and input handling
 packages/cli    Commands and Agent use-case orchestration
@@ -35,10 +36,11 @@ network -> core
 models -> core
 app -> core, models
 agent-host -> app
+im-gateway -> agent-host, core
 agents/* -> app, core, tools
 ui -> app, core
 cli -> app, core, tools, agents/*
-apps/omni -> network, agent-host, app, core, tools, cli, ui
+apps/omni -> network, agent-host, im-gateway, app, core, tools, cli, ui
 apps/omni-game -> WebSocket Protocol v2 only
 ```
 
@@ -68,6 +70,9 @@ cancellation, and sandbox-boundary contract.
 - Put only WebSocket connection, Protocol v2 validation, request correlation,
   transport cancellation, bounded writes, and backpressure in `packages/agent-host`.
   Its only business interface is `AgentServicePort`.
+- Put IM platform adapters, allowlists, conversation mapping, task durability,
+  presentation throttling, and Agent Host client supervision in `packages/im-gateway`.
+  It must not assemble Agents or import concrete Agent packages.
 - Put a tool in `packages/tools` only when it has complete technical meaning
   outside a specific agent or business domain.
 - Keep prompts, domain types, domain services, domain tools, and workflows in the

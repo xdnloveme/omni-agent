@@ -48,4 +48,45 @@ describe("AgentHostProtocolValidator", () => {
       validator.parse(JSON.stringify({ v: 2, id: "unsafe id", type: "list_agents" })),
     ).toThrowError(expect.objectContaining({ code: "invalid_message" }));
   });
+
+  it("strictly validates every Protocol v2 server response variant", () => {
+    const completed = {
+      v: 2,
+      type: "event",
+      requestId: "run-1",
+      event: { type: "completed" },
+    };
+
+    expect(validator.parseServerMessage(JSON.stringify(completed))).toEqual(completed);
+    expect(
+      validator.parseServerMessage(
+        JSON.stringify({
+          v: 2,
+          type: "event",
+          requestId: "run-1",
+          event: { type: "text_delta", text: "x".repeat(70_000) },
+        }),
+      ),
+    ).toMatchObject({ event: { type: "text_delta" } });
+    expect(() =>
+      validator.parseServerMessage(
+        JSON.stringify({
+          v: 2,
+          type: "result",
+          id: "session-1",
+          result: { kind: "session" },
+        }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "invalid_message" }));
+    expect(() =>
+      validator.parseServerMessage(
+        JSON.stringify({
+          v: 2,
+          type: "event",
+          requestId: "run-1",
+          event: { type: "text_delta" },
+        }),
+      ),
+    ).toThrowError(expect.objectContaining({ code: "invalid_message" }));
+  });
 });

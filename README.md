@@ -125,6 +125,10 @@ Run `pnpm run verify:game` for the headless protocol, Client lifecycle, and real
 [`docs/godot-agent-host-client.md`](docs/godot-agent-host-client.md) for setup, ownership, and the
 manual streaming Smoke test.
 
+An optional same-machine Feishu/Lark gateway is available through `pnpm dev:im`. It keeps IM
+credentials outside Agent processes, binds each bot to one workspace and Agent, and communicates
+with an IM-specific Host through Protocol v2. See [`docs/im-gateway.md`](docs/im-gateway.md).
+
 `omni doctor` never mutates state. It reports eight checks: Node.js version, resolved workspace
 root and ID, global directory accessibility, configuration validity, coding Agent package
 availability, and the resolvability of the `keytar`, `tree-sitter`, and `tree-sitter-bash` native
