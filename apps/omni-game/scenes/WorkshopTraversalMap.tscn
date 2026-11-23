@@ -1,0 +1,165 @@
+[gd_scene load_steps=14 format=3]
+
+[ext_resource type="Script" path="res://src/world/traversal/workshop_traversal_map.gd" id="1_map"]
+[ext_resource type="Script" path="res://src/world/traversal/walk_surface_2d.gd" id="2_surface"]
+[ext_resource type="PackedScene" path="res://scenes/LadderRoute2D.tscn" id="3_ladder"]
+[ext_resource type="Script" path="res://src/world/traversal/visible_blocker_2d.gd" id="4_blocker"]
+[ext_resource type="Script" path="res://src/world/out_of_bounds_recovery.gd" id="5_recovery"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop-ladder.png" id="6_upper_ladder"]
+[ext_resource type="Texture2D" path="res://assets/environment/workshop-ladder-short.png" id="7_lower_ladder"]
+
+[sub_resource type="RectangleShape2D" id="Rectangle_wall"]
+size = Vector2(40, 960)
+
+[sub_resource type="RectangleShape2D" id="Rectangle_lower_left"]
+resource_local_to_scene = true
+size = Vector2(40, 120)
+
+[sub_resource type="RectangleShape2D" id="Rectangle_lower_right"]
+resource_local_to_scene = true
+size = Vector2(40, 120)
+
+[sub_resource type="RectangleShape2D" id="Rectangle_upper_left"]
+resource_local_to_scene = true
+size = Vector2(38, 64)
+
+[sub_resource type="RectangleShape2D" id="Rectangle_upper_right"]
+resource_local_to_scene = true
+size = Vector2(38, 64)
+
+[sub_resource type="RectangleShape2D" id="Rectangle_recovery"]
+size = Vector2(2400, 80)
+
+[node name="WorkshopTraversalMap" type="Node2D"]
+script = ExtResource("1_map")
+
+[node name="UpperSurface" type="StaticBody2D" parent="."]
+unique_name_in_owner = true
+collision_layer = 1
+collision_mask = 1
+script = ExtResource("2_surface")
+surface_points = PackedVector2Array(96, 296, 180, 295, 320, 295, 500, 295, 700, 295, 900, 295, 998, 296, 1016, 296, 1040, 294, 1064, 292, 1088, 289, 1100, 291, 1112, 293, 1124, 295, 1136, 297, 1148, 299, 1160, 300, 1172, 299, 1184, 297, 1196, 294, 1208, 291, 1220, 288, 1232, 285, 1244, 286, 1260, 290, 1300, 293, 1400, 295, 1580, 295, 1778, 296)
+collision_depth = 24.0
+one_way = true
+
+[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="UpperSurface"]
+
+[node name="MiddleSurface" type="StaticBody2D" parent="."]
+unique_name_in_owner = true
+collision_layer = 1
+collision_mask = 1
+script = ExtResource("2_surface")
+surface_points = PackedVector2Array(0, 669, 2400, 669)
+collision_depth = 20.0
+one_way = true
+
+[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="MiddleSurface"]
+
+[node name="LowerSurface" type="StaticBody2D" parent="."]
+unique_name_in_owner = true
+collision_layer = 1
+collision_mask = 1
+script = ExtResource("2_surface")
+surface_points = PackedVector2Array(110, 876, 2290, 876)
+collision_depth = 24.0
+one_way = true
+
+[node name="CollisionPolygon2D" type="CollisionPolygon2D" parent="LowerSurface"]
+
+[node name="UpperLeftBlocker" type="StaticBody2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(96, 264)
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("4_blocker")
+blocker_size = Vector2(38, 64)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="UpperLeftBlocker"]
+shape = SubResource("Rectangle_upper_left")
+
+[node name="UpperRightBlocker" type="StaticBody2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(1778, 264)
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("4_blocker")
+blocker_size = Vector2(38, 64)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="UpperRightBlocker"]
+shape = SubResource("Rectangle_upper_right")
+
+[node name="Bounds" type="Node2D" parent="."]
+
+[node name="LeftWall" type="StaticBody2D" parent="Bounds"]
+position = Vector2(-20, 480)
+collision_layer = 2
+collision_mask = 1
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Bounds/LeftWall"]
+shape = SubResource("Rectangle_wall")
+
+[node name="RightWall" type="StaticBody2D" parent="Bounds"]
+position = Vector2(2420, 480)
+collision_layer = 2
+collision_mask = 1
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="Bounds/RightWall"]
+shape = SubResource("Rectangle_wall")
+
+[node name="UpperLadder" parent="." instance=ExtResource("3_ladder")]
+unique_name_in_owner = true
+position = Vector2(1016, 0)
+top_y = 296.0
+bottom_y = 669.0
+interaction_width = 90.0
+top_surface_path = NodePath("../UpperSurface")
+bottom_surface_path = NodePath("../MiddleSurface")
+visual_texture = ExtResource("6_upper_ladder")
+
+[node name="LowerLadder" parent="." instance=ExtResource("3_ladder")]
+unique_name_in_owner = true
+position = Vector2(720, 0)
+top_y = 669.0
+bottom_y = 876.0
+interaction_width = 90.0
+top_surface_path = NodePath("../MiddleSurface")
+bottom_surface_path = NodePath("../LowerSurface")
+visual_texture = ExtResource("7_lower_ladder")
+
+[node name="LowerLeftBlocker" type="StaticBody2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(90, 910)
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("4_blocker")
+blocker_size = Vector2(40, 120)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="LowerLeftBlocker"]
+shape = SubResource("Rectangle_lower_left")
+
+[node name="LowerRightBlocker" type="StaticBody2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(2310, 910)
+collision_layer = 2
+collision_mask = 1
+script = ExtResource("4_blocker")
+blocker_size = Vector2(40, 120)
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="LowerRightBlocker"]
+shape = SubResource("Rectangle_lower_right")
+
+[node name="OutOfBoundsRecovery" type="Area2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(1200, 1020)
+collision_layer = 8
+collision_mask = 1
+monitoring = true
+monitorable = false
+script = ExtResource("5_recovery")
+
+[node name="CollisionShape2D" type="CollisionShape2D" parent="OutOfBoundsRecovery"]
+shape = SubResource("Rectangle_recovery")
+
+[node name="PartnerSpawn" type="Marker2D" parent="."]
+unique_name_in_owner = true
+position = Vector2(860, 669)

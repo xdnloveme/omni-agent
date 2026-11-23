@@ -45,7 +45,10 @@ directly to WebSocket Protocol v1. It owns Socket polling, authentication, stric
 request correlation, and connection cancellation. It is not a domain Gateway and has no interface.
 
 `CharacterWorkspaceController` owns character, Session, foreground Run, transcript, and screen
-state. UI scenes call the Controller and never parse JSON or touch `WebSocketPeer`.
+state. It also owns close-then-replace recovery and the single pending Cancel intent. UI scenes call
+the Controller and never parse JSON or touch `WebSocketPeer`. A replacement failure returns to
+character selection because no valid Session remains; a response for a different Agent fails
+closed rather than adopting Host state that does not match the requested transition.
 
 `GameBootstrap` in `apps/omni` owns the ephemeral Token and both child processes. It starts the Host
 with the developer's original working directory, waits for its machine-readable ready record, then
@@ -101,6 +104,8 @@ Negative and accepted trade-offs:
 - Godot 4.7.2 imports the project without script errors.
 - The protocol harness rejects malformed and extra-field messages.
 - The deterministic real-transport harness proves ordered Run delivery, Cancel, and Socket shutdown.
+- The Controller lifecycle harness proves failed replacement recovery, Cancel deduplication, and
+  Session-Agent correlation.
 - The real harness authenticates, lists both built-in Agents, and opens, closes, and creates Sessions.
 - Host-first and Godot-first child exit observations both converge without orphan processes.
 - No production Godot script hardcodes a concrete Agent ID.

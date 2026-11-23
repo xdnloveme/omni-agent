@@ -1,0 +1,181 @@
+[gd_scene load_steps=7 format=3]
+
+[ext_resource type="Script" path="res://src/ui/workshop_menu.gd" id="1_menu"]
+[ext_resource type="Theme" path="res://resources/task-panel-theme.tres" id="2_theme"]
+
+[sub_resource type="StyleBoxFlat" id="MenuPanel"]
+bg_color = Color(0.953, 0.902, 0.784, 0.985)
+border_width_left = 4
+border_width_top = 4
+border_width_right = 4
+border_width_bottom = 4
+border_color = Color(0.48, 0.30, 0.17, 1)
+corner_radius_top_left = 15
+corner_radius_top_right = 15
+corner_radius_bottom_right = 15
+corner_radius_bottom_left = 15
+shadow_color = Color(0.08, 0.05, 0.03, 0.4)
+shadow_size = 8
+
+[sub_resource type="StyleBoxFlat" id="MenuButton"]
+bg_color = Color(0.99, 0.96, 0.88, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.62, 0.45, 0.28, 0.7)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="OrangeButton"]
+bg_color = Color(0.92, 0.37, 0.04, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.5, 0.25, 0.07, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
+[sub_resource type="StyleBoxFlat" id="OpenButton"]
+bg_color = Color(0.9, 0.35, 0.04, 0.98)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(1, 0.84, 0.58, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[node name="WorkshopMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_menu")
+
+[node name="OpenButton" type="Button" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -74.0
+offset_right = 174.0
+offset_bottom = -18.0
+mouse_filter = 0
+theme_override_colors/font_color = Color(1, 0.97, 0.88, 1)
+theme_override_font_sizes/font_size = 21
+theme_override_styles/normal = SubResource("OpenButton")
+text = "☰  菜单"
+
+[node name="MenuPanel" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = -626.0
+offset_right = 390.0
+offset_bottom = -92.0
+grow_vertical = 0
+mouse_filter = 0
+theme_override_styles/panel = SubResource("MenuPanel")
+
+[node name="Margin" type="MarginContainer" parent="MenuPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 14
+
+[node name="Content" type="VBoxContainer" parent="MenuPanel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 9
+
+[node name="ContinueButton" type="Button" parent="MenuPanel/Margin/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+theme_override_styles/normal = SubResource("MenuButton")
+text = "▶  继续游戏                       Esc"
+
+[node name="PartnerHeading" type="Label" parent="MenuPanel/Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.38, 0.26, 0.17, 1)
+theme_override_font_sizes/font_size = 16
+text = "伙伴"
+
+[node name="CharacterInfoButton" type="Button" parent="MenuPanel/Margin/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.97, 0.88, 1)
+theme_override_font_sizes/font_size = 20
+theme_override_styles/normal = SubResource("OrangeButton")
+text = "◉  人物信息                       P"
+
+[node name="SystemHeading" type="Label" parent="MenuPanel/Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.38, 0.26, 0.17, 1)
+theme_override_font_sizes/font_size = 16
+text = "系统"
+
+[node name="FullscreenButton" type="Button" parent="MenuPanel/Margin/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 46)
+layout_mode = 2
+theme_override_font_sizes/font_size = 19
+theme_override_styles/normal = SubResource("MenuButton")
+text = "全屏显示                         F11"
+
+[node name="HelpButton" type="Button" parent="MenuPanel/Margin/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+theme_override_styles/normal = SubResource("MenuButton")
+text = "?  操作说明"
+
+[node name="HelpText" type="Label" parent="MenuPanel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.35, 0.27, 0.2, 1)
+theme_override_font_sizes/font_size = 16
+text = "A / D 移动 · 空格跳跃\nW / S 攀爬 · E 互动"
+autowrap_mode = 2
+
+[node name="ReturnButton" type="Button" parent="MenuPanel/Margin/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+theme_override_styles/normal = SubResource("MenuButton")
+text = "←  离开工坊 · 选择伙伴"
+tooltip_text = "返回 Agent 选择界面，不关闭游戏"
+
+[node name="QuitButton" type="Button" parent="MenuPanel/Margin/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+theme_override_styles/normal = SubResource("MenuButton")
+text = "退出到桌面"
+
+[node name="MenuStatus" type="Label" parent="MenuPanel/Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.16, 0.1, 1)
+theme_override_font_sizes/font_size = 16
+autowrap_mode = 2

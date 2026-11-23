@@ -1,71 +1,282 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=10 format=3]
 
-[ext_resource type="Script" path="res://src/ui/task_panel.gd" id="1_task"]
+[ext_resource type="Script" path="res://src/ui/task_panel.gd" id="1"]
+[ext_resource type="Theme" path="res://resources/task-panel-theme.tres" id="2"]
+[ext_resource type="Texture2D" path="res://assets/ui/character-info/dossier-frame.png" id="3"]
+[ext_resource type="FontFile" path="res://assets/fonts/NotoSansSC.ttf" id="4"]
+
+[sub_resource type="StyleBoxTexture" id="Frame"]
+texture = ExtResource("3")
+texture_margin_left = 64.0
+texture_margin_top = 64.0
+texture_margin_right = 64.0
+texture_margin_bottom = 64.0
+content_margin_left = 0.0
+content_margin_top = 0.0
+content_margin_right = 0.0
+content_margin_bottom = 0.0
+
+[sub_resource type="StyleBoxFlat" id="Composer"]
+bg_color = Color(1, 0.98, 0.91, 0.72)
+border_color = Color(0.63, 0.50, 0.34, 0.55)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_left = 8
+corner_radius_bottom_right = 8
+content_margin_left = 13.0
+content_margin_top = 10.0
+content_margin_right = 13.0
+content_margin_bottom = 10.0
+
+[sub_resource type="StyleBoxEmpty" id="InputBlank"]
+
+[sub_resource type="StyleBoxFlat" id="SessionBar"]
+bg_color = Color(0.95, 0.87, 0.72, 0.35)
+border_color = Color(0.67, 0.51, 0.32, 0.42)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_left = 6
+corner_radius_bottom_right = 6
+content_margin_left = 12.0
+content_margin_top = 7.0
+content_margin_right = 12.0
+content_margin_bottom = 7.0
+
+[sub_resource type="FontVariation" id="Heading"]
+base_font = ExtResource("4")
+variation_opentype = {2003265652: 700.0}
 
 [node name="TaskPanel" type="PanelContainer"]
-custom_minimum_size = Vector2(900, 650)
-script = ExtResource("1_task")
+custom_minimum_size = Vector2(500, 560)
+offset_right = 650.0
+offset_bottom = 776.0
+texture_filter = 2
+theme = ExtResource("2")
+theme_override_styles/panel = SubResource("Frame")
+script = ExtResource("1")
 
 [node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 2
 theme_override_constants/margin_left = 30
-theme_override_constants/margin_top = 26
+theme_override_constants/margin_top = 29
 theme_override_constants/margin_right = 30
-theme_override_constants/margin_bottom = 26
+theme_override_constants/margin_bottom = 27
 
 [node name="Content" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
 theme_override_constants/separation = 14
 
 [node name="Header" type="HBoxContainer" parent="Margin/Content"]
+layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="BackButton" type="Button" parent="Margin/Content/Header"]
-unique_name_in_owner = true
-text = "← 伙伴列表"
+[node name="PortraitFrame" type="PanelContainer" parent="Margin/Content/Header"]
+custom_minimum_size = Vector2(64, 64)
+layout_mode = 2
+theme_type_variation = &"TaskPortraitFrame"
 
-[node name="AgentName" type="Label" parent="Margin/Content/Header"]
+[node name="Portrait" type="TextureRect" parent="Margin/Content/Header/PortraitFrame"]
 unique_name_in_owner = true
+layout_mode = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="Identity" type="VBoxContainer" parent="Margin/Content/Header"]
+layout_mode = 2
 size_flags_horizontal = 3
-theme_override_font_sizes/font_size = 26
+size_flags_vertical = 4
+theme_override_constants/separation = 1
+
+[node name="AgentName" type="Label" parent="Margin/Content/Header/Identity"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_fonts/font = SubResource("Heading")
+theme_override_font_sizes/font_size = 24
 text = "伙伴"
+text_overrun_behavior = 3
+
+[node name="RoleTitle" type="Label" parent="Margin/Content/Header/Identity"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.44, 0.35, 0.24, 1)
+theme_override_font_sizes/font_size = 15
+text = "编程伙伴"
+text_overrun_behavior = 3
 
 [node name="NewSessionButton" type="Button" parent="Margin/Content/Header"]
 unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 16
 text = "新任务"
+tooltip_text = "开始新的会话，清空当前对话视图和草稿"
 
-[node name="SessionLabel" type="Label" parent="Margin/Content"]
+[node name="ExpandButton" type="Button" parent="Margin/Content/Header"]
 unique_name_in_owner = true
-text = "任务存档：-"
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 16
+text = "展开"
+tooltip_text = "展开阅读，不切换场景"
 
-[node name="Transcript" type="RichTextLabel" parent="Margin/Content"]
+[node name="CloseButton" type="Button" parent="Margin/Content/Header"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 350)
-size_flags_vertical = 3
-bbcode_enabled = false
-fit_content = false
-scroll_active = true
-text = "伙伴的输出会显示在这里。"
+layout_mode = 2
+size_flags_vertical = 4
+theme_override_font_sizes/font_size = 16
+text = "收起"
+tooltip_text = "返回工坊，正在执行的任务不会停止"
 
-[node name="TaskInput" type="TextEdit" parent="Margin/Content"]
+[node name="SessionBar" type="PanelContainer" parent="Margin/Content"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("SessionBar")
+
+[node name="Info" type="HBoxContainer" parent="Margin/Content/SessionBar"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="SessionLabel" type="Label" parent="Margin/Content/SessionBar/Info"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 100)
-placeholder_text = "描述一件要让伙伴完成的事情……"
-wrap_mode = 1
-
-[node name="Actions" type="HBoxContainer" parent="Margin/Content"]
-alignment = 2
-theme_override_constants/separation = 10
-
-[node name="StatusLabel" type="Label" parent="Margin/Content/Actions"]
-unique_name_in_owner = true
+layout_mode = 2
 size_flags_horizontal = 3
-text = "伙伴已经准备好了。"
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.47, 0.38, 0.27, 1)
+text = "当前任务 · 待创建"
+text_overrun_behavior = 3
+
+[node name="RunState" type="Label" parent="Margin/Content/SessionBar/Info"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "●  已准备好"
+
+[node name="MessageScroll" type="ScrollContainer" parent="Margin/Content"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+follow_focus = false
+
+[node name="ReadingInset" type="MarginContainer" parent="Margin/Content/MessageScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/margin_right = 12
+
+[node name="MessageList" type="VBoxContainer" parent="Margin/Content/MessageScroll/ReadingInset"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 18
+
+[node name="EmptyState" type="VBoxContainer" parent="Margin/Content/MessageScroll/ReadingInset/MessageList"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 17
+
+[node name="Space" type="Control" parent="Margin/Content/MessageScroll/ReadingInset/MessageList/EmptyState"]
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+
+[node name="Heading" type="Label" parent="Margin/Content/MessageScroll/ReadingInset/MessageList/EmptyState"]
+layout_mode = 2
+theme_override_fonts/font = SubResource("Heading")
+theme_override_font_sizes/font_size = 24
+text = "一起开始一项工作"
+horizontal_alignment = 1
+
+[node name="Description" type="Label" parent="Margin/Content/MessageScroll/ReadingInset/MessageList/EmptyState"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 17
+theme_override_colors/font_color = Color(0.46, 0.37, 0.26, 1)
+text = "描述你的目标，伙伴会在这里回复。\n收起窗口后，任务仍会继续。"
+horizontal_alignment = 1
 autowrap_mode = 2
 
-[node name="CancelButton" type="Button" parent="Margin/Content/Actions"]
-unique_name_in_owner = true
-disabled = true
-text = "取消"
+[node name="QuickActions" type="HBoxContainer" parent="Margin/Content/MessageScroll/ReadingInset/MessageList/EmptyState"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 10
 
-[node name="RunButton" type="Button" parent="Margin/Content/Actions"]
+[node name="AnalyzeButton" type="Button" parent="Margin/Content/MessageScroll/ReadingInset/MessageList/EmptyState/QuickActions"]
 unique_name_in_owner = true
-text = "做事情"
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "分析项目"
+
+[node name="OrganizeButton" type="Button" parent="Margin/Content/MessageScroll/ReadingInset/MessageList/EmptyState/QuickActions"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "整理文档"
+
+[node name="AnswerButton" type="Button" parent="Margin/Content/MessageScroll/ReadingInset/MessageList/EmptyState/QuickActions"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 16
+text = "回答问题"
+
+[node name="NewContent" type="Button" parent="Margin/Content"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_font_sizes/font_size = 14
+text = "有新内容 · 回到最新 ↓"
+
+[node name="FooterDivider" type="HSeparator" parent="Margin/Content"]
+layout_mode = 2
+
+[node name="Composer" type="PanelContainer" parent="Margin/Content"]
+layout_mode = 2
+theme_override_styles/panel = SubResource("Composer")
+
+[node name="Body" type="VBoxContainer" parent="Margin/Content/Composer"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="TaskInput" type="TextEdit" parent="Margin/Content/Composer/Body"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
+theme_override_font_sizes/font_size = 18
+theme_override_styles/normal = SubResource("InputBlank")
+theme_override_styles/focus = SubResource("InputBlank")
+placeholder_text = "描述任务，或者继续追问……"
+wrap_mode = 1
+
+[node name="Actions" type="HBoxContainer" parent="Margin/Content/Composer/Body"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="StatusLabel" type="Label" parent="Margin/Content/Composer/Body/Actions"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_font_sizes/font_size = 14
+theme_override_colors/font_color = Color(0.40, 0.44, 0.25, 1)
+text = "Ctrl / ⌘ + Enter 发送 · Enter 换行"
+text_overrun_behavior = 3
+
+[node name="CancelButton" type="Button" parent="Margin/Content/Composer/Body/Actions"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(96, 42)
+layout_mode = 2
+theme_override_font_sizes/font_size = 17
+text = "停止 ■"
+
+[node name="RunButton" type="Button" parent="Margin/Content/Composer/Body/Actions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(96, 42)
+layout_mode = 2
+theme_type_variation = &"TaskSendButton"
+theme_override_font_sizes/font_size = 17
+text = "发送 ↑"

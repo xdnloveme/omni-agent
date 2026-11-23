@@ -1,43 +1,14 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://src/ui/character_selection_panel.gd" id="1_character"]
+[ext_resource type="Theme" path="res://resources/task-panel-theme.tres" id="2_theme"]
 
-[node name="CharacterSelectionPanel" type="PanelContainer"]
-custom_minimum_size = Vector2(540, 580)
+[node name="CharacterSelectionPanel" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme = ExtResource("2_theme")
 script = ExtResource("1_character")
-
-[node name="Margin" type="MarginContainer" parent="."]
-theme_override_constants/margin_left = 32
-theme_override_constants/margin_top = 28
-theme_override_constants/margin_right = 32
-theme_override_constants/margin_bottom = 28
-
-[node name="Content" type="VBoxContainer" parent="Margin"]
-theme_override_constants/separation = 18
-
-[node name="Title" type="Label" parent="Margin/Content"]
-theme_override_font_sizes/font_size = 30
-text = "选择伙伴"
-
-[node name="Subtitle" type="Label" parent="Margin/Content"]
-text = "每位伙伴代表一个内置 Agent。选择后进入它的任务存档。"
-autowrap_mode = 2
-
-[node name="Divider" type="HSeparator" parent="Margin/Content"]
-
-[node name="AgentList" type="VBoxContainer" parent="Margin/Content"]
-unique_name_in_owner = true
-size_flags_vertical = 3
-theme_override_constants/separation = 12
-
-[node name="Loading" type="Label" parent="Margin/Content/AgentList"]
-text = "正在读取伙伴……"
-
-[node name="CreatePlaceholder" type="Button" parent="Margin/Content"]
-disabled = true
-text = "＋ 创建新伙伴（后续版本）"
-
-[node name="StatusLabel" type="Label" parent="Margin/Content"]
-unique_name_in_owner = true
-text = "正在连接本地 Agent Host……"
-autowrap_mode = 2

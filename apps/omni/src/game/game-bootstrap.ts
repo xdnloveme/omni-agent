@@ -42,7 +42,11 @@ export async function startGameBootstrap(
   const token = randomBytes(32).toString("base64url");
   const host = spawn(
     process.execPath,
-    ["--import", "tsx", join(options.repositoryRoot, "apps/omni/src/agent-host-entry.ts")],
+    [
+      "--import",
+      import.meta.resolve("tsx"),
+      join(options.repositoryRoot, "apps/omni/src/agent-host-entry.ts"),
+    ],
     {
       cwd: options.workspaceCwd,
       env: {

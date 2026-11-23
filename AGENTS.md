@@ -78,6 +78,15 @@ cancellation, and sandbox-boundary contract.
 - Keep Godot Socket and Protocol v2 behavior in `AgentHostClient`, game interaction state in
   `CharacterWorkspaceController`, and Godot presentation in scene UI. Do not add a Gateway or
   backend Port until a second real backend demonstrates the boundary.
+- Keep movement, ladder, camera, and proximity in `WorkshopWorld` and its world nodes. `PartnerActor`
+  owns physical position, `WorkshopCameraRig` owns composition, and `WorkshopTraversalMap` owns
+  routes, route-owned ladder visuals, visible blockers, spawn, and recovery. World nodes
+  emit presentation intent only; they must not access `AgentHostClient`, own Sessions, or execute Runs.
+- Keep Workshop routes in `WorkshopTraversalMap`: `WalkSurface2D.surface_points` is the editable
+  geometry source and `LadderRoute2D` owns only route data and connected surfaces. `PartnerActor`
+  is the only physical-position owner; `PartnerAnimator` consumes motion and must not mutate physics.
+- Keep menu, task, character-information, and permission mutual exclusion in `GameRoot`. Character presentation
+  resources may map an Agent ID to decoration but must not become an Agent allowlist or business-state owner.
 - Prefer composition and declarative definitions over `BaseAgent` inheritance.
 - Do not add a framework abstraction until at least two real consumers require
   it or it removes meaningful existing complexity.

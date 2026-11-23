@@ -1,0 +1,53 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://src/world/workshop_workstation.gd" id="1"]
+
+[sub_resource type="StyleBoxEmpty" id="InvisibleHitArea"]
+
+[node name="WorkshopWorkstation" type="Node2D"]
+z_index = 5
+script = ExtResource("1")
+
+[node name="Approach" type="Marker2D" parent="."]
+position = Vector2(0, 26)
+
+[node name="Seat" type="Marker2D" parent="."]
+position = Vector2(8, 0)
+
+[node name="InspectArea" type="Button" parent="."]
+visible = false
+offset_left = 40.0
+offset_top = -185.0
+offset_right = 84.0
+offset_bottom = -141.0
+mouse_default_cursor_shape = 2
+theme_override_styles/normal = SubResource("InvisibleHitArea")
+theme_override_styles/hover = SubResource("InvisibleHitArea")
+theme_override_styles/pressed = SubResource("InvisibleHitArea")
+theme_override_styles/focus = SubResource("InvisibleHitArea")
+accessibility_name = "查看正在执行的任务"
+
+[node name="InspectHint" type="Label" parent="."]
+visible = false
+offset_left = 94.0
+offset_top = -177.0
+offset_right = 240.0
+offset_bottom = -153.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.95, 0.86, 0.65, 1)
+theme_override_colors/font_outline_color = Color(0.14, 0.09, 0.04, 1)
+theme_override_constants/outline_size = 3
+theme_override_font_sizes/font_size = 14
+text = "查看任务"
+horizontal_alignment = 1
+
+[node name="StateCaption" type="Label" parent="."]
+visible = false
+offset_left = 40.0
+offset_top = -157.0
+offset_right = 84.0
+offset_bottom = -145.0
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.95, 0.89, 0.67, 1)
+theme_override_font_sizes/font_size = 9
+horizontal_alignment = 1

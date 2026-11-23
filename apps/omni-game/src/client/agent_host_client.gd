@@ -5,11 +5,13 @@ signal connection_state_changed(state: ConnectionState)
 signal agents_received(request_id: String, agents: Array)
 signal session_received(request_id: String, session: Dictionary)
 signal session_closed(request_id: String)
+signal cancel_acknowledged(request_id: String, run_request_id: String)
 signal run_event_received(request_id: String, event: Dictionary)
 signal request_failed(request_id: String, failure: Dictionary)
 signal transport_failed(failure: Dictionary)
 signal permission_requested(permission: Dictionary)
 signal permission_resolved(permission: Dictionary)
+signal permission_decision_failed(permission_id: String, failure: Dictionary)
 
 enum ConnectionState { IDLE, CONNECTING, AUTHENTICATING, READY, CLOSING, CLOSED, FAILED }
 
@@ -169,7 +171,7 @@ func _handle_result(message: Dictionary) -> void:
 	if not _pending.has(request_id):
 		_fail_transport("unknown_request", "Agent Host 返回了未知请求结果。")
 		return
-	var request_type: String = _pending[request_id]
+	var request_type: String = _pending[request_id]["type"]
 	var result: Dictionary = message["result"]
 	if not _result_matches_request(request_type, result["kind"]):
 		_fail_transport("mismatched_result", "Agent Host 返回了不匹配的请求结果。")
@@ -183,13 +185,13 @@ func _handle_result(message: Dictionary) -> void:
 		"closed":
 			session_closed.emit(request_id)
 		"cancel_requested":
-			pass
+			cancel_acknowledged.emit(request_id, result["requestId"])
 		"permission_resolved":
 			pass
 
 func _handle_event(message: Dictionary) -> void:
 	var request_id: String = message["requestId"]
-	if _pending.get(request_id) != "run":
+	if _pending.get(request_id, {}).get("type") != "run":
 		_fail_transport("unknown_run", "Agent Host 返回了未知 Run 事件。")
 		return
 	var event: Dictionary = message["event"]
@@ -205,8 +207,12 @@ func _handle_error(message: Dictionary) -> void:
 	if not _pending.has(request_id):
 		_fail_transport("unknown_request", "Agent Host 返回了未知请求错误。")
 		return
+	var request: Dictionary = _pending[request_id]
 	_pending.erase(request_id)
-	request_failed.emit(request_id, message["error"])
+	if request["type"] == "resolve_permission":
+		permission_decision_failed.emit(request["permission_id"], message["error"])
+	else:
+		request_failed.emit(request_id, message["error"])
 
 func _submit(request_type: String, fields: Dictionary, prefix: String) -> String:
 	if _state != ConnectionState.READY:
@@ -217,7 +223,7 @@ func _submit(request_type: String, fields: Dictionary, prefix: String) -> String
 	if not AgentHostProtocol.valid_request_id(request_id):
 		_emit_transport_failure("invalid_request_id", "Client 生成了无效请求 ID。")
 		return ""
-	_pending[request_id] = request_type
+	_pending[request_id] = {"type": request_type, "permission_id": fields.get("permissionId", "")}
 	var send_result := _socket.send_text(
 		AgentHostProtocol.encode_request(request_id, request_type, fields)
 	)
